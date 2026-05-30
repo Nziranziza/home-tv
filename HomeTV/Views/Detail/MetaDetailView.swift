@@ -10,6 +10,7 @@ struct MetaDetailView: View {
     @State private var status: LoadStatus = .loading
     @State private var related: [MetaPreview] = []
     @State private var selectedSeason: Int?
+    @FocusState private var focusedSeason: Int?
     @State private var relatedSelection: MetaPreview?
     @State private var streamRequest: StreamRequest? = MetaDetailView.initialStreamRequest()
     @State private var scrollOffset: CGFloat = 0
@@ -289,24 +290,60 @@ struct MetaDetailView: View {
 
     private var currentSeason: Int? { selectedSeason ?? seasons.first }
 
-    private func episodes(in season: Int) -> [Video] {
+    /// Every episode from every season in one continuous list, ordered by season then episode.
+    /// Apple TV's episode row is a single horizontal strip spanning all seasons — so moving right off
+    /// the last episode of a season flows straight into the first episode of the next, with no per-season
+    /// filtering. The season selector above is a "jump to" control rather than a filter.
+    private var allEpisodes: [Video] {
         (meta?.videos ?? [])
-            .filter { ($0.season ?? 0) == season }
-            .sorted { ($0.episode ?? 0) < ($1.episode ?? 0) }
+            .filter { ($0.season ?? 0) > 0 }
+            .sorted {
+                let s0 = $0.season ?? 0, s1 = $1.season ?? 0
+                if s0 != s1 { return s0 < s1 }
+                return ($0.episode ?? 0) < ($1.episode ?? 0)
+            }
+    }
+
+    private func firstEpisodeID(of season: Int) -> String? {
+        allEpisodes.first { ($0.season ?? 0) == season }?.id
+    }
+
+    /// Triggered when a season tab gains focus (or is clicked): highlight it and scroll the continuous
+    /// episode strip to that season's first episode. No click required — focus alone drives it.
+    private func selectSeason(_ season: Int, proxy: ScrollViewProxy) {
+        selectedSeason = season
+        guard let target = firstEpisodeID(of: season) else { return }
+        withAnimation(.easeOut(duration: 0.35)) {
+            proxy.scrollTo(target, anchor: .leading)
+        }
+    }
+
+    /// Triggered when an episode card gains focus: keep the season selector's highlight in sync with
+    /// whichever season the focused episode belongs to (and scroll the selector to reveal that tab),
+    /// so the header always reflects what you're looking at as you scroll across season boundaries.
+    private func episodeFocused(_ episode: Video, proxy: ScrollViewProxy) {
+        let season = episode.season
+        guard selectedSeason != season else { return }
+        selectedSeason = season
+        if let season {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo("season-\(season)", anchor: .center)
+            }
+        }
     }
 
     @ViewBuilder
     private var episodesSection: some View {
-        if let season = currentSeason {
+        ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 18) {
                 if seasons.count > 1 {
-                    seasonSelector
+                    seasonSelector(proxy: proxy)
                 } else {
                     DetailSectionHeader(title: "Episodes")
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 28) {
-                        ForEach(episodes(in: season)) { episode in
+                        ForEach(allEpisodes) { episode in
                             EpisodeCard(
                                 thumbnailURL: episode.thumbnail.flatMap(URL.init(string:)),
                                 episodeNumber: episode.episode ?? 0,
@@ -314,7 +351,10 @@ struct MetaDetailView: View {
                                 overview: episode.overview,
                                 dateText: airDate(episode.released),
                                 durationText: episodeDuration(episode),   // PLACEHOLDER duration
-                                ratingText: ratingPlaceholder              // PLACEHOLDER rating
+                                ratingText: ratingPlaceholder,             // PLACEHOLDER rating
+                                onFocusChange: { isFocused in
+                                    if isFocused { episodeFocused(episode, proxy: proxy) }
+                                }
                             ) {
                                 streamRequest = StreamRequest(
                                     type: typeID,
@@ -324,6 +364,7 @@ struct MetaDetailView: View {
                                     logoURL: meta?.logo
                                 )
                             }
+                            .id(episode.id)
                         }
                     }
                     .padding(.horizontal, 88)
@@ -331,22 +372,35 @@ struct MetaDetailView: View {
                 }
                 .scrollClipDisabled()
             }
+            // Focusing a season tab (not clicking) jumps the episode strip to that season.
+            .onChange(of: focusedSeason) { _, newValue in
+                guard let newValue else { return }
+                selectSeason(newValue, proxy: proxy)
+            }
         }
     }
 
-    private var seasonSelector: some View {
-        HStack(spacing: 12) {
-            ForEach(seasons, id: \.self) { season in
-                Button { selectedSeason = season } label: {
-                    Text("Season \(season)")
-                        .font(.system(size: 26, weight: .semibold))
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 10)
+    /// Horizontally scrollable so a long-running show's seasons stay reachable instead of being crushed
+    /// to fit the screen. The focus engine auto-scrolls the strip to keep the focused tab on screen.
+    private func seasonSelector(proxy: ScrollViewProxy) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(seasons, id: \.self) { season in
+                    Button { selectSeason(season, proxy: proxy) } label: {
+                        Text("Season \(season)")
+                            .font(.system(size: 26, weight: .semibold))
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(SeasonTabStyle(isSelected: currentSeason == season))
+                    .focused($focusedSeason, equals: season)
+                    .id("season-\(season)")
                 }
-                .buttonStyle(SeasonTabStyle(isSelected: currentSeason == season))
             }
+            .padding(.horizontal, 88)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 88)
+        .scrollClipDisabled()
     }
 
     // PLACEHOLDER — per-episode runtime isn't in Stremio's basic meta; derive a stable, varied value
@@ -769,6 +823,9 @@ private struct EpisodeCard: View {
     /// PLACEHOLDER — watch progress (0–1). `nil` = not played, so no play indicator is shown
     /// (matches Apple: the play glyph only appears on an episode you've already started).
     var progress: Double? = nil
+    /// Reports focus gain/loss to the parent so the season selector can track which season the
+    /// in-view episode belongs to as you scroll across the continuous strip.
+    var onFocusChange: (Bool) -> Void = { _ in }
     let action: () -> Void
 
     @FocusState private var focused: Bool
@@ -787,6 +844,7 @@ private struct EpisodeCard: View {
         }
         .frame(width: width)
         .animation(.easeOut(duration: 0.25), value: focused)
+        .onChange(of: focused) { _, isFocused in onFocusChange(isFocused) }
     }
 
     private var imageButton: some View {
