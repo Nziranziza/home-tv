@@ -31,6 +31,8 @@ struct MetaDetailView: View {
         let type: String
         let contentID: String
         let title: String
+        var backgroundURL: String? = nil
+        var logoURL: String? = nil
         var id: String { "\(type):\(contentID)" }
     }
 
@@ -74,7 +76,13 @@ struct MetaDetailView: View {
             MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
         }
         .fullScreenCover(item: $streamRequest) { req in
-            StreamPickerView(type: req.type, contentID: req.contentID, title: req.title)
+            StreamPickerView(
+                type: req.type,
+                contentID: req.contentID,
+                title: req.title,
+                backgroundURL: req.backgroundURL,
+                logoURL: req.logoURL
+            )
         }
     }
 
@@ -231,7 +239,9 @@ struct MetaDetailView: View {
                 streamRequest = StreamRequest(
                     type: typeID,
                     contentID: metaID,
-                    title: meta?.name ?? fallbackTitle
+                    title: meta?.name ?? fallbackTitle,
+                    backgroundURL: meta?.background,
+                    logoURL: meta?.logo
                 )
             }
             HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
@@ -309,7 +319,9 @@ struct MetaDetailView: View {
                                 streamRequest = StreamRequest(
                                     type: typeID,
                                     contentID: episode.id,
-                                    title: meta.map { "\($0.name) — \(episodeLabel(episode))" } ?? episodeLabel(episode)
+                                    title: meta.map { "\($0.name) — \(episodeLabel(episode))" } ?? episodeLabel(episode),
+                                    backgroundURL: episode.thumbnail ?? meta?.background,
+                                    logoURL: meta?.logo
                                 )
                             }
                         }
@@ -440,7 +452,9 @@ struct MetaDetailView: View {
                 streamRequest = StreamRequest(
                     type: typeID,
                     contentID: metaID,
-                    title: meta?.name ?? fallbackTitle
+                    title: meta?.name ?? fallbackTitle,
+                    backgroundURL: meta?.background,
+                    logoURL: meta?.logo
                 )
             } label: {
                 HStack(spacing: 16) {

@@ -4,6 +4,7 @@ struct HeroShelf: View {
     let items: [MetaPreview]
     var defaultFocusNamespace: Namespace.ID? = nil
     var onSelect: (MetaPreview) -> Void = { _ in }
+    var onPlay: (MetaPreview) -> Void = { _ in }
     var onUpNext: (MetaPreview) -> Void = { _ in }
     var onInfo: (MetaPreview) -> Void = { _ in }
 
@@ -82,7 +83,7 @@ struct HeroShelf: View {
                     focus: $focusedControl,
                     canPage: items.count > 1,
                     defaultFocusNamespace: defaultFocusNamespace,
-                    onPlay: { onSelect(meta) },
+                    onPlay: { onPlay(meta) },
                     onUpNext: { onUpNext(meta) },
                     onInfo: { onInfo(meta) },
                     onMore: { onSelect(meta) },
