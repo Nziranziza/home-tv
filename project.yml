@@ -1,0 +1,43 @@
+name: HomeTV
+options:
+  bundleIdPrefix: com.hometv
+  deploymentTarget:
+    tvOS: "18.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  HomeTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: HomeTV
+        excludes:
+          - "**/.DS_Store"
+    info:
+      path: HomeTV/Info.plist
+      properties:
+        CFBundleDisplayName: HomeTV
+        UILaunchScreen: {}
+        # canOpenURL on tvOS only returns true for schemes declared here, even
+        # when the target app is installed. Without these, every external player
+        # falsely reports "not installed".
+        LSApplicationQueriesSchemes:
+          - infuse
+          - vlc-x-callback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "3"
+        SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
+        SUPPORTS_MACCATALYST: NO
