@@ -3,6 +3,7 @@ import SwiftUI
 struct WatchNowView: View {
     @State private var model = WatchNowViewModel()
     @State private var history = WatchHistory.shared
+    @State private var trakt = TraktService.shared
     @State private var selection: MetaPreview? = WatchNowView.initialSelection()
     @State private var streamRequest: MetaDetailView.StreamRequest?
     @Namespace private var contentFocus
@@ -28,8 +29,8 @@ struct WatchNowView: View {
                         .focusSection()
                         .focusScope(contentFocus)
 
-                        if !history.items.isEmpty {
-                            ContinueWatchingRow(items: history.items) { item in
+                        if !continueWatchingItems.isEmpty {
+                            ContinueWatchingRow(items: continueWatchingItems) { item in
                                 selection = item.preview
                             }
                             .padding(.top, Theme.WatchNow.interRowSpacing)
@@ -70,6 +71,15 @@ struct WatchNowView: View {
                 )
             }
         }
+    }
+
+    /// Continue Watching source: Trakt's playback progress when signed in (authoritative across
+    /// devices), otherwise the local watch history recorded when you tap Play in HomeTV.
+    private var continueWatchingItems: [WatchHistoryItem] {
+        if trakt.isSignedIn {
+            return trakt.continueWatchingItems.map { WatchHistoryItem(preview: $0) }
+        }
+        return history.items
     }
 
     /// Hero Play: record the title in history and open the stream picker directly (same flow as the

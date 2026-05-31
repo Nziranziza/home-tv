@@ -15,6 +15,9 @@ struct HomeTVApp: App {
         WindowGroup {
             RootTabView()
                 .preferredColorScheme(.dark)
+                // If a Trakt session is restored from the Keychain, validate it and warm the
+                // watched/watchlist/playback caches so the views have data on first paint.
+                .task { await TraktService.shared.bootstrap() }
         }
     }
 }

@@ -27,6 +27,23 @@ struct WatchHistoryItem: Codable, Identifiable, Hashable, Sendable {
             genres: nil
         )
     }
+
+}
+
+extension WatchHistoryItem {
+    /// Adapt a `MetaPreview` (e.g. a Trakt continue-watching item) into the shape the Continue
+    /// Watching row renders. In an extension so the struct keeps its memberwise initializer.
+    init(preview: MetaPreview, viewedAt: Date = Date()) {
+        self.init(
+            typeID: preview.type,
+            metaID: preview.id,
+            name: preview.name,
+            poster: preview.poster,
+            background: preview.background,
+            logo: preview.logo,
+            viewedAt: viewedAt
+        )
+    }
 }
 
 @Observable

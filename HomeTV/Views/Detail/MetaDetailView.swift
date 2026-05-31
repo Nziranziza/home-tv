@@ -6,6 +6,7 @@ struct MetaDetailView: View {
     let fallbackTitle: String
 
     @State private var registry = AddonRegistry.shared
+    @State private var trakt = TraktService.shared
     @State private var meta: Meta?
     @State private var status: LoadStatus = .loading
     @State private var related: [MetaPreview] = []
@@ -14,6 +15,7 @@ struct MetaDetailView: View {
     @State private var relatedSelection: MetaPreview?
     @State private var streamRequest: StreamRequest? = MetaDetailView.initialStreamRequest()
     @State private var scrollOffset: CGFloat = 0
+    @State private var didRevealUpNext = false
 
     private static func initialStreamRequest() -> StreamRequest? {
         guard let raw = ProcessInfo.processInfo.environment["INITIAL_STREAM_PICKER"] else { return nil }
@@ -186,6 +188,7 @@ struct MetaDetailView: View {
                 }
                 metaLine
                 actionButtons
+                resumeBar
             }
 
             Spacer(minLength: 0)
@@ -232,23 +235,146 @@ struct MetaDetailView: View {
         }
     }
 
+    /// The episode the hero Play targets for a series, plus its button label (Apple TV+ style — the
+    /// button names the episode). nil for movies.
+    private struct UpNext {
+        let video: Video
+        let label: String
+        let resumeProgress: Double?   // non-nil while this episode is mid-watch on Trakt
+        let marksEpisode: Bool        // true for resume / next-unwatched; false for the "Rewatch" fallback
+    }
+
+    /// The show hero's episode: the last played episode if it isn't finished (resume), otherwise the
+    /// next episode to watch — the one right after your furthest-watched episode. We use the *furthest*
+    /// watched (not the earliest gap), so an old skipped episode can't drag the hero backward.
+    private var seriesUpNext: UpNext? {
+        guard typeID == "series" else { return nil }
+        let eps = allEpisodes
+        guard !eps.isEmpty else { return nil }
+
+        // 1. Last played but not finished → resume it.
+        if let inProgress = eps.last(where: { trakt.progress(forKey: episodeKey($0)) != nil }) {
+            return UpNext(
+                video: inProgress,
+                label: "Resume \(seasonEpisodeLabel(inProgress))",
+                resumeProgress: trakt.progress(forKey: episodeKey(inProgress)),
+                marksEpisode: true
+            )
+        }
+        // 2. Next to watch → the episode right after the furthest-watched one.
+        if let lastWatchedIdx = eps.lastIndex(where: {
+            trakt.isWatched(type: typeID, imdb: metaID, season: $0.season, episode: $0.episode)
+        }) {
+            let nextIdx = eps.index(after: lastWatchedIdx)
+            if nextIdx < eps.count {
+                let next = eps[nextIdx]
+                return UpNext(video: next, label: "Play \(seasonEpisodeLabel(next))", resumeProgress: nil, marksEpisode: true)
+            }
+            // Furthest-watched is the final episode → nothing left to watch next.
+            return UpNext(video: eps[0], label: "Play", resumeProgress: nil, marksEpisode: false)
+        }
+        // 3. Nothing watched yet → the next to watch is the first episode.
+        return UpNext(video: eps[0], label: "Play \(seasonEpisodeLabel(eps[0]))", resumeProgress: nil, marksEpisode: true)
+    }
+
+    private func seasonEpisodeLabel(_ episode: Video) -> String {
+        "S\(episode.season ?? 0), E\(episode.episode ?? 0)"
+    }
+
+    /// Play button label: episode-aware for series; Resume/Rewatch/Play for movies (Trakt state).
+    private var playButtonTitle: String {
+        if let upNext = seriesUpNext { return upNext.label }
+        guard trakt.isSignedIn else { return "Play" }
+        if trakt.progress(forKey: metaID) != nil { return "Resume" }
+        if trakt.isWatched(type: typeID, imdb: metaID) { return "Rewatch" }
+        return "Play"
+    }
+
+    /// Open the stream picker for what Play should play: a series' up-next episode (so stream addons,
+    /// which key off the `tt…:S:E` episode id, return results), or the movie itself.
+    private func startPlayback() {
+        recordHistory()
+        if let upNext = seriesUpNext {
+            streamRequest = StreamRequest(
+                type: typeID,
+                contentID: upNext.video.id,
+                title: meta.map { "\($0.name) — \(episodeLabel(upNext.video))" } ?? episodeLabel(upNext.video),
+                backgroundURL: upNext.video.thumbnail ?? meta?.background,
+                logoURL: meta?.logo
+            )
+        } else {
+            streamRequest = StreamRequest(
+                type: typeID,
+                contentID: metaID,
+                title: meta?.name ?? fallbackTitle,
+                backgroundURL: meta?.background,
+                logoURL: meta?.logo
+            )
+        }
+    }
+
     // Reuses the shared hero buttons (HeroPlayButton / HeroCircleButton) from the home hero.
     private var actionButtons: some View {
         HStack(spacing: 18) {
-            HeroPlayButton(title: "Play", icon: "play.fill") {
-                recordHistory()
-                streamRequest = StreamRequest(
-                    type: typeID,
-                    contentID: metaID,
-                    title: meta?.name ?? fallbackTitle,
-                    backgroundURL: meta?.background,
-                    logoURL: meta?.logo
-                )
+            HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }
+            if trakt.isSignedIn {
+                let inWatchlist = trakt.isInWatchlist(imdb: metaID)
+                HeroCircleButton(
+                    icon: inWatchlist ? "checkmark" : "plus",
+                    accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"
+                ) {
+                    trakt.toggleWatchlist(type: typeID, imdb: metaID)
+                }
+                // Watched eye. For a show it marks the episode the Play pill resumes; for a movie it
+                // marks the movie. No eye on a plain "Play" show (no specific episode to mark).
+                if let upNext = seriesUpNext, upNext.marksEpisode {
+                    let s = upNext.video.season ?? 0
+                    let e = upNext.video.episode ?? 0
+                    let watched = trakt.isWatched(type: typeID, imdb: metaID, season: s, episode: e)
+                    HeroCircleButton(
+                        icon: watched ? "eye.slash" : "eye",
+                        accessibilityLabel: watched
+                            ? "Mark \(seasonEpisodeLabel(upNext.video)) Unwatched"
+                            : "Mark \(seasonEpisodeLabel(upNext.video)) Watched"
+                    ) {
+                        trakt.toggleEpisodeWatched(showIMDB: metaID, season: s, episode: e)
+                    }
+                } else if typeID != "series" {
+                    let watched = trakt.isWatched(type: typeID, imdb: metaID)
+                    HeroCircleButton(
+                        icon: watched ? "eye.slash" : "eye",
+                        accessibilityLabel: watched ? "Mark as Unwatched" : "Mark as Watched"
+                    ) {
+                        trakt.toggleWatched(type: typeID, imdb: metaID)
+                    }
+                }
+            } else {
+                HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
             }
-            HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
             HeroCircleButton(icon: "square.and.arrow.up", accessibilityLabel: "Share") { }
         }
         .padding(.top, 6)
+    }
+
+    /// Apple-style resume bar shown under the buttons when the up-next episode is mid-watch.
+    @ViewBuilder
+    private var resumeBar: some View {
+        if let upNext = seriesUpNext, let progress = upNext.resumeProgress {
+            HStack(spacing: 14) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.3))
+                        Capsule().fill(.white).frame(width: geo.size.width * max(0, min(1, progress)))
+                    }
+                }
+                .frame(width: 220, height: 5)
+
+                Text("\(Int((progress * 100).rounded()))% · \(seasonEpisodeLabel(upNext.video))")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(.top, 2)
+        }
     }
 
     @ViewBuilder
@@ -352,9 +478,19 @@ struct MetaDetailView: View {
                                 dateText: airDate(episode.released),
                                 durationText: episodeDuration(episode),   // PLACEHOLDER duration
                                 ratingText: ratingPlaceholder,             // PLACEHOLDER rating
+                                progress: trakt.progress(forKey: episodeKey(episode)),
+                                watched: trakt.isWatched(type: typeID, imdb: metaID, season: episode.season, episode: episode.episode),
+                                isUpNext: seriesUpNext?.marksEpisode == true && episode.id == seriesUpNext?.video.id,
                                 onFocusChange: { isFocused in
                                     if isFocused { episodeFocused(episode, proxy: proxy) }
-                                }
+                                },
+                                onToggleWatched: trakt.isSignedIn ? {
+                                    trakt.toggleEpisodeWatched(
+                                        showIMDB: metaID,
+                                        season: episode.season ?? 0,
+                                        episode: episode.episode ?? 0
+                                    )
+                                } : nil
                             ) {
                                 streamRequest = StreamRequest(
                                     type: typeID,
@@ -376,6 +512,17 @@ struct MetaDetailView: View {
             .onChange(of: focusedSeason) { _, newValue in
                 guard let newValue else { return }
                 selectSeason(newValue, proxy: proxy)
+            }
+            // On load, reveal the up-next episode: select its season and scroll the strip to it, so the
+            // episode the hero Play targets is what you see first (instead of always S1, E1).
+            .onChange(of: allEpisodes.count) { _, count in
+                guard count > 0, !didRevealUpNext,
+                      let upNext = seriesUpNext, upNext.marksEpisode else { return }
+                didRevealUpNext = true
+                selectedSeason = upNext.video.season
+                withAnimation(.easeOut(duration: 0.35)) {
+                    proxy.scrollTo(upNext.video.id, anchor: .leading)
+                }
             }
         }
     }
@@ -409,6 +556,11 @@ struct MetaDetailView: View {
         let n = episode.episode ?? 1
         let minutes = 42 + (n * 11) % 28
         return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    }
+
+    /// Trakt playback/watched key for an episode: "showImdb:season:episode" (matches TraktService).
+    private func episodeKey(_ episode: Video) -> String {
+        "\(metaID):\(episode.season ?? 0):\(episode.episode ?? 0)"
     }
 
     private func episodeLabel(_ episode: Video) -> String {
@@ -820,12 +972,18 @@ private struct EpisodeCard: View {
     let dateText: String?
     let durationText: String
     let ratingText: String
-    /// PLACEHOLDER — watch progress (0–1). `nil` = not played, so no play indicator is shown
-    /// (matches Apple: the play glyph only appears on an episode you've already started).
+    /// Watch progress (0–1) from Trakt playback. `nil` = not in progress, so no play indicator is
+    /// shown (matches Apple: the play glyph only appears on an episode you've already started).
     var progress: Double? = nil
+    /// Whether this episode is marked watched on Trakt — shows a checkmark badge.
+    var watched: Bool = false
+    /// Whether this is the episode the hero Play will play — shows an "Up Next" badge.
+    var isUpNext: Bool = false
     /// Reports focus gain/loss to the parent so the season selector can track which season the
     /// in-view episode belongs to as you scroll across the continuous strip.
     var onFocusChange: (Bool) -> Void = { _ in }
+    /// Secondary action (long-press): toggle this episode's watched state. Hidden when nil.
+    var onToggleWatched: (() -> Void)? = nil
     let action: () -> Void
 
     @FocusState private var focused: Bool
@@ -859,9 +1017,47 @@ private struct EpisodeCard: View {
                     .allowsHitTesting(false)
             }
             .overlay(alignment: .bottomLeading) { durationOverlay }
+            .overlay(alignment: .topTrailing) { watchedBadge }
+            .overlay(alignment: .topLeading) { upNextBadge }
         }
         .buttonStyle(.card)
         .focused($focused)
+        // Long-press (select hold) reveals the watched toggle — click still plays.
+        .contextMenu {
+            if let onToggleWatched {
+                Button {
+                    onToggleWatched()
+                } label: {
+                    Label(watched ? "Mark as Unwatched" : "Mark as Watched",
+                          systemImage: watched ? "eye.slash" : "eye")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var upNextBadge: some View {
+        if isUpNext {
+            Text("UP NEXT")
+                .font(.system(size: 12, weight: .heavy))
+                .tracking(0.5)
+                .foregroundStyle(.black)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(.white))
+                .padding(10)
+        }
+    }
+
+    @ViewBuilder
+    private var watchedBadge: some View {
+        if watched {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
+                .padding(10)
+        }
     }
 
     private var durationOverlay: some View {

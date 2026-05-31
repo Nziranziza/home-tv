@@ -23,6 +23,11 @@ targets:
       - path: HomeTV
         excludes:
           - "**/.DS_Store"
+    # Build settings (incl. secrets) come from a gitignored xcconfig. Copy
+    # Secrets.example.xcconfig → Secrets.xcconfig and fill it in.
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
     info:
       path: HomeTV/Info.plist
       properties:
@@ -34,6 +39,10 @@ targets:
         LSApplicationQueriesSchemes:
           - infuse
           - vlc-x-callback
+        # Trakt credentials are injected from Secrets.xcconfig at build time via
+        # variable substitution, then read at runtime with Bundle.main (see TraktConfig).
+        TRAKT_CLIENT_ID: "$(TRAKT_CLIENT_ID)"
+        TRAKT_CLIENT_SECRET: "$(TRAKT_CLIENT_SECRET)"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV

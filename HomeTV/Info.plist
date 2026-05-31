@@ -25,6 +25,10 @@
 		<string>infuse</string>
 		<string>vlc-x-callback</string>
 	</array>
+	<key>TRAKT_CLIENT_ID</key>
+	<string>$(TRAKT_CLIENT_ID)</string>
+	<key>TRAKT_CLIENT_SECRET</key>
+	<string>$(TRAKT_CLIENT_SECRET)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

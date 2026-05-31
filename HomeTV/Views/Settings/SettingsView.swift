@@ -35,6 +35,13 @@ struct SettingsView: View {
                                 )
                             }
                             .buttonStyle(SettingsCardStyle())
+
+                            // Trakt is only surfaced when the app was built with API credentials
+                            // (see TraktConfig). Without them there's no working sign-in, so the
+                            // row is hidden rather than showing developer setup instructions.
+                            if TraktConfig.isConfigured {
+                                TraktSettingsRow()
+                            }
                         }
 
                         VStack(alignment: .leading, spacing: 4) {

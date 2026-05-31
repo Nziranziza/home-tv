@@ -19,3 +19,6 @@ Package.resolved
 
 # Local scratch / inspiration assets
 ignore/
+
+# Secrets — real values live here; commit only Secrets.example.xcconfig
+Secrets.xcconfig

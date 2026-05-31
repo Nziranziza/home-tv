@@ -36,7 +36,13 @@ private struct ContinueWatchingCard: View {
     let item: WatchHistoryItem
     var action: () -> Void = {}
 
+    @State private var trakt = TraktService.shared
+
     private var size: CGSize { Theme.Card.continueWatchingSize }
+
+    /// Real Trakt playback progress (0–1) for this title when signed in and available, otherwise the
+    /// placeholder below so the card always matches Apple's layout.
+    private var traktProgress: Double? { trakt.progress(forKey: item.metaID) }
 
     var body: some View {
         Button(action: action) {
@@ -105,10 +111,10 @@ private struct ContinueWatchingCard: View {
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.white)
 
-            ProgressBar(progress: placeholderProgress)
+            ProgressBar(progress: traktProgress ?? placeholderProgress)
                 .frame(width: 56, height: 4)
 
-            Text(placeholderTimeText)
+            Text(timeText)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -120,12 +126,21 @@ private struct ContinueWatchingCard: View {
         }
     }
 
+    /// Real progress text when Trakt has playback for this title, else the placeholder. When real,
+    /// we only know the percentage (no runtime), so we show that rather than a fabricated time.
+    private var timeText: String {
+        if let p = traktProgress {
+            return "\(Int((p * 100).rounded()))% watched"
+        }
+        return placeholderTimeText
+    }
+
     // MARK: - Placeholder resume data
     //
-    // PLACEHOLDER — replace when real resume tracking exists. HomeTV hands playback to Infuse/VLC,
-    // which never reports the position back, so there's no real progress to show. These values are
-    // derived deterministically from the item id (stable across launches, unlike `hashValue`) purely
-    // so the card matches Apple's layout. Swap both helpers for real data in one place when available.
+    // FALLBACK — used when not signed in to Trakt (or Trakt has no playback for this title). HomeTV
+    // hands playback to Infuse/VLC, which never reports the position back, so there's no *local*
+    // progress to show. These values are derived deterministically from the item id (stable across
+    // launches, unlike `hashValue`) purely so the card matches Apple's layout.
 
     private var placeholderProgress: Double {
         0.2 + Double(Self.stableHash(item.id) % 60) / 100.0   // 0.20–0.79
