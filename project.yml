@@ -2,7 +2,7 @@ name: HomeTV
 options:
   bundleIdPrefix: com.hometv
   deploymentTarget:
-    tvOS: "18.0"
+    tvOS: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -18,7 +18,7 @@ targets:
   HomeTV:
     type: application
     platform: tvOS
-    deploymentTarget: "18.0"
+    deploymentTarget: "26.0"
     sources:
       - path: HomeTV
         excludes:
