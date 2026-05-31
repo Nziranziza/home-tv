@@ -11,7 +11,7 @@ An Apple TV streaming app. Browses Stremio addons, hands playback off to Infuse 
 
 ## Stack
 
-- tvOS 18 target, Xcode 26.3, Swift 5.10, SwiftUI.
+- tvOS 26 target, Xcode 26.3, Swift 5.10, SwiftUI.
 - No third-party Swift dependencies.
 - [xcodegen](https://github.com/yonaskolb/XcodeGen) generates `HomeTV.xcodeproj` from `project.yml`.
 
