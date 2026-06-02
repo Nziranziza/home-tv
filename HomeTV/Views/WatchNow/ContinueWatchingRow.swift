@@ -13,7 +13,7 @@ struct ContinueWatchingRow: View {
             RowHeader(title: "Continue Watching")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: Theme.Row.landscapeCardSpacing) {
+                LazyHStack(spacing: Theme.Row.continueWatchingCardSpacing) {
                     ForEach(items) { item in
                         ContinueWatchingCard(item: item) { onSelect(item) }
                     }
