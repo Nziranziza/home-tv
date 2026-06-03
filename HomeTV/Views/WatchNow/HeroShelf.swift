@@ -282,9 +282,16 @@ private struct HeroTitle: View {
 
 private struct HeroMetaChips: View {
     let meta: MetaPreview
+    /// Streaming-provider / network badge for the featured title (nil → no badge, like the detail
+    /// hero). Resolved lazily per page via the shared, cached TMDB enrichment.
+    @State private var providerBadgeURL: URL?
 
     var body: some View {
-        MetaChipRow(parts: chips, trailingBadge: ratingText)
+        MetaChipRow(parts: chips, trailingBadge: ratingText, leading: .provider(providerBadgeURL))
+            .task(id: meta.id) {
+                providerBadgeURL = await TMDBService.shared
+                    .enrich(stremioType: meta.type, imdbID: meta.id)?.providerBadgeURL
+            }
     }
 
     private var chips: [String] {

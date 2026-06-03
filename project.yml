@@ -43,6 +43,8 @@ targets:
         # variable substitution, then read at runtime with Bundle.main (see TraktConfig).
         TRAKT_CLIENT_ID: "$(TRAKT_CLIENT_ID)"
         TRAKT_CLIENT_SECRET: "$(TRAKT_CLIENT_SECRET)"
+        # TMDB v3 API key, injected the same way and read in TMDBConfig.
+        TMDB_API_KEY: "$(TMDB_API_KEY)"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV

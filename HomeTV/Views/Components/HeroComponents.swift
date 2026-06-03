@@ -46,13 +46,22 @@ struct RatingBadge: View {
 /// Hero metadata line: source badge, then `parts` joined by " · ", then an optional trailing rating
 /// badge. Used by the home hero and the detail hero (the detail uses a larger font).
 struct MetaChipRow: View {
+    /// The leading mark before the metadata. `.source` is the app's HT badge (home hero); `.provider`
+    /// shows a streaming-provider logo when one is supplied, or nothing when nil (detail hero, à la
+    /// Apple TV+ — no badge when the title isn't on a known provider).
+    enum LeadingBadge {
+        case source
+        case provider(URL?)
+    }
+
     let parts: [String]
     var trailingBadge: String? = nil
     var font: Font = .callout
+    var leading: LeadingBadge = .source
 
     var body: some View {
         HStack(spacing: Theme.Hero.metaChipsSpacing) {
-            HomeTVSourceBadge()
+            LeadingBadgeView(leading: leading)
             HStack(spacing: 0) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { index, value in
                     if index > 0 {
@@ -69,6 +78,41 @@ struct MetaChipRow: View {
                 RatingBadge(text: trailingBadge)
             }
         }
+    }
+}
+
+/// The metadata row's leading mark: the app's HT source badge, or a streaming-provider/network logo
+/// (and nothing when there's no known provider).
+private struct LeadingBadgeView: View {
+    let leading: MetaChipRow.LeadingBadge
+
+    var body: some View {
+        switch leading {
+        case .source:
+            HomeTVSourceBadge()
+        case .provider(let url):
+            if let url {
+                ProviderBadge(url: url)
+            }
+            // nil → no badge at all (matches Apple TV+ when there's no known provider)
+        }
+    }
+}
+
+/// A streaming-provider logo shown in the metadata row's leading slot — a small rounded square
+/// (provider logos are square artwork), sized to match the source badge.
+struct ProviderBadge: View {
+    let url: URL
+
+    private var size: CGFloat { Theme.Hero.sourceBadgeSize }
+
+    var body: some View {
+        RemoteImage(url: url, targetSize: CGSize(width: size, height: size), contentMode: .fit) {
+            Color.white.opacity(0.12)
+        }
+        .frame(width: size, height: size)
+        .clipShape(.rect(cornerRadius: size * 0.22))
+        .accessibilityHidden(true)
     }
 }
 
