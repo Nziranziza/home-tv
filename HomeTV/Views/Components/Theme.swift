@@ -83,6 +83,13 @@ enum Theme {
         static let bottomPadding: CGFloat = 100
     }
 
+    /// Detail screen (Apple TV+ style hero ↔ browse). One left alignment guide for ALL left-aligned
+    /// content in both states, so the hero column and the content rows share a single guide. Measured
+    /// from the reference video frames (hero metadata, headers, cards, and posters all align here).
+    enum Detail {
+        static let leftInset: CGFloat = 86
+    }
+
     /// Horizontal rows of cards (catalogs, Continue Watching). `contentInset` matches
     /// `Hero.horizontalPadding` so every row and the hero share one left gutter.
     enum Row {
@@ -99,6 +106,9 @@ enum Theme {
         // Tight header→cards spacing, shared by every row (matches Continue Watching).
         static let headerSpacing: CGFloat = 6
         static let continueWatchingVerticalPadding: CGFloat = 16
+        // Apple's Continue Watching uses a slightly wider gap (~10.5% of card width) than other
+        // landscape rows; dedicated so it doesn't widen those.
+        static let continueWatchingCardSpacing: CGFloat = 34
     }
 
     /// Card geometry + the shared focus treatment (see `focusableCard`).
@@ -106,7 +116,7 @@ enum Theme {
         static let posterSize = CGSize(width: 260, height: 390)
         static let landscapeSize = CGSize(width: 460, height: 258)
         static let squareSide: CGFloat = 300
-        static let continueWatchingSize = CGSize(width: 400, height: 225)
+        static let continueWatchingSize = CGSize(width: 320, height: 230)
 
         static let captionSpacing: CGFloat = 12
 
@@ -154,13 +164,16 @@ struct CardFocusStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .scaleEffect(configuration.isPressed ? 0.98 : (isFocused ? 1.06 : 1.0))
+                .scaleEffect(configuration.isPressed ? 0.98 : (isFocused ? 1.04 : 1.0))
                 .shadow(
-                    color: .black.opacity(isFocused ? 0.12 : 0),
-                    radius: isFocused ? 8 : 0,
-                    y: isFocused ? 5 : 0
+                    color: .black.opacity(isFocused ? 0.18 : 0),
+                    radius: isFocused ? 14 : 0,
+                    y: isFocused ? 8 : 0
                 )
-                .animation(.easeOut(duration: 0.2), value: isFocused)
+                // Spring (not ease) so the lift settles with the same decelerating bounce-free motion
+                // tvOS's own `.card` focus uses — this is what makes a focus-driven style read as native
+                // rather than "fake".
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isFocused)
         }
     }
 }

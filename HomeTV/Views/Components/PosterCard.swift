@@ -24,17 +24,27 @@ struct ContentCard: View {
 
     let meta: MetaPreview
     var shape: Shape = .poster
+    /// Optional explicit tile size, overriding `shape.size` (e.g. the detail screen's Related row uses
+    /// a smaller poster than the catalog rows). nil → the shape's default.
+    var sizeOverride: CGSize? = nil
+    /// Apple-TV original badge slot (top-right). Data-driven by the caller; off by default.
+    var appleTVBadge: Bool = false
     var action: () -> Void = {}
 
     @FocusState private var focused: Bool
 
+    private var size: CGSize { sizeOverride ?? shape.size }
+
     var body: some View {
         Button(action: action) {
-            RemoteImage(url: artworkURL, targetSize: shape.size, contentMode: .fill) {
+            RemoteImage(url: artworkURL, targetSize: size, contentMode: .fill) {
                 placeholder
             }
-            .frame(width: shape.size.width, height: shape.size.height)
+            .frame(width: size.width, height: size.height)
             .clipped()
+            .overlay(alignment: .topTrailing) {
+                if appleTVBadge { appleTVGlyph }
+            }
             .overlay(alignment: .bottom) {
                 if focused {
                     focusInfo.transition(.opacity)
@@ -44,11 +54,20 @@ struct ContentCard: View {
         }
         .buttonStyle(.card)
         .focused($focused)
-        .frame(width: shape.size.width, height: shape.size.height)
+        .frame(width: size.width, height: size.height)
         .animation(.easeInOut(duration: 0.15), value: focused)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(meta.name), \(typeAndGenre)")
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// Small Apple-TV glyph badge for Apple Originals, inset in the top-right corner.
+    private var appleTVGlyph: some View {
+        Image(systemName: "appletv.fill")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+            .padding(10)
     }
 
     private var artworkURL: URL? {

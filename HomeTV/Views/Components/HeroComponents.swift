@@ -13,12 +13,10 @@ struct HomeTVSourceBadge: View {
             .foregroundStyle(.white.opacity(0.92))
             .frame(width: Theme.Hero.sourceBadgeSize, height: Theme.Hero.sourceBadgeSize)
             .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.badge, style: .continuous)
-                    .fill(.white.opacity(0.18))
+                Circle().fill(.white.opacity(0.18))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.badge, style: .continuous)
-                    .stroke(.white.opacity(0.3), lineWidth: 1)
+                Circle().stroke(.white.opacity(0.3), lineWidth: 1)
             )
             .accessibilityHidden(true)
     }
@@ -36,8 +34,8 @@ struct RatingBadge: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(.white.opacity(0.6), lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .stroke(.white.opacity(0.55), lineWidth: 1)
             )
             .foregroundStyle(.white.opacity(0.9))
     }
@@ -146,8 +144,9 @@ private struct HeroCircleButtonStyle: ButtonStyle {
             configuration.label
                 .foregroundStyle(isFocused ? .black : .white)
                 .background(
-                    // Subtly filled circle when unfocused (no outline), solid white when focused.
-                    Circle().fill(isFocused ? Color.white : Color.white.opacity(0.18))
+                    // Dark near-black glass when unfocused (the backdrop barely shows through), solid
+                    // white when focused.
+                    Circle().fill(isFocused ? Color.white : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85))
                 )
                 .scaleEffect(configuration.isPressed ? 0.95 : (isFocused ? 1.08 : 1.0))
                 .shadow(color: .black.opacity(isFocused ? 0.45 : 0.0), radius: 14, y: 8)
