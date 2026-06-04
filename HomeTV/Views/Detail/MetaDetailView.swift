@@ -55,15 +55,6 @@ struct MetaDetailView: View {
 
     enum LoadStatus { case loading, loaded, failed }
 
-    struct StreamRequest: Identifiable, Hashable {
-        let type: String
-        let contentID: String
-        let title: String
-        var backgroundURL: String? = nil
-        var logoURL: String? = nil
-        var id: String { "\(type):\(contentID)" }
-    }
-
     /// Pure presentation logic, built from the current data on each access. The view keeps owning all
     /// of its `@State`; this holds no state of its own (see `MetaDetailViewModel`).
     private var model: MetaDetailViewModel {
@@ -159,15 +150,7 @@ struct MetaDetailView: View {
         .navigationDestination(item: $relatedSelection) { item in
             MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
         }
-        .fullScreenCover(item: $streamRequest) { req in
-            StreamPickerView(
-                type: req.type,
-                contentID: req.contentID,
-                title: req.title,
-                backgroundURL: req.backgroundURL,
-                logoURL: req.logoURL
-            )
-        }
+        .streamPickerCover(request: $streamRequest)
     }
 
     /// The single clock for the whole hero↔browse interaction. Translation, opacity, blur, brightness,

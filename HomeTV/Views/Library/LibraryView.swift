@@ -18,12 +18,7 @@ struct LibraryView: View {
                     placeholder
                 }
             }
-            .navigationDestination(item: $selection) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
-            .navigationDestination(for: MetaPreview.self) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
+            .metaDetailDestinations(selection: $selection)
             .task {
                 if trakt.isSignedIn { await trakt.refreshLibrary() }
             }

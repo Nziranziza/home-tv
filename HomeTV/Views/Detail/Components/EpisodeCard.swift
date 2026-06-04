@@ -163,7 +163,7 @@ struct EpisodeCard: View {
         .frame(width: width, alignment: .topLeading)
         // Translucent container only on the selected (focused) episode; others show plain text.
         .background(focused ? Color.black.opacity(0.3) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(.rect(cornerRadius: 14, style: .continuous))
         .animation(.easeOut(duration: 0.18), value: focused)
     }
 }
