@@ -295,22 +295,12 @@ private struct HeroMetaChips: View {
     }
 
     private var chips: [String] {
-        var parts: [String] = [typeLabel(meta.type)]
+        var parts: [String] = [StremioType.displayLabel(for: meta.type)]
         if let year = meta.releaseInfo, !year.isEmpty { parts.append(year) }
         if let genres = meta.genres, !genres.isEmpty {
             parts.append(genres.prefix(2).joined(separator: ", "))
         }
         return parts
-    }
-
-    private func typeLabel(_ type: String) -> String {
-        switch type {
-        case "movie": "Movie"
-        case "series": "TV Show"
-        case "channel": "Channel"
-        case "tv": "Live TV"
-        default: type.capitalized
-        }
     }
 
     private var ratingText: String? {

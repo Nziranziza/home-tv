@@ -97,19 +97,9 @@ struct ContentCard: View {
     }
 
     private var typeAndGenre: String {
-        var parts = [typeLabel(meta.type)]
+        var parts = [StremioType.displayLabel(for: meta.type)]
         if let genre = meta.genres?.first, !genre.isEmpty { parts.append(genre) }
         return parts.joined(separator: " · ")
-    }
-
-    private func typeLabel(_ type: String) -> String {
-        switch type {
-        case "movie": "Movie"
-        case "series": "TV Show"
-        case "channel": "Channel"
-        case "tv": "Live TV"
-        default: type.capitalized
-        }
     }
 
     private var placeholder: some View {

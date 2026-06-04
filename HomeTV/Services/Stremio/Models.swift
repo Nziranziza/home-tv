@@ -13,6 +13,21 @@ enum StremioType: String, Codable, Hashable, Sendable {
     }
 }
 
+extension StremioType {
+    /// Human-facing label for a raw Stremio `type` string ("movie" → "Movie", "series" → "TV Show",
+    /// …), preserving the original (capitalized) for unknown types. Shared by the hero, catalog
+    /// cards, and the detail screen so the label reads identically everywhere.
+    static func displayLabel(for rawType: String) -> String {
+        switch rawType {
+        case "movie": "Movie"
+        case "series": "TV Show"
+        case "channel": "Channel"
+        case "tv": "Live TV"
+        default: rawType.capitalized
+        }
+    }
+}
+
 struct StremioManifest: Codable, Hashable, Sendable {
     let id: String
     let version: String?
