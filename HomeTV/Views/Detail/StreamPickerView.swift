@@ -215,48 +215,27 @@ struct StreamPickerView: View {
 
     // MARK: - Filter axes
 
+    /// Pure filtering/grouping logic, built from the current state on each access. The view keeps
+    /// owning all of its `@State`; this holds no state of its own (see `StreamPickerViewModel`).
+    private var model: StreamPickerViewModel {
+        StreamPickerViewModel(
+            streams: streams,
+            selectedProvider: selectedProvider,
+            selectedQuality: selectedQuality,
+            detailID: detailID
+        )
+    }
+
     /// "All" + distinct provider names in load order.
-    private var providers: [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for item in streams where !seen.contains(item.addonName) {
-            seen.insert(item.addonName)
-            ordered.append(item.addonName)
-        }
-        return [Self.allLabel] + ordered
-    }
-
-    private var providerStreams: [LabeledStream] {
-        guard selectedProvider != Self.allLabel else { return streams }
-        return streams.filter { $0.addonName == selectedProvider }
-    }
-
+    private var providers: [String] { model.providers }
+    private var providerStreams: [LabeledStream] { model.providerStreams }
     /// "All" + the quality buckets present for the selected provider, high → low.
-    private var qualities: [String] {
-        let buckets = Set(providerStreams.map { $0.meta.resolution })
-        let ordered = buckets.sorted { Self.qualityRank($0) > Self.qualityRank($1) }
-        return [Self.allLabel] + ordered
-    }
-
-    private var filteredStreams: [LabeledStream] {
-        guard selectedQuality != Self.allLabel else { return providerStreams }
-        return providerStreams.filter { $0.meta.resolution == selectedQuality }
-    }
-
+    private var qualities: [String] { model.qualities }
+    private var filteredStreams: [LabeledStream] { model.filteredStreams }
     /// Filtered streams grouped into quality sections, high → low.
-    private var qualitySections: [(quality: String, items: [LabeledStream])] {
-        let groups = Dictionary(grouping: filteredStreams, by: { $0.meta.resolution })
-        return groups.keys
-            .sorted { Self.qualityRank($0) > Self.qualityRank($1) }
-            .map { ($0, groups[$0] ?? []) }
-    }
-
-    private var firstStreamID: String? { qualitySections.first?.items.first?.id }
-
-    private var detailStream: LabeledStream? {
-        if let id = detailID, let match = filteredStreams.first(where: { $0.id == id }) { return match }
-        return filteredStreams.first
-    }
+    private var qualitySections: [(quality: String, items: [LabeledStream])] { model.qualitySections }
+    private var firstStreamID: String? { model.firstStreamID }
+    private var detailStream: LabeledStream? { model.detailStream }
 
     // MARK: - Browser (master + detail)
 
@@ -498,9 +477,7 @@ struct StreamPickerView: View {
         .focusSection()
     }
 
-    private func videoSpec(_ m: StreamMeta) -> String {
-        [m.codec, m.bitDepth].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "—"
-    }
+    private func videoSpec(_ m: StreamMeta) -> String { model.videoSpec(m) }
 
     private func specRow(_ label: String, _ value: String, warning: Bool = false, last: Bool = false) -> some View {
         VStack(spacing: 0) {
@@ -857,10 +834,5 @@ struct StreamPickerView: View {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
-}
-
-private extension String {
-    /// Nil when empty, so `?? "—"` chains read cleanly.
-    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
