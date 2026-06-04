@@ -13,7 +13,15 @@ struct MetaDetailView: View {
     @State private var registry = AddonRegistry.shared
     @State private var trakt = TraktService.shared
     @State private var meta: Meta?
+    /// TMDB enrichment sidecar, populated after the base meta loads. nil until then (or when TMDB
+    /// isn't configured / the id isn't an IMDB id) — every consumer falls back to addon `meta`.
+    @State private var enrichment: Enrichment?
+    /// Per-episode TMDB info (runtime/still/overview/title), keyed by "season:episode". Filled lazily
+    /// for the season currently in view (see `loadSeasonEnrichment`), merged over addon `Video` data.
+    @State private var episodeInfo: [String: EpisodeEnrichment] = [:]
+    @State private var seasonPosters: [Int: URL] = [:]
     @State private var status: LoadStatus = .loading
+    @Environment(\.openURL) private var openURL
     @State private var related: [MetaPreview] = []
     @State private var selectedSeason: Int?
     @FocusState private var focusedSeason: Int?
@@ -92,12 +100,14 @@ struct MetaDetailView: View {
                             }
                             .id("contentTop")
                         }
-                        if !related.isEmpty {
+                        if !relatedItems.isEmpty {
                             relatedSection.id("related")
                         }
-                        howToWatchSection
-                        if let cast = meta?.cast, !cast.isEmpty {
-                            castSection(cast: cast)
+                        if !watchOptions.isEmpty {
+                            howToWatchSection
+                        }
+                        if !creditEntries.isEmpty {
+                            castSection
                         }
                         aboutSection.id("about")
                         informationSection.id("information")
@@ -183,7 +193,7 @@ struct MetaDetailView: View {
     // MARK: - Background
 
     private var backdropURL: URL? {
-        (meta?.background ?? meta?.poster).flatMap(URL.init(string:))
+        (meta?.background ?? meta?.poster).flatMap(URL.init(string:)) ?? enrichment?.backdropURL
     }
 
     /// Two stacked layers crossfading on the `p` clock:
@@ -291,7 +301,7 @@ struct MetaDetailView: View {
             VStack(alignment: .leading, spacing: 16) {   // tighter rhythm pulls the upper stack down ~25 px
                 titleView
                 chipLine
-                if let description = meta?.description, !description.isEmpty {
+                if let description = displayDescription, !description.isEmpty {
                     Text(description)
                         .font(.system(size: 27))
                         .foregroundStyle(.white.opacity(0.68))
@@ -312,7 +322,7 @@ struct MetaDetailView: View {
 
     @ViewBuilder
     private var titleView: some View {
-        if let logo = meta?.logo, let url = URL(string: logo) {
+        if let url = displayLogoURL {
             RemoteImage(url: url, targetSize: CGSize(width: 800, height: 220), contentMode: .fit) {
                 titleTextFallback
             }
@@ -348,7 +358,7 @@ struct MetaDetailView: View {
 
     @ViewBuilder
     private var centeredLogoArt: some View {
-        if let logo = meta?.logo, let url = URL(string: logo) {
+        if let url = displayLogoURL {
             RemoteImage(url: url, targetSize: CGSize(width: 800, height: 220), contentMode: .fit) {
                 centeredLogoFallback
             }
@@ -366,11 +376,12 @@ struct MetaDetailView: View {
             .lineLimit(2)
     }
 
-    // type · genre · genre  +  content-rating box (rating box is a PLACEHOLDER until addons provide it).
-    // Reuses the shared `MetaChipRow` from the home hero.
+    // type · genre · genre  +  content-rating box (TMDB certification, with a placeholder fallback)
+    // and a leading streaming-provider / network badge. Reuses the shared `MetaChipRow`.
     private var chipLine: some View {
-        MetaChipRow(parts: typeAndGenreParts, trailingBadge: ratingPlaceholder,
-                    font: .system(size: 26, weight: .regular))
+        MetaChipRow(parts: typeAndGenreParts, trailingBadge: displayCertification,
+                    font: .system(size: 26, weight: .regular),
+                    leading: .provider(enrichment?.providerBadgeURL))
     }
 
     // year · runtime · ★ imdb  +  quality badges (PLACEHOLDER until addons provide them)
@@ -535,8 +546,8 @@ struct MetaDetailView: View {
 
     @ViewBuilder
     private var creditsColumn: some View {
-        let cast = meta?.cast ?? []
-        let directors = meta?.director ?? []
+        let cast = displayCastNames
+        let directors = displayDirectors
         if !cast.isEmpty || !directors.isEmpty {
             // Tight gap between credit lines so "Director" sits just under the cast block (the wrapped
             // cast names already span their own lines); a larger spacing reads as a gap above Director.
@@ -626,14 +637,15 @@ struct MetaDetailView: View {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 28) {
                         ForEach(allEpisodes) { episode in
+                            let info = episodeInfo[Enrichment.episodeKey(season: episode.season ?? 0, episode: episode.episode ?? 0)]
                             EpisodeCard(
-                                thumbnailURL: episode.thumbnail.flatMap(URL.init(string:)),
+                                thumbnailURL: info?.stillURL ?? episode.thumbnail.flatMap(URL.init(string:)),
                                 episodeNumber: episode.episode ?? 0,
-                                title: episode.title ?? "Episode \(episode.episode ?? 0)",
-                                overview: episode.overview,
+                                title: info?.title ?? episode.title ?? "Episode \(episode.episode ?? 0)",
+                                overview: info?.overview ?? episode.overview,
                                 dateText: airDate(episode.released),
-                                durationText: episodeDuration(episode),   // PLACEHOLDER duration
-                                ratingText: ratingPlaceholder,             // PLACEHOLDER rating
+                                durationText: episodeDurationText(episode, info: info),
+                                ratingText: displayCertification,
                                 progress: trakt.progress(forKey: episodeKey(episode)),
                                 watched: trakt.isWatched(type: typeID, imdb: metaID, season: episode.season, episode: episode.episode),
                                 isUpNext: seriesUpNext?.marksEpisode == true && episode.id == seriesUpNext?.video.id,
@@ -684,7 +696,32 @@ struct MetaDetailView: View {
                     proxy.scrollTo(upNext.video.id, anchor: .leading)
                 }
             }
+            // Fetch TMDB episode info for the season in view, lazily — re-runs when the selected season
+            // (or the title) changes. Scoped by metaID so a new title always refetches, never reusing
+            // the previous title's season data. Bounds requests for long-running shows.
+            .task(id: "\(metaID)|\(currentSeason ?? -1)") {
+                await loadSeasonEnrichment(currentSeason)
+            }
         }
+    }
+
+    /// Fetch and merge TMDB per-episode info + the season poster for one season. No-op when TMDB
+    /// isn't configured or the season is nil / not yet known.
+    private func loadSeasonEnrichment(_ season: Int?) async {
+        guard let season, TMDBService.shared.isConfigured else { return }
+        guard let result = await TMDBService.shared.seasonEnrichment(imdbID: metaID, season: season) else { return }
+        episodeInfo.merge(result.episodes) { _, new in new }
+        if let poster = result.posterURL { seasonPosters[season] = poster }
+    }
+
+    /// Episode run time: real TMDB minutes (formatted via `FormatStyle`) when available, else the
+    /// stable placeholder so the row stays populated for addons that don't provide per-episode runtime.
+    private func episodeDurationText(_ episode: Video, info: EpisodeEnrichment?) -> String {
+        if let minutes = info?.runtimeMinutes, minutes > 0 {
+            return Duration.seconds(minutes * 60)
+                .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+        }
+        return episodeDuration(episode)
     }
 
     /// Horizontally scrollable so a long-running show's seasons stay reachable instead of being crushed
@@ -713,8 +750,8 @@ struct MetaDetailView: View {
         .focusSection()
     }
 
-    // PLACEHOLDER — per-episode runtime isn't in Stremio's basic meta; derive a stable, varied value
-    // per episode so the row looks like Apple's (38m / 47m / 1h 2m) until an addon supplies real data.
+    // Fallback per-episode runtime (used by `episodeDurationText` only when TMDB has none): a stable,
+    // varied value so the row still looks like Apple's (38m / 47m / 1h 2m) rather than blank.
     private func episodeDuration(_ episode: Video) -> String {
         let n = episode.episode ?? 1
         let minutes = 42 + (n * 11) % 28
@@ -736,16 +773,25 @@ struct MetaDetailView: View {
         return prefix
     }
 
-    // MARK: - Trailers (PLACEHOLDER — replace when an addon provides trailer sources)
+    // MARK: - Trailers
 
+    /// Real TMDB trailers (YouTube) when enriched; otherwise the single placeholder card so the row —
+    /// which is the top content row for movies — is never empty (the collapse relies on it).
     private var trailersSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "Trailers")
             ScrollView(.horizontal) {
                 HStack(spacing: 28) {
-                    trailerCard
-                        // Movies have no episodes, so Trailers is the top content row.
-                        .contentZone(seasons.isEmpty, $zone)
+                    if let trailers = enrichment?.trailers, !trailers.isEmpty {
+                        ForEach(trailers) { trailer in
+                            TrailerCard(trailer: trailer) { openTrailer(trailer) }
+                                // Movies have no episodes, so Trailers is the top content row.
+                                .contentZone(seasons.isEmpty, $zone)
+                        }
+                    } else {
+                        trailerCard
+                            .contentZone(seasons.isEmpty, $zone)
+                    }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
                 .padding(.vertical, 12)
@@ -753,6 +799,13 @@ struct MetaDetailView: View {
             .detailRowScroll()
             .focusSection()
         }
+    }
+
+    /// Hand a trailer off to the YouTube app. There is no public in-app YouTube playback on tvOS, so
+    /// this is a best-effort deep link (a no-op if YouTube isn't installed to claim the scheme).
+    private func openTrailer(_ trailer: Trailer) {
+        guard let url = URL(string: "youtube://watch?v=\(trailer.youTubeKey)") else { return }
+        openURL(url)
     }
 
     // One full-bleed 426×270 thumbnail (matches the reference's ~452×287 once the .card focus lift scales
@@ -803,14 +856,21 @@ struct MetaDetailView: View {
 
     // MARK: - Related
 
+    /// Related titles: prefer TMDB recommendations (real "viewers also watched") and fall back to the
+    /// genre catalog when TMDB has nothing.
+    private var relatedItems: [MetaPreview] {
+        if let recs = enrichment?.recommendations, !recs.isEmpty { return recs }
+        return related
+    }
+
     private var relatedSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "Related")
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 40) {
-                    ForEach(related) { item in
+                    ForEach(relatedItems) { item in
                         ContentCard(meta: item, sizeOverride: CGSize(width: 261, height: 392)) {
-                            relatedSelection = item
+                            openRelated(item)
                         }
                     }
                 }
@@ -822,45 +882,68 @@ struct MetaDetailView: View {
         }
     }
 
-    // MARK: - How to Watch (PLACEHOLDER — provider info will come from addons)
+    /// Navigate to a Related item. Genre-catalog items carry a real IMDB id and navigate directly;
+    /// TMDB recommendation items carry an encoded TMDB ref, resolved to an IMDB id on select (one
+    /// request) so the addon-backed detail screen can load it.
+    private func openRelated(_ item: MetaPreview) {
+        guard let ref = TMDBRef(encodedID: item.id) else {
+            relatedSelection = item
+            return
+        }
+        Task {
+            guard let imdb = await TMDBService.shared.imdbID(for: ref) else { return }
+            relatedSelection = MetaPreview(
+                id: imdb, type: item.type, name: item.name,
+                poster: item.poster, posterShape: nil, background: item.background,
+                logo: nil, description: nil, releaseInfo: nil, imdbRating: nil, genres: nil
+            )
+        }
+    }
+
+    // MARK: - How to Watch
+
+    /// Where the title is available to watch (TMDB/JustWatch, US), grouped by Stream / Rent / Buy.
+    /// Purely informational — playback still happens via addons; this just tells the user where the
+    /// title officially lives. Hidden entirely when TMDB has no availability for it.
+    /// One card per provider, with its availabilities combined into the description (e.g. a provider
+    /// offering both rent and buy shows once as "Rent/Buy"). Provider order follows first appearance
+    /// across the priority-ordered groups (Stream → Rent → Buy …), so the labels join in that order.
+    private var watchOptions: [WatchOption] {
+        var order: [Int] = []
+        var byProvider: [Int: (provider: WatchProvider, labels: [String])] = [:]
+        for group in enrichment?.watchProviderGroups ?? [] {
+            for provider in group.providers {
+                if byProvider[provider.id] == nil {
+                    order.append(provider.id)
+                    byProvider[provider.id] = (provider, [])
+                }
+                byProvider[provider.id]?.labels.append(group.label)
+            }
+        }
+        return order.compactMap { id in
+            byProvider[id].map {
+                WatchOption(id: "\(id)", provider: $0.provider, availability: $0.labels.joined(separator: "/"))
+            }
+        }
+    }
 
     private var howToWatchSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "How to Watch")
-            Button {
-                recordHistory()
-                streamRequest = StreamRequest(
-                    type: typeID,
-                    contentID: metaID,
-                    title: meta?.name ?? fallbackTitle,
-                    backgroundURL: meta?.background,
-                    logoURL: meta?.logo
-                )
-            } label: {
-                HStack(spacing: 16) {
-                    HomeTVSourceBadge()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Play with Infuse")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(Theme.Color.primaryText)
-                        Text("Opens the stream in your default player")
-                            .font(.caption)
-                            .foregroundStyle(Theme.Color.secondaryText)
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 40) {
+                    ForEach(watchOptions) { option in
+                        WatchProviderCard(provider: option.provider, availability: option.availability) {
+                            if let link = enrichment?.watchLink { openURL(link) }
+                        }
                     }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(Theme.Color.secondaryText)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 18)
-                .frame(maxWidth: 760, alignment: .leading)
+                .padding(.horizontal, Theme.Detail.leftInset)
+                .padding(.vertical, 16)
             }
-            .buttonStyle(.card)
-            .padding(.horizontal, Theme.Detail.leftInset)
+            .detailRowScroll()
+            .focusSection()
         }
-         .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
     }
 
     // MARK: - About
@@ -893,13 +976,13 @@ struct MetaDetailView: View {
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                if let genre = meta?.genres?.first, !genre.isEmpty {
+                if let genre = displayGenres.first, !genre.isEmpty {
                     Text(genre)
                         .font(.system(size: 22))
                         .foregroundStyle(Theme.Color.secondaryText)
                         .padding(.top, 4)
                 }
-                if let description = meta?.description, !description.isEmpty {
+                if let description = displayDescription, !description.isEmpty {
                     Text(description)
                         .font(.system(size: 24))
                         .foregroundStyle(Color(white: 0.93))   // ≈ #EDEDED
@@ -951,15 +1034,18 @@ struct MetaDetailView: View {
                 if let year = meta?.releaseInfo, !year.isEmpty {
                     InfoPair(label: "Released", value: year)
                 }
-                if let runtime = meta?.runtime, !runtime.isEmpty {
+                if let runtime = displayRuntime {
                     InfoPair(label: "Run Time", value: runtime)
                 }
-                InfoPair(label: "Rated", value: ratingPlaceholder)
-                if let genres = meta?.genres, !genres.isEmpty {
-                    InfoPair(label: "Genre", value: genres.joined(separator: ", "))
+                InfoPair(label: "Rated", value: displayCertification)
+                if let status = enrichment?.status, !status.isEmpty {
+                    InfoPair(label: "Status", value: status)
+                }
+                if !displayGenres.isEmpty {
+                    InfoPair(label: "Genre", value: displayGenres.joined(separator: ", "))
                 }
                 InfoPair(label: "Content Advisories", value: "Violence, Language")
-                InfoPair(label: "Regions of Origin", value: "United States")
+                InfoPair(label: "Regions of Origin", value: enrichment?.country ?? "United States")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -969,7 +1055,7 @@ struct MetaDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             InfoColumnHeader(title: "Languages")
             InfoColumnCard(spacing: 22) {
-                InfoPair(label: "Original Audio", value: "English")
+                InfoPair(label: "Original Audio", value: enrichment?.language ?? "English")
                 InfoPair(label: "Audio", value: audioLanguages, lineLimit: 4)
                 InfoPair(label: "Subtitles", value: subtitleLanguages, lineLimit: 5)
             }
@@ -990,20 +1076,16 @@ struct MetaDetailView: View {
 
     // MARK: - Cast & Crew
 
-    private func castSection(cast: [String]) -> some View {
+    /// Cast & Crew row. With TMDB enrichment each chip shows a headshot + character/role; without it,
+    /// falls back to the addon's name-only cast + director (initials avatars).
+    private var castSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "Cast & Crew")
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 28) {
-                    ForEach(Array(cast.prefix(12).enumerated()), id: \.offset) { _, name in
+                    ForEach(creditEntries) { entry in
                         Button { } label: {
-                            CastChip(name: name, role: "Cast")   // role is a PLACEHOLDER (Stremio gives names only)
-                        }
-                        .buttonStyle(CastChipStyle())
-                    }
-                    ForEach(Array((meta?.director ?? []).enumerated()), id: \.offset) { _, name in
-                        Button { } label: {
-                            CastChip(name: name, role: "Director")
+                            CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL)
                         }
                         .buttonStyle(CastChipStyle())
                     }
@@ -1020,7 +1102,8 @@ struct MetaDetailView: View {
 
     private var typeAndGenreParts: [String] {
         var parts = [typeLabel(typeID)]
-        if let genres = meta?.genres, !genres.isEmpty {
+        let genres = displayGenres
+        if !genres.isEmpty {
             parts.append(contentsOf: genres.prefix(2))
         }
         return parts
@@ -1036,7 +1119,7 @@ struct MetaDetailView: View {
         }
     }
 
-    // PLACEHOLDER — content rating isn't in Stremio's basic meta; addons will supply it.
+    // PLACEHOLDER — used only until TMDB supplies a real certification (see `displayCertification`).
     private var ratingPlaceholder: String {
         typeID == "series" ? "TV-MA" : "PG-13"
     }
@@ -1044,9 +1127,85 @@ struct MetaDetailView: View {
     private var factsLine: String {
         var parts: [String] = []
         if let year = meta?.releaseInfo, !year.isEmpty { parts.append(year) }
-        if let runtime = meta?.runtime, !runtime.isEmpty { parts.append(runtime) }
-        if let rating = meta?.imdbRating, !rating.isEmpty { parts.append("★ \(rating)") }
+        if let runtime = displayRuntime { parts.append(runtime) }
+        if let rating = meta?.imdbRating, !rating.isEmpty {
+            parts.append("★ \(rating)")
+        } else if let tmdb = enrichment?.rating, tmdb > 0 {
+            parts.append("★ \(tmdb.formatted(.number.precision(.fractionLength(1))))")
+        }
         return parts.joined(separator: " · ")
+    }
+
+    // MARK: - TMDB-merged display values
+    //
+    // Precedence: prefer the TMDB value for the *metadata* fields it improves on (overview, genres,
+    // runtime, credits, certification/status/country/language) and fall back to addon `meta`. Artwork
+    // (logo/backdrop) prefers the curated addon art (Metahub white wordmark / full-res background) and
+    // uses TMDB only to fill a gap, since TMDB logos vary in style/colour. Nothing is ever blanked out.
+
+    private var displayLogoURL: URL? {
+        meta?.logo.flatMap(URL.init(string:)) ?? enrichment?.logoURL
+    }
+
+    private var displayDescription: String? {
+        if let overview = enrichment?.overview, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return overview
+        }
+        return meta?.description
+    }
+
+    private var displayGenres: [String] {
+        if let genres = enrichment?.genres, !genres.isEmpty { return genres }
+        return meta?.genres ?? []
+    }
+
+    /// Real TMDB certification ("PG-13" / "TV-MA") when available, else the placeholder.
+    private var displayCertification: String {
+        if let certification = enrichment?.certification, !certification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return certification
+        }
+        return ratingPlaceholder
+    }
+
+    /// Run time, preferring TMDB minutes (formatted via `FormatStyle`) over the addon's string.
+    private var displayRuntime: String? {
+        if let minutes = enrichment?.runtimeMinutes, minutes > 0 {
+            return Duration.seconds(minutes * 60)
+                .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+        }
+        if let runtime = meta?.runtime, !runtime.isEmpty { return runtime }
+        return nil
+    }
+
+    /// Cast names for the hero credits column, preferring TMDB's ordered cast.
+    private var displayCastNames: [String] {
+        if let cast = enrichment?.cast, !cast.isEmpty { return cast.map(\.name) }
+        return meta?.cast ?? []
+    }
+
+    private var displayDirectors: [String] {
+        if let directors = enrichment?.directors, !directors.isEmpty { return directors }
+        return meta?.director ?? []
+    }
+
+    /// Combined cast + crew entries (with photos/roles) for the Cast & Crew row. Falls back to the
+    /// addon's name-only cast/director when TMDB has nothing.
+    private var creditEntries: [CreditEntry] {
+        if let e = enrichment, !e.cast.isEmpty || !e.directors.isEmpty || !e.writers.isEmpty {
+            var entries = e.cast.prefix(12).map {
+                CreditEntry(id: "cast-\($0.id)", name: $0.name, role: $0.character ?? "Cast", imageURL: $0.profileURL)
+            }
+            entries += e.directors.map { CreditEntry(id: "dir-\($0)", name: $0, role: "Director", imageURL: nil) }
+            entries += e.writers.map { CreditEntry(id: "wri-\($0)", name: $0, role: "Writer", imageURL: nil) }
+            return entries
+        }
+        var entries = (meta?.cast ?? []).prefix(12).enumerated().map { index, name in
+            CreditEntry(id: "cast-\(index)-\(name)", name: name, role: "Cast", imageURL: nil)
+        }
+        entries += (meta?.director ?? []).enumerated().map { index, name in
+            CreditEntry(id: "dir-\(index)-\(name)", name: name, role: "Director", imageURL: nil)
+        }
+        return entries
     }
 
     private func airDate(_ released: String?) -> String? {
@@ -1074,6 +1233,12 @@ struct MetaDetailView: View {
     // MARK: - Loading
 
     private func load() async {
+        // Reset per-title TMDB state so a reused view (metaID change) never shows the previous
+        // title's enrichment or episode data while the new title loads.
+        enrichment = nil
+        episodeInfo = [:]
+        seasonPosters = [:]
+        didRevealUpNext = false
         if let previewMeta {                       // sample/preview path — no networking
             meta = previewMeta
             status = .loaded
@@ -1089,7 +1254,13 @@ struct MetaDetailView: View {
                 )
                 meta = response.meta
                 status = .loaded
-                await loadRelated()
+                // Related (genre catalog) and TMDB enrichment run concurrently; neither blocks the
+                // already-displayed base meta. Enrichment is best-effort — `enrich` returns nil when
+                // TMDB isn't configured, the id isn't an IMDB id, or there's no match.
+                async let relatedTask: Void = loadRelated()
+                async let enrichTask = TMDBService.shared.enrich(stremioType: typeID, imdbID: metaID)
+                _ = await relatedTask
+                enrichment = await enrichTask
                 return
             } catch {
                 continue
@@ -1348,7 +1519,7 @@ private struct EpisodeCard: View {
                         Capsule().fill(.white).frame(width: 90 * progress, height: 4)
                     }
             }
-            Text(durationText)   // PLACEHOLDER duration
+            Text(durationText)
                 .font(.system(size: 15, weight: .semibold))
         }
         .foregroundStyle(.white)
@@ -1400,6 +1571,91 @@ private struct EpisodeCard: View {
         .background(focused ? Color.black.opacity(0.3) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+// MARK: - Trailer card
+
+/// A real TMDB trailer: the video's YouTube thumbnail with the trailer name + a play glyph over a
+/// bottom gradient. Matches the placeholder card's geometry so the row looks identical either way.
+private struct TrailerCard: View {
+    let trailer: Trailer
+    let action: () -> Void
+
+    private var thumbnailURL: URL? {
+        URL(string: "https://img.youtube.com/vi/\(trailer.youTubeKey)/hqdefault.jpg")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            RemoteImage(url: thumbnailURL, targetSize: CGSize(width: 426, height: 270), contentMode: .fill) {
+                Color(white: 0.08)
+            }
+            .frame(width: 426, height: 270)
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, .black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 150)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottomLeading) {
+                HStack(spacing: 9) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(trailer.title)
+                        .font(.system(size: 22, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 13)
+            }
+            .frame(width: 426, height: 270)
+        }
+        .buttonStyle(.card)
+    }
+}
+
+// MARK: - How to Watch provider card
+
+/// One flattened "way to watch": a provider paired with a single availability (Stream / Rent / Buy).
+private struct WatchOption: Identifiable, Hashable {
+    let id: String
+    let provider: WatchProvider
+    let availability: String
+}
+
+/// A single way to watch — provider logo + name, with the availability (Stream / Rent / Buy) as the
+/// description. One card in the horizontal How to Watch row; uses the system `.card` button style.
+private struct WatchProviderCard: View {
+    let provider: WatchProvider
+    let availability: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                RemoteImage(url: provider.logoURL, targetSize: CGSize(width: 56, height: 56), contentMode: .fit) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.Color.cardRest)
+                }
+                .frame(width: 56, height: 56)
+                .clipShape(.rect(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(provider.name)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Theme.Color.primaryText)
+                        .lineLimit(1)
+                    Text(availability)
+                        .font(.system(size: 18))
+                        .foregroundStyle(Theme.Color.secondaryText)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(width: 340, alignment: .leading)
+        }
+        .buttonStyle(.card)
     }
 }
 
@@ -1677,33 +1933,6 @@ private struct InfoColumnCard<Content: View>: View {
     }
 }
 
-// MARK: - Provider row (How to Watch) focus style
-
-private struct ProviderRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        StyleBody(configuration: configuration)
-    }
-
-    private struct StyleBody: View {
-        let configuration: Configuration
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
-            configuration.label
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .fill(isFocused ? Theme.Color.cardFocused : Theme.Color.cardRest)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .stroke(isFocused ? Theme.Color.cardBorderFocused : .clear, lineWidth: 2)
-                )
-                .scaleEffect(configuration.isPressed ? 0.98 : (isFocused ? 1.02 : 1.0))
-                .animation(.easeOut(duration: 0.18), value: isFocused)
-        }
-    }
-}
-
 // MARK: - Cast chip
 
 /// Focus treatment for a cast chip — lifts and brightens the avatar (so the section is reachable
@@ -1726,20 +1955,25 @@ private struct CastChipStyle: ButtonStyle {
     }
 }
 
+/// One Cast & Crew entry: a person's name, their role/character, and an optional headshot URL.
+private struct CreditEntry: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let role: String
+    let imageURL: URL?
+}
+
 private struct CastChip: View {
     let name: String
     var role: String? = nil
+    /// TMDB headshot. When nil (or while loading), an initials avatar is shown instead.
+    var imageURL: URL? = nil
 
     var body: some View {
         VStack(spacing: 12) {
-            Circle()
-                .fill(Theme.Color.cardRest)
+            avatar
                 .frame(width: 140, height: 140)
-                .overlay(
-                    Text(initials)
-                        .font(.title.weight(.bold))
-                        .foregroundStyle(Theme.Color.primaryText.opacity(0.7))
-                )
+                .clipShape(.circle)
             VStack(spacing: 2) {
                 Text(name)
                     .font(.callout.weight(.medium))
@@ -1755,6 +1989,27 @@ private struct CastChip: View {
             .frame(width: 160)
             .multilineTextAlignment(.center)
         }
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let imageURL {
+            RemoteImage(url: imageURL, targetSize: CGSize(width: 140, height: 140), contentMode: .fill) {
+                initialsAvatar
+            }
+        } else {
+            initialsAvatar
+        }
+    }
+
+    private var initialsAvatar: some View {
+        Circle()
+            .fill(Theme.Color.cardRest)
+            .overlay(
+                Text(initials)
+                    .font(.title.weight(.bold))
+                    .foregroundStyle(Theme.Color.primaryText.opacity(0.7))
+            )
     }
 
     private var initials: String {

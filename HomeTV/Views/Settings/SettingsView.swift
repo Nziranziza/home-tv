@@ -42,6 +42,12 @@ struct SettingsView: View {
                             if TraktConfig.isConfigured {
                                 TraktSettingsRow()
                             }
+
+                            // TMDB attribution is required by their API terms whenever enrichment runs;
+                            // shown here (not on the detail screen) to keep that UI pure Apple TV+.
+                            if TMDBConfig.isConfigured {
+                                TMDBAttributionView()
+                            }
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
@@ -55,7 +61,8 @@ struct SettingsView: View {
                         .padding(.horizontal, Theme.Spacing.rowHorizontal)
                     }
                     .padding(.horizontal, 80)
-                    .padding(.vertical, 60)
+                    .padding(.top, 36)
+                    .padding(.bottom, 60)
                     .frame(maxWidth: 1400, alignment: .leading)
                 }
             }
