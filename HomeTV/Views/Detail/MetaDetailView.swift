@@ -500,13 +500,8 @@ struct MetaDetailView: View {
     private var resumeBar: some View {
         if let upNext = seriesUpNext, let progress = upNext.resumeProgress {
             HStack(spacing: 14) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.3))
-                        Capsule().fill(.white).frame(width: geo.size.width * max(0, min(1, progress)))
-                    }
-                }
-                .frame(width: 220, height: 5)
+                ProgressBar(progress: progress)
+                    .frame(width: 220, height: 5)
 
                 Text("\(Int((progress * 100).rounded()))% · \(seasonEpisodeLabel(upNext.video))")
                     .font(.callout.weight(.medium))

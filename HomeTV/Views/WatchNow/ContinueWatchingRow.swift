@@ -166,18 +166,3 @@ private struct ContinueWatchingCard: View {
         return abs(hash)
     }
 }
-
-private struct ProgressBar: View {
-    let progress: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.3))
-                Capsule()
-                    .fill(.white)
-                    .frame(width: geo.size.width * max(0, min(1, progress)))
-            }
-        }
-    }
-}
