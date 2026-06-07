@@ -20,12 +20,7 @@ struct SearchView: View {
             .task(id: query) {
                 await runSearch()
             }
-            .navigationDestination(item: $selection) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
-            .navigationDestination(for: MetaPreview.self) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
+            .metaDetailDestinations(selection: $selection)
         }
     }
 

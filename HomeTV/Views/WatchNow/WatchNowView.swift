@@ -5,7 +5,7 @@ struct WatchNowView: View {
     @State private var history = WatchHistory.shared
     @State private var trakt = TraktService.shared
     @State private var selection: MetaPreview? = WatchNowView.initialSelection()
-    @State private var streamRequest: MetaDetailView.StreamRequest?
+    @State private var streamRequest: StreamRequest?
     @Namespace private var contentFocus
 
     var body: some View {
@@ -55,21 +55,8 @@ struct WatchNowView: View {
             .task(id: model.rowSpecs.first?.id) {
                 await model.loadHero()
             }
-            .navigationDestination(item: $selection) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
-            .navigationDestination(for: MetaPreview.self) { meta in
-                MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-            }
-            .fullScreenCover(item: $streamRequest) { req in
-                StreamPickerView(
-                    type: req.type,
-                    contentID: req.contentID,
-                    title: req.title,
-                    backgroundURL: req.backgroundURL,
-                    logoURL: req.logoURL
-                )
-            }
+            .metaDetailDestinations(selection: $selection)
+            .streamPickerCover(request: $streamRequest)
         }
     }
 
@@ -93,7 +80,7 @@ struct WatchNowView: View {
             background: meta.background,
             logo: meta.logo
         )
-        streamRequest = MetaDetailView.StreamRequest(
+        streamRequest = StreamRequest(
             type: meta.type,
             contentID: meta.id,
             title: meta.name,

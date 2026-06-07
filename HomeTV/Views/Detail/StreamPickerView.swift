@@ -58,107 +58,6 @@ struct StreamPickerView: View {
         var id: String { "\(addonName):\(stream.id)" }
     }
 
-    /// Everything parsed out of a stream's title/name/description, computed ONCE at load time
-    /// so filtering, grouping, and rendering read plain stored fields (no regex per focus move).
-    struct StreamMeta: Hashable {
-        let resolution: String
-        let resolutionRank: Int
-        let hdr: String?
-        let codec: String?
-        let bitDepth: String?
-        let audio: String?
-        let sourceTag: String?
-        let sourceIsWarning: Bool
-        let size: String?
-        let releaseName: String
-
-        static func make(from stream: Stream) -> StreamMeta {
-            let haystack = "\(stream.title ?? "") \(stream.name ?? "") \(stream.description ?? "")"
-            func matches(_ pattern: String) -> Bool {
-                haystack.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-            }
-
-            let resolution: String
-            if matches(#"\b(4K|2160p|UHD)\b"#) { resolution = "4K" }
-            else if matches(#"\b1080p\b"#) { resolution = "1080p" }
-            else if matches(#"\b720p\b"#) { resolution = "720p" }
-            else if matches(#"\b480p\b"#) { resolution = "480p" }
-            else if matches(#"\b(SD|CAM|TS)\b"#) { resolution = "SD" }
-            else { resolution = "AUTO" }
-
-            let hdr: String?
-            if haystack.localizedCaseInsensitiveContains("DV") || haystack.localizedCaseInsensitiveContains("Dolby Vision") {
-                hdr = "DV"
-            } else if haystack.localizedCaseInsensitiveContains("HDR") {
-                hdr = "HDR"
-            } else {
-                hdr = nil
-            }
-
-            let codec: String?
-            if matches(#"\bav1\b"#) { codec = "AV1" }
-            else if matches(#"\b(x265|h\.?265|hevc)\b"#) { codec = "HEVC" }
-            else if matches(#"\b(x264|h\.?264|avc)\b"#) { codec = "H.264" }
-            else { codec = nil }
-
-            let bitDepth: String?
-            if matches(#"\b10-?bit\b"#) { bitDepth = "10-bit" }
-            else if matches(#"\b8-?bit\b"#) { bitDepth = "8-bit" }
-            else { bitDepth = nil }
-
-            // Audio format, strongest/most-specific first.
-            let audio: String?
-            if matches(#"\batmos\b"#) { audio = "Dolby Atmos" }
-            else if matches(#"\b(truehd|true-hd)\b"#) { audio = "Dolby TrueHD" }
-            else if matches(#"\bdts-?hd\b"#) { audio = "DTS-HD" }
-            else if matches(#"\bdts\b"#) { audio = "DTS" }
-            else if matches(#"\b(ddp|dd\+|e-?ac-?3|eac3)\b"#) { audio = "Dolby Digital+" }
-            else if matches(#"\b(dd|ac-?3|ac3)\b"#) { audio = "Dolby Digital" }
-            else if matches(#"\baac\b"#) { audio = "AAC" }
-            else if matches(#"\bflac\b"#) { audio = "FLAC" }
-            else { audio = nil }
-
-            // CAM-type rips flagged as a warning so they're easy to avoid.
-            let sourceTag: String?
-            let sourceIsWarning: Bool
-            if matches(#"\b(cam|camrip|hdcam|ts|telesync|hdts)\b"#) { sourceTag = "CAM"; sourceIsWarning = true }
-            else if matches(#"\bremux\b"#) { sourceTag = "REMUX"; sourceIsWarning = false }
-            else if matches(#"\b(blu-?ray|bdrip|brrip|bd)\b"#) { sourceTag = "BluRay"; sourceIsWarning = false }
-            else if matches(#"\bweb-?dl\b"#) { sourceTag = "WEB-DL"; sourceIsWarning = false }
-            else if matches(#"\b(webrip|web)\b"#) { sourceTag = "WEB"; sourceIsWarning = false }
-            else { sourceTag = nil; sourceIsWarning = false }
-
-            let size: String?
-            let sizeHaystack = "\(stream.title ?? "") \(stream.description ?? "")"
-            if let range = sizeHaystack.range(of: #"(\d+(?:\.\d+)?)\s?(GB|MB|TB)"#, options: [.regularExpression, .caseInsensitive]) {
-                size = String(sizeHaystack[range])
-            } else {
-                size = nil
-            }
-
-            // Torrentio packs name + seeders + size across several lines (often with emoji);
-            // keep just the first non-empty line as the title.
-            let source = stream.title ?? stream.name ?? "Stream"
-            let releaseName = source
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .first { !$0.isEmpty } ?? "Stream"
-
-            return StreamMeta(
-                resolution: resolution,
-                resolutionRank: StreamPickerView.qualityRank(resolution),
-                hdr: hdr,
-                codec: codec,
-                bitDepth: bitDepth,
-                audio: audio,
-                sourceTag: sourceTag,
-                sourceIsWarning: sourceIsWarning,
-                size: size,
-                releaseName: releaseName
-            )
-        }
-    }
-
     // Header geometry, shared so the content's top inset always reserves exactly the header's
     // space. The header is pinned to the top independent of content, so it never shifts between
     // the loading, loaded, and empty/error states.
@@ -316,48 +215,27 @@ struct StreamPickerView: View {
 
     // MARK: - Filter axes
 
+    /// Pure filtering/grouping logic, built from the current state on each access. The view keeps
+    /// owning all of its `@State`; this holds no state of its own (see `StreamPickerViewModel`).
+    private var model: StreamPickerViewModel {
+        StreamPickerViewModel(
+            streams: streams,
+            selectedProvider: selectedProvider,
+            selectedQuality: selectedQuality,
+            detailID: detailID
+        )
+    }
+
     /// "All" + distinct provider names in load order.
-    private var providers: [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for item in streams where !seen.contains(item.addonName) {
-            seen.insert(item.addonName)
-            ordered.append(item.addonName)
-        }
-        return [Self.allLabel] + ordered
-    }
-
-    private var providerStreams: [LabeledStream] {
-        guard selectedProvider != Self.allLabel else { return streams }
-        return streams.filter { $0.addonName == selectedProvider }
-    }
-
+    private var providers: [String] { model.providers }
+    private var providerStreams: [LabeledStream] { model.providerStreams }
     /// "All" + the quality buckets present for the selected provider, high → low.
-    private var qualities: [String] {
-        let buckets = Set(providerStreams.map { $0.meta.resolution })
-        let ordered = buckets.sorted { Self.qualityRank($0) > Self.qualityRank($1) }
-        return [Self.allLabel] + ordered
-    }
-
-    private var filteredStreams: [LabeledStream] {
-        guard selectedQuality != Self.allLabel else { return providerStreams }
-        return providerStreams.filter { $0.meta.resolution == selectedQuality }
-    }
-
+    private var qualities: [String] { model.qualities }
+    private var filteredStreams: [LabeledStream] { model.filteredStreams }
     /// Filtered streams grouped into quality sections, high → low.
-    private var qualitySections: [(quality: String, items: [LabeledStream])] {
-        let groups = Dictionary(grouping: filteredStreams, by: { $0.meta.resolution })
-        return groups.keys
-            .sorted { Self.qualityRank($0) > Self.qualityRank($1) }
-            .map { ($0, groups[$0] ?? []) }
-    }
-
-    private var firstStreamID: String? { qualitySections.first?.items.first?.id }
-
-    private var detailStream: LabeledStream? {
-        if let id = detailID, let match = filteredStreams.first(where: { $0.id == id }) { return match }
-        return filteredStreams.first
-    }
+    private var qualitySections: [(quality: String, items: [LabeledStream])] { model.qualitySections }
+    private var firstStreamID: String? { model.firstStreamID }
+    private var detailStream: LabeledStream? { model.detailStream }
 
     // MARK: - Browser (master + detail)
 
@@ -599,9 +477,7 @@ struct StreamPickerView: View {
         .focusSection()
     }
 
-    private func videoSpec(_ m: StreamMeta) -> String {
-        [m.codec, m.bitDepth].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "—"
-    }
+    private func videoSpec(_ m: StreamMeta) -> String { model.videoSpec(m) }
 
     private func specRow(_ label: String, _ value: String, warning: Bool = false, last: Bool = false) -> some View {
         VStack(spacing: 0) {
@@ -956,91 +832,6 @@ struct StreamPickerView: View {
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        }
-    }
-}
-
-private extension String {
-    /// Nil when empty, so `?? "—"` chains read cleanly.
-    var nonEmpty: String? { isEmpty ? nil : self }
-}
-
-// MARK: - Segmented control
-
-/// A frosted segmented control: a rounded `.ultraThinMaterial` track with a muted leading label
-/// and pill segments. The selected segment shows a white thumb; the focused segment shows the
-/// brightest thumb with a lift — embracing the tvOS focus highlight. A plain `HStack` of buttons
-/// (no `ScrollView`/`focusSection`) so left/right traverse the segments natively.
-private struct SegmentedControl: View {
-    let label: String
-    let options: [String]
-    let selected: String
-    var focus: FocusState<StreamPickerView.PickerFocus?>.Binding
-    let focusCase: (String) -> StreamPickerView.PickerFocus
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        HStack(spacing: 18) {
-            Text(label.uppercased())
-                .font(.system(size: 15, weight: .heavy))
-                .tracking(1.5)
-                .foregroundStyle(Theme.Color.tertiaryText)
-                .frame(width: 96, alignment: .leading)
-
-            // Generous spacing so a focused segment's 1.05 lift doesn't visually touch its
-            // neighbour.
-            HStack(spacing: 12) {
-                ForEach(options, id: \.self) { option in
-                    Button { onSelect(option) } label: {
-                        Text(option).fixedSize()
-                    }
-                    .buttonStyle(SegmentStyle(isSelected: selected == option))
-                    .focused(focus, equals: focusCase(option))
-                }
-            }
-            .padding(6)
-            .background(
-                Capsule(style: .continuous).fill(.ultraThinMaterial)
-            )
-            .overlay(
-                Capsule(style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1)
-            )
-        }
-    }
-}
-
-private struct SegmentStyle: ButtonStyle {
-    let isSelected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        StyleBody(configuration: configuration, isSelected: isSelected)
-    }
-
-    private struct StyleBody: View {
-        let configuration: Configuration
-        let isSelected: Bool
-        @Environment(\.isFocused) private var isFocused
-
-        private var thumbOpacity: Double {
-            if isFocused { return 1.0 }
-            return isSelected ? 0.92 : 0.0
-        }
-
-        private var foreground: Color {
-            (isFocused || isSelected) ? .black : Theme.Color.secondaryText
-        }
-
-        var body: some View {
-            configuration.label
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(foreground)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
-                .background(Capsule(style: .continuous).fill(Color.white.opacity(thumbOpacity)))
-                .scaleEffect(configuration.isPressed ? 0.96 : (isFocused ? 1.05 : 1.0))
-                .shadow(color: .black.opacity(isFocused ? 0.3 : 0.0), radius: 10, y: 4)
-                .animation(.easeOut(duration: 0.18), value: isFocused)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
 }
