@@ -913,8 +913,33 @@ struct MetaDetailView: View {
         // it the page's own warm blurred gradient shows through (no dark shelf — one continuous gradient).
         .padding(.bottom, 600)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) { footerPanel }
+        .padding(.top, footerTopGap)   // About card → header gap, matched to the reference (≈90pt)
         .focusSection()
     }
+
+    private let footerTopGap: CGFloat = 32
+
+    /// A dark translucent scrim behind the footer so it reads darker than the rest of the page, fading
+    /// out toward the bottom back to the bare backdrop. Bleeds up into the gap above the headers.
+    private var footerPanel: some View {
+        Rectangle()
+            .fill(.black.opacity(0.42))
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0.0),
+                        .init(color: .white, location: 0.42),
+                        .init(color: .clear, location: 0.82)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+            .padding(.top, -footerPanelTopBleed)
+            .allowsHitTesting(false)
+    }
+
+    private let footerPanelTopBleed: CGFloat = 30
 
     private var informationColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
