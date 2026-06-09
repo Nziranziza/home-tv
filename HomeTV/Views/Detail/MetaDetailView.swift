@@ -286,7 +286,7 @@ struct MetaDetailView: View {
             // right-margin token (≈ x 1760; leftInset 86 + 74 trailing = 160 from the right). Grows up.
             creditsColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.trailing, 74)
+                .padding(.trailing, 0)
 
             VStack(alignment: .leading, spacing: 16) {   // tighter rhythm pulls the upper stack down ~25 px
                 titleView
@@ -297,7 +297,7 @@ struct MetaDetailView: View {
                         .foregroundStyle(.white.opacity(0.68))
                         .lineSpacing(6)               // ≈ line-height 1.25 at 27 pt
                         .lineLimit(4)
-                        .frame(maxWidth: 660, alignment: .leading)   // wraps at ≈ x 746 from the x 86 guide
+                        .frame(maxWidth: 780, alignment: .leading)   // wraps at ≈ x 746 from the x 86 guide
                 }
                 metaLine
                 actionButtons
@@ -509,7 +509,7 @@ struct MetaDetailView: View {
                     creditLine(label: "Director", names: directors)
                 }
             }
-            .frame(maxWidth: 360, alignment: .leading)
+            .frame(maxWidth: 400, alignment: .leading)
         }
     }
 

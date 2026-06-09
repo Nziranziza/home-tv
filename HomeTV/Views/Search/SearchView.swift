@@ -1,109 +1,89 @@
 import SwiftUI
 
+/// Search screen. The keyboard, query header and "Press ⏯ to change keyboards" hint are all the
+/// native tvOS `.searchable` UI; below it we show a focusable poster grid — the live search results
+/// when there's a query, otherwise a "Browse" set the user can wander through manually.
 struct SearchView: View {
-    @State private var registry = AddonRegistry.shared
-    @State private var query: String = ""
-    @State private var results: [MetaPreview] = []
-    @State private var status: LoadStatus = .idle
+    @State private var viewModel = SearchViewModel()
     @State private var selection: MetaPreview?
-
-    enum LoadStatus { case idle, loading, loaded, empty }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
+                // Same page background as the Watch Now screen.
+                Theme.Color.pageBackground.ignoresSafeArea()
                 content
             }
-            .navigationTitle("Search")
-            .searchable(text: $query, prompt: "Movies, series…")
-            .task(id: query) {
-                await runSearch()
-            }
+            .searchable(text: $viewModel.query, prompt: "Movies, series…")
+            .task { await viewModel.loadBrowse() }
+            .task(id: viewModel.query) { await viewModel.runSearch() }
             .metaDetailDestinations(selection: $selection)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch status {
-        case .idle:
-            placeholder(icon: "magnifyingglass", message: "Start typing to search across your addons.")
-        case .loading:
+        switch viewModel.status {
+        case .searching:
             ProgressView().controlSize(.large)
         case .empty:
-            placeholder(icon: "questionmark.circle", message: "No results for \"\(query)\".")
-        case .loaded:
-            grid
-        }
-    }
-
-    private var grid: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 260), spacing: 36)], spacing: 48) {
-                ForEach(results) { meta in
-                    ContentCard(meta: meta) { selection = meta }
-                }
+            ContentUnavailableView.search(text: viewModel.query)
+        case .browsing, .results:
+            if viewModel.hasNoAddons {
+                ContentUnavailableView(
+                    "No Addons",
+                    systemImage: "puzzlepiece.extension",
+                    description: Text("Add a catalog addon in Settings to browse and search.")
+                )
+            } else {
+                SearchBrowseGrid(
+                    title: viewModel.status == .results ? "Results" : "Browse",
+                    items: viewModel.displayedItems,
+                    onSelect: { selection = $0 }
+                )
             }
-            .padding(60)
         }
     }
+}
 
-    private func placeholder(icon: String, message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 60))
-            Text(message)
-                .font(.title3)
-        }
-        .foregroundStyle(.white.opacity(0.5))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+/// The poster grid beneath the keyboard. Reuses `ContentCard` for the cards and the shared focus
+/// treatment; geometry (260×391 posters, 40pt gutters, 80pt margins) matches the reference frame.
+private struct SearchBrowseGrid: View {
+    let title: String
+    let items: [MetaPreview]
+    var onSelect: (MetaPreview) -> Void
+
+    private var columns: [GridItem] {
+        Array(
+            repeating: GridItem(.fixed(Theme.Search.posterSize.width), spacing: Theme.Search.posterGutter),
+            count: Theme.Search.posterColumns
+        )
     }
 
-    private func runSearch() async {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 2 else {
-            results = []
-            status = .idle
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(400))
-        if Task.isCancelled { return }
-        if trimmed != query.trimmingCharacters(in: .whitespaces) { return }
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(title)
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.rowHeaderOnLight)
 
-        status = .loading
-
-        let searchableCatalogs = registry.enabledAddons.flatMap { addon -> [(InstalledAddon, CatalogDescriptor)] in
-            (addon.manifest.catalogs ?? [])
-                .filter { catalog in
-                    catalog.extra?.contains(where: { $0.name == "search" }) ?? false
-                }
-                .map { (addon, $0) }
-        }
-
-        let collected = await withTaskGroup(of: [MetaPreview].self) { group in
-            for (addon, catalog) in searchableCatalogs {
-                group.addTask {
-                    do {
-                        let resp = try await StremioClient.shared.catalog(
-                            baseURL: addon.baseURL,
-                            type: catalog.type,
-                            id: catalog.id,
-                            extra: ["search": trimmed]
-                        )
-                        return resp.metas
-                    } catch {
-                        return []
+                LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Search.posterRowGap) {
+                    ForEach(items) { meta in
+                        ContentCard(meta: meta, sizeOverride: Theme.Search.posterSize) {
+                            onSelect(meta)
+                        }
                     }
                 }
             }
-            var all: [MetaPreview] = []
-            for await batch in group { all.append(contentsOf: batch) }
-            return all
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.Search.contentInset)
         }
-
-        var seen: Set<String> = []
-        results = collected.filter { seen.insert($0.id).inserted }
-        status = results.isEmpty ? .empty : .loaded
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
     }
+}
+
+#Preview {
+    SearchView()
 }
