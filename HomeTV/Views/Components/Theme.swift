@@ -83,6 +83,17 @@ enum Theme {
         static let bottomPadding: CGFloat = 100
     }
 
+    /// Search screen — the keyboard, query header and "Press ⏯…" hint are the native tvOS
+    /// `.searchable` UI, so only the Browse grid's geometry lives here. Card size, gutter and side
+    /// margin were measured from the reference frame (`ignore/search.png`, 1920×1080).
+    enum Search {
+        static let contentInset: CGFloat = 80
+        static let posterSize = CGSize(width: 260, height: 391)
+        static let posterGutter: CGFloat = 40
+        static let posterRowGap: CGFloat = 58
+        static let posterColumns: Int = 6
+    }
+
     /// Detail screen (Apple TV+ style hero ↔ browse). One left alignment guide for ALL left-aligned
     /// content in both states, so the hero column and the content rows share a single guide. Measured
     /// from the reference video frames (hero metadata, headers, cards, and posters all align here).

@@ -35,5 +35,5 @@ struct RootTabView: View {
 
 #Preview {
     RootTabView()
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
 }
