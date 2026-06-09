@@ -816,23 +816,24 @@ struct MetaDetailView: View {
     /// across the priority-ordered groups (Stream → Rent → Buy …), so the labels join in that order.
     private var watchOptions: [WatchOption] { model.watchOptions }
 
+    /// Three flexible columns; the grid grows downward and the page scroll view handles vertical paging.
+    private var howToWatchColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 30), count: 3)
+    }
+
     private var howToWatchSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "How to Watch")
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 40) {
-                    ForEach(watchOptions) { option in
-                        WatchProviderCard(provider: option.provider, availability: option.availability) {
-                            if let link = enrichment?.watchLink { openURL(link) }
-                        }
+            LazyVGrid(columns: howToWatchColumns, spacing: 30) {
+                ForEach(watchOptions) { option in
+                    WatchProviderCard(provider: option.provider, availability: option.availability) {
+                        if let link = enrichment?.watchLink { openURL(link) }
                     }
                 }
-                .padding(.horizontal, Theme.Detail.leftInset)
-                .padding(.vertical, 16)
             }
-            .detailRowScroll()
-            .focusSection()
+            .padding(.horizontal, Theme.Detail.leftInset)
         }
+        .focusSection()
     }
 
     // MARK: - About

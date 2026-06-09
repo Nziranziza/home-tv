@@ -40,7 +40,7 @@ struct Enrichment: Sendable, Hashable {
     var trailers: [Trailer] = []
 }
 
-/// A streaming/rental/purchase service the title is available on, with its logo.
+/// A streaming/rental/purchase service the title is available on, with its (square) logo.
 struct WatchProvider: Sendable, Hashable, Identifiable {
     let id: Int
     let name: String
