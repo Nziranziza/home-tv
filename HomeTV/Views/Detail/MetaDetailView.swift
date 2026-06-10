@@ -997,12 +997,11 @@ struct MetaDetailView: View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "Cast & Crew")
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 28) {
+                // Top-aligned (like the episodes row) so a focused chip's widened gap pushes its
+                // name+role straight down, instead of a centered row re-centering and eating the push.
+                LazyHStack(alignment: .top, spacing: 48) {
                     ForEach(creditEntries) { entry in
-                        Button { } label: {
-                            CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL)
-                        }
-                        .buttonStyle(CastChipStyle())
+                        CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL)
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
