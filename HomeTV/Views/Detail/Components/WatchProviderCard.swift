@@ -10,8 +10,8 @@ struct WatchOption: Identifiable, Hashable {
 }
 
 /// A single way to watch — provider logo + name, with the availability (Stream / Rent / Buy) as the
-/// description. One cell in the How to Watch grid; uses the system `.card` button style. The logo sits
-/// in a wide rectangular tile (matching the reference) and the card fills its grid column.
+/// description. One cell in the How to Watch grid; uses the system `.card` button style. The square
+/// provider logo sits in a square tile and the card fills its grid column.
 struct WatchProviderCard: View {
     let provider: WatchProvider
     let availability: String
@@ -23,11 +23,12 @@ struct WatchProviderCard: View {
                 logoTile
                 VStack(alignment: .leading, spacing: 6) {
                     Text(provider.name)
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.subheadline)
+                        .fontWeight(.bold)
                         .foregroundStyle(Theme.Color.primaryText)
                         .lineLimit(2)
                     Text(availability)
-                        .font(.system(size: 20))
+                        .font(.caption)
                         .foregroundStyle(Theme.Color.secondaryText)
                         .lineLimit(1)
                 }
