@@ -142,6 +142,25 @@ If SwiftData is configured to use CloudKit:
   - Hide the row when the user is signed out or has no in-progress items
   ```
 
+## Code reasoning vs. simulator verification
+
+Reason from the code first; reach for the simulator only to confirm. Build-and-screenshot loops
+are slow, so do not use them to *diagnose* problems whose answer is in the source.
+
+- **Diagnose by reading the code** for: layout/animation/state logic, focus wiring, "which element
+  moves / why it animates wrong", styling, and anything that should mirror an existing component.
+  When behavior should match a sibling view (e.g. a new card vs. `EpisodeCard`), diff the two
+  views and find where they diverge before running anything. A bug visible in a 3-line diff is
+  not worth a build cycle.
+- **Verify in the simulator** for: confirming a fix once the code is sound, genuine visual sign-off
+  (spacing/overscan against a mockup), and focus/navigation that truly can't be read from code.
+- A worked example: "cast name and role don't animate together" was a code bug — both lines had a
+  per-line `foregroundStyle(focused ? …)` while the reference `EpisodeCard` kept its text static.
+  Reading the two views side by side found it in seconds; repeated simulator captures did not.
+- If the code isn't clearly correct yet, fix the code before verifying — a simulator run on
+  sloppy code just confirms it's wrong. Prefer `RenderPreview` / Xcode Previews over a full
+  install-launch-navigate cycle when you only need to see a single view.
+
 ## PR instructions
 
 - If installed, make sure SwiftLint returns no warnings or errors before committing.
