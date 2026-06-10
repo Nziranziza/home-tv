@@ -132,6 +132,8 @@ If SwiftData is configured to use CloudKit:
 - Commit messages: use [Conventional Commits](https://www.conventionalcommits.org/) format with
   a short title and a bulleted body summarizing the key changes (not every individual diff — let
   `git diff` speak for itself).
+- Never use double quotes (`"`) anywhere in a commit message. Refer to identifiers, labels, and
+  UI strings without quoting them.
 - Example:
   ```
   feat: add Trakt continue-watching to the Watch Now screen
