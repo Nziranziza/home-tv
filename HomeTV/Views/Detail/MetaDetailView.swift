@@ -301,7 +301,6 @@ struct MetaDetailView: View {
                 }
                 metaLine
                 actionButtons
-                resumeBar
             }
         }
         .padding(.horizontal, Theme.Detail.leftInset)
@@ -478,22 +477,6 @@ struct MetaDetailView: View {
         .padding(.top, 6)
     }
 
-    /// Apple-style resume bar shown under the buttons when the up-next episode is mid-watch.
-    @ViewBuilder
-    private var resumeBar: some View {
-        if let upNext = seriesUpNext, let progress = upNext.resumeProgress {
-            HStack(spacing: 14) {
-                ProgressBar(progress: progress)
-                    .frame(width: 220, height: 5)
-
-                Text("\(Int((progress * 100).rounded()))% · \(seasonEpisodeLabel(upNext.video))")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            .padding(.top, 2)
-        }
-    }
-
     @ViewBuilder
     private var creditsColumn: some View {
         let cast = displayCastNames
@@ -564,10 +547,17 @@ struct MetaDetailView: View {
     private var episodesSection: some View {
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 18) {
+                // The row header sits in a fixed-height slot (see `detailRowHeader`) so the episode peek
+                // below is identical whether this is a one-line label or the taller season selector. The
+                // selector fades out in the hero state — like every section label — leaving only the
+                // peeking episodes, and fades back in as the season-jump control in browse.
                 if seasons.count > 1 {
                     seasonSelector(proxy: proxy)
+                        .opacity(logoReveal)
+                        .detailRowHeader()
                 } else {
                     DetailSectionHeader(title: "Episodes")
+                        .detailRowHeader()
                 }
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 28) {
@@ -604,9 +594,9 @@ struct MetaDetailView: View {
                                 )
                             }
                             .id(episode.id)
-                            // Single-season shows have no tabs, so the episode strip is the top content
-                            // row — its cards report the content zone so Up from them returns to the hero.
-                            .contentZone(seasons.count <= 1, $zone)
+                            // The episode strip is the focus entry from the hero: the season selector is
+                            // hidden (faded) in the hero state, so Down lands here and drives the scroll.
+                            .contentZone(true, $zone)
                         }
                     }
                     .padding(.horizontal, Theme.Detail.leftInset)
@@ -667,7 +657,9 @@ struct MetaDetailView: View {
                     }
                     .buttonStyle(SeasonTabStyle(isSelected: currentSeason == season))
                     .focused($focusedSeason, equals: season)
-                    // Season tabs are the top content row for multi-season shows.
+                    // Also a content-zone row: it's hidden in the hero state (so Down lands on the
+                    // episode strip below), but in browse it sits just above the strip, so Up from a
+                    // tab must cross back to the hero.
                     .contentZone(true, $zone)
                     .id("season-\(season)")
                 }

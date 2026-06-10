@@ -99,6 +99,13 @@ enum Theme {
     /// from the reference video frames (hero metadata, headers, cards, and posters all align here).
     enum Detail {
         static let leftInset: CGFloat = 86
+
+        /// Uniform height of a content row's header slot (the band that holds a section label or the
+        /// season selector, directly above the row's cards). Fixing it — and bottom-anchoring taller
+        /// content so it overflows upward — keeps the hero peek below the row identical regardless of
+        /// what the header contains, so a one-line "Episodes" label and a row of season tabs reserve
+        /// exactly the same space. Sized to a 30 pt semibold section label.
+        static let rowHeaderHeight: CGFloat = 36
     }
 
     /// Horizontal rows of cards (catalogs, Continue Watching). `contentInset` matches
