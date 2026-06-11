@@ -7,9 +7,10 @@ struct DetailSectionHeader: View {
     /// Left guide for the header. Defaults to the global content margin; the About/Information block
     /// passes its own (slightly tighter) guide so the header aligns with that block's card text.
     var leadingInset: CGFloat = Theme.Detail.leftInset
-    /// Browse-chrome opacity: section labels belong to State B. They're hidden in State A (so the bare
-    /// trailer card peeks at the bottom with no header above it) and fade in with the collapse.
-    @Environment(\.detailChromeOpacity) private var chromeOpacity
+    /// The collapse clock. Section labels belong to State B: they're hidden in State A (so the bare
+    /// trailer card peeks at the bottom with no header above it) and fade in with the collapse. Read
+    /// directly here (a leaf) so only the headers re-render on scroll — never the rows beneath them.
+    let scroll: DetailScrollState
 
     var body: some View {
         // The card/posters rise with the content without fading; only this label fades in.
@@ -19,19 +20,6 @@ struct DetailSectionHeader: View {
             // with the bright blurred backdrop and comes out too light.
             .foregroundStyle(Color(white: 0.6))
             .padding(.leading, leadingInset)
-            .opacity(chromeOpacity)
+            .opacity(scroll.logoReveal)
     }
 }
-
-private struct DetailChromeOpacityKey: EnvironmentKey {
-    static let defaultValue: Double = 1
-}
-
-extension EnvironmentValues {
-    /// 0 in State A → 1 in State B; drives the browse-chrome (section headers) fade-in.
-    var detailChromeOpacity: Double {
-        get { self[DetailChromeOpacityKey.self] }
-        set { self[DetailChromeOpacityKey.self] = newValue }
-    }
-}
-

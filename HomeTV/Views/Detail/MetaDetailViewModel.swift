@@ -38,10 +38,15 @@ struct MetaDetailViewModel {
     /// watched (not the earliest gap), so an old skipped episode can't drag the hero backward.
     ///
     /// `progress`/`isWatched` are injected (Trakt-backed in the app, faked in tests) so this stays a
-    /// pure function of the episode list + watch state.
-    func upNext(progress: (Video) -> Double?, isWatched: (Video) -> Bool) -> UpNext? {
+    /// pure function of the episode list + watch state. The episode list is passed in (the caller
+    /// supplies the cached, already-sorted `MetaDetailModel.sortedEpisodes`) so the sort isn't redone
+    /// here on every call.
+    func upNext(
+        episodes eps: [Video],
+        progress: (Video) -> Double?,
+        isWatched: (Video) -> Bool
+    ) -> UpNext? {
         guard typeID == "series" else { return nil }
-        let eps = allEpisodes
         guard !eps.isEmpty else { return nil }
 
         // 1. Last played but not finished → resume it.
@@ -261,12 +266,11 @@ struct MetaDetailViewModel {
 
     func airDate(_ released: String?) -> String? {
         guard let released, !released.isEmpty else { return nil }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = iso.date(from: released) ?? ISO8601DateFormatter().date(from: released)
+        // Parse the ISO-8601 release timestamp (with or without fractional seconds) via FormatStyle.
+        let date = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(released))
+            ?? (try? Date.ISO8601FormatStyle().parse(released))
+        // Date-only / unparseable strings fall back to the leading "yyyy-MM-dd", as before.
         guard let date else { return String(released.prefix(10)) }
-        let out = DateFormatter()
-        out.dateFormat = "MMM d, yyyy"
-        return out.string(from: date)
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
     }
 }
