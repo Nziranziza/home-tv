@@ -12,7 +12,7 @@ struct DetailTrailersSection: View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "Trailers", scroll: scroll)
             ScrollView(.horizontal) {
-                HStack(spacing: 28) {
+                LazyHStack(spacing: 28) {
                     if let trailers = model.enrichment?.trailers, !trailers.isEmpty {
                         ForEach(trailers) { trailer in
                             TrailerCard(trailer: trailer) { openTrailer(trailer) }
