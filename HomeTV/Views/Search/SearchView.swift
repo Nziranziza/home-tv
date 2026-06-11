@@ -6,12 +6,13 @@ import SwiftUI
 struct SearchView: View {
     @State private var viewModel = SearchViewModel()
     @State private var selection: MetaPreview?
+    @Environment(\.theme) private var theme
 
     var body: some View {
         NavigationStack {
             ZStack {
                 // Same page background as the Watch Now screen.
-                Theme.Color.pageBackground.ignoresSafeArea()
+                theme.background.ignoresSafeArea()
                 content
             }
             .searchable(text: $viewModel.query, prompt: "Movies, series…")
@@ -52,6 +53,7 @@ private struct SearchBrowseGrid: View {
     let title: String
     let items: [MetaPreview]
     var onSelect: (MetaPreview) -> Void
+    @Environment(\.theme) private var theme
 
     private var columns: [GridItem] {
         Array(
@@ -66,7 +68,7 @@ private struct SearchBrowseGrid: View {
                 Text(title)
                     .font(.callout)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Theme.Color.rowHeaderOnLight)
+                    .foregroundStyle(theme.rowHeader)
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Search.posterRowGap) {
                     ForEach(items) { meta in
@@ -77,7 +79,7 @@ private struct SearchBrowseGrid: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.Search.contentInset)
+            .padding(.horizontal, Theme.Layout.horizontalMargin)
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()

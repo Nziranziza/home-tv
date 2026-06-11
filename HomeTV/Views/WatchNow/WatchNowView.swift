@@ -7,11 +7,12 @@ struct WatchNowView: View {
     @State private var selection: MetaPreview? = WatchNowView.initialSelection()
     @State private var streamRequest: StreamRequest?
     @Namespace private var contentFocus
+    @Environment(\.theme) private var theme
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.Color.pageBackground.ignoresSafeArea()
+                theme.background.ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -93,10 +94,10 @@ struct WatchNowView: View {
         VStack(spacing: 24) {
             Text("No addons installed")
                 .font(.largeTitle.weight(.bold))
-                .foregroundStyle(Theme.Color.primaryTextOnLight)
+                .foregroundStyle(theme.primaryText)
             Text("Add a Stremio addon from Settings to start browsing.")
                 .font(.title3)
-                .foregroundStyle(Theme.Color.secondaryTextOnLight)
+                .foregroundStyle(theme.secondaryText)
         }
     }
 

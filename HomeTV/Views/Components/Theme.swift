@@ -1,24 +1,20 @@
 import SwiftUI
 
 enum Theme {
+    /// Fixed colors for the **immersive Detail surface** (the hero/browse screen, stream picker, cast
+    /// and provider chips). That screen renders over full-bleed backdrop artwork and stays dark in
+    /// every appearance, so these are deliberately constant and do NOT follow the active theme. Themed
+    /// chrome (Watch Now, Search, Library, Settings) reads `@Environment(\.theme)` instead — see
+    /// `ThemePalette`.
     enum Color {
         static let background = SwiftUI.Color.black
-        static let pageBackground = SwiftUI.Color(red: 0.84, green: 0.85, blue: 0.87)
 
         static let cardRest = SwiftUI.Color.white.opacity(0.08)
-        static let cardFocused = SwiftUI.Color.white.opacity(0.22)
-        static let cardBorderFocused = SwiftUI.Color.white.opacity(0.35)
 
         static let primaryText = SwiftUI.Color.white
         static let secondaryText = SwiftUI.Color.white.opacity(0.65)
         static let tertiaryText = SwiftUI.Color.white.opacity(0.40)
 
-        static let primaryTextOnLight = SwiftUI.Color.black.opacity(0.92)
-        static let secondaryTextOnLight = SwiftUI.Color.black.opacity(0.62)
-        static let tertiaryTextOnLight = SwiftUI.Color.black.opacity(0.38)
-        static let rowHeaderOnLight = SwiftUI.Color.black.opacity(0.70)
-
-        static let accent = SwiftUI.Color.white
         static let destructive = SwiftUI.Color(red: 0.95, green: 0.32, blue: 0.32)
     }
 
@@ -34,6 +30,15 @@ enum Theme {
         static let rowHorizontal: CGFloat = 36
         static let stack: CGFloat = 16
         static let section: CGFloat = 40
+    }
+
+    /// One side margin for the list/grid pages — Search, Library, and Settings — so their content all
+    /// lines up at the same left edge. Change it here to move every one of them together.
+    ///
+    /// Watch Now is intentionally NOT driven by this: its hero and catalog rows use the wider
+    /// `Row.contentInset` (88) gutter so the rows align under the full-bleed hero.
+    enum Layout {
+        static let horizontalMargin: CGFloat = 80
     }
 
     enum Hero {
@@ -84,10 +89,10 @@ enum Theme {
     }
 
     /// Search screen — the keyboard, query header and "Press ⏯…" hint are the native tvOS
-    /// `.searchable` UI, so only the Browse grid's geometry lives here. Card size, gutter and side
-    /// margin were measured from the reference frame (`ignore/search.png`, 1920×1080).
+    /// `.searchable` UI, so only the Browse grid's geometry lives here. Card size and gutter were
+    /// measured from the reference frame (`ignore/search.png`, 1920×1080); the side margin is the
+    /// shared `Layout.horizontalMargin`.
     enum Search {
-        static let contentInset: CGFloat = 80
         static let posterSize = CGSize(width: 260, height: 391)
         static let posterGutter: CGFloat = 40
         static let posterRowGap: CGFloat = 58
@@ -166,6 +171,18 @@ extension View {
     func focusableCard(isFocused: Bool) -> some View {
         modifier(FocusableCardModifier(isFocused: isFocused))
     }
+
+    /// Lays a page's scrolling content edge-to-edge horizontally so the ONLY horizontal inset is the
+    /// explicit `Layout.horizontalMargin` the content applies itself. It strips the two implicit
+    /// insets tvOS otherwise adds — the overscan safe area and the scroll view's default content
+    /// margins — which is what made Library and Settings sit further in than Search (Search escapes
+    /// them via `.searchable`). Apply to the page `ScrollView`; keep the vertical safe area so content
+    /// still clears the tab bar.
+    func pageHorizontalInsets() -> some View {
+        self
+            .ignoresSafeArea(.container, edges: .horizontal)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+    }
 }
 
 /// Card focus style with a gentle lift and a SOFT, subtle shadow — much lighter than the system
@@ -236,6 +253,7 @@ struct SettingsCardStyle: ButtonStyle {
     private struct SettingsCardBody: View {
         let configuration: Configuration
         @Environment(\.isFocused) private var isFocused
+        @Environment(\.theme) private var theme
 
         var body: some View {
             configuration.label
@@ -244,12 +262,16 @@ struct SettingsCardStyle: ButtonStyle {
                 .padding(.vertical, Theme.Spacing.rowVertical)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .fill(isFocused ? Theme.Color.cardFocused : Theme.Color.cardRest)
+                        .fill(isFocused ? theme.cardFocused : theme.cardRest)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .stroke(isFocused ? Theme.Color.cardBorderFocused : .clear, lineWidth: 2)
+                        .stroke(isFocused ? theme.cardBorderFocused : .clear, lineWidth: 2)
                 )
+                // Soft lift so the focused row reads above the page in light, where a fill swap alone
+                // is too subtle (matches the gentle-shadow language of CardFocusStyle).
+                .shadow(color: .black.opacity(isFocused ? 0.12 : 0),
+                        radius: isFocused ? 16 : 0, y: isFocused ? 8 : 0)
                 .scaleEffect(configuration.isPressed ? 0.97 : (isFocused ? 1.015 : 1.0))
                 .animation(.easeInOut(duration: 0.18), value: isFocused)
                 .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
@@ -260,16 +282,17 @@ struct SettingsCardStyle: ButtonStyle {
 struct SectionHeader: View {
     let title: String
     var subtitle: String? = nil
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(theme.primaryText)
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,16 +303,17 @@ struct SectionHeader: View {
 struct ScreenTitle: View {
     let title: String
     var subtitle: String? = nil
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 64, weight: .bold))
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(theme.primaryText)
             if let subtitle {
                 Text(subtitle)
                     .font(.title3)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,16 +324,17 @@ struct ScreenTitle: View {
 struct RowHeader: View {
     let title: String
     var subtitle: String? = nil
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(Theme.Color.rowHeaderOnLight)
+                .foregroundStyle(theme.rowHeader)
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.tertiaryTextOnLight)
+                    .foregroundStyle(theme.tertiaryText)
             }
         }
         .padding(.horizontal, Theme.Row.contentInset)

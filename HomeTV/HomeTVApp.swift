@@ -15,7 +15,10 @@ struct HomeTVApp: App {
         WindowGroup {
             RootTabView()
                 // Single source of truth for the app's appearance — light, mirroring Apple TV+.
+                // `preferredColorScheme` drives system controls (search keyboard, toggles); the
+                // `\.theme` palette drives our own chrome colors. Flip both to add dark mode later.
                 .preferredColorScheme(.light)
+                .environment(\.theme, .light)
                 // If a Trakt session is restored from the Keychain, validate it and warm the
                 // watched/watchlist/playback caches so the views have data on first paint.
                 .task { await TraktService.shared.bootstrap() }

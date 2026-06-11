@@ -2,10 +2,11 @@ import SwiftUI
 
 struct PlayerPickerView: View {
     @State private var preference = PlayerPreference.shared
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ZStack {
-            Theme.Color.background.ignoresSafeArea()
+            theme.background.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
@@ -29,10 +30,10 @@ struct PlayerPickerView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Theme.Layout.horizontalMargin)
                 .padding(.vertical, 60)
-                .frame(maxWidth: 1400, alignment: .leading)
             }
+            .pageHorizontalInsets()
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -41,16 +42,17 @@ struct PlayerPickerView: View {
 private struct PlayerRow: View {
     let player: ExternalPlayer
     let isSelected: Bool
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 24) {
             ZStack {
                 Circle()
-                    .stroke(Theme.Color.tertiaryText, lineWidth: 2)
+                    .stroke(theme.tertiaryText, lineWidth: 2)
                     .frame(width: 36, height: 36)
                 if isSelected {
                     Circle()
-                        .fill(Theme.Color.primaryText)
+                        .fill(theme.primaryText)
                         .frame(width: 22, height: 22)
                 }
             }
@@ -58,10 +60,10 @@ private struct PlayerRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(player.displayName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 Text(detail(for: player))
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
             }
 
             Spacer(minLength: 0)
@@ -69,11 +71,11 @@ private struct PlayerRow: View {
             if !player.isInstalled && player != .system {
                 Text("Not Installed")
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(Theme.Color.tertiaryText)
+                    .foregroundStyle(theme.tertiaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
                     .background(
-                        Capsule().fill(Theme.Color.cardRest)
+                        Capsule().fill(theme.cardRest)
                     )
             }
         }
