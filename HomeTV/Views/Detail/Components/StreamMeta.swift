@@ -12,6 +12,7 @@ struct StreamMeta: Hashable {
     let sourceTag: String?
     let sourceIsWarning: Bool
     let size: String?
+    let debrid: DebridInfo?
     let releaseName: String
 
     static func make(from stream: Stream) -> StreamMeta {
@@ -78,13 +79,20 @@ struct StreamMeta: Hashable {
             size = nil
         }
 
+        // Debrid availability tag, e.g. Torrentio prefixes the name with [RD+] (cached, instant)
+        // or [RD download] (must be fetched into the debrid first).
+        let debrid = DebridInfo.parse(from: haystack)
+
         // Torrentio packs name + seeders + size across several lines (often with emoji);
-        // keep just the first non-empty line as the title.
+        // keep just the first non-empty line as the title, with any debrid tag stripped off so
+        // it reads cleanly.
         let source = stream.title ?? stream.name ?? "Stream"
-        let releaseName = source
+        let firstLine = source
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty } ?? "Stream"
+        let stripped = DebridInfo.stripTag(from: firstLine).trimmingCharacters(in: .whitespaces)
+        let releaseName = stripped.isEmpty ? firstLine : stripped
 
         return StreamMeta(
             resolution: resolution,
@@ -96,6 +104,7 @@ struct StreamMeta: Hashable {
             sourceTag: sourceTag,
             sourceIsWarning: sourceIsWarning,
             size: size,
+            debrid: debrid,
             releaseName: releaseName
         )
     }
