@@ -377,6 +377,9 @@ struct StreamPickerView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 HStack(spacing: 8) {
+                    if let debrid = m.debrid {
+                        DebridBadge(info: debrid)
+                    }
                     if m.sourceIsWarning, let tag = m.sourceTag {
                         Text(tag).foregroundStyle(Theme.Color.destructive)
                         Text("·").foregroundStyle(Theme.Color.tertiaryText)
@@ -393,7 +396,7 @@ struct StreamPickerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Image(systemName: isFocused ? "play.fill" : (item.stream.infoHash != nil ? "arrow.down.to.line" : "globe"))
+            Image(systemName: deliveryGlyph(item, isFocused: isFocused))
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(isFocused ? Theme.Color.primaryText : Theme.Color.tertiaryText)
         }
@@ -401,6 +404,14 @@ struct StreamPickerView: View {
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// The trailing glyph: play on focus, otherwise a bolt for a cached debrid stream (instant), a
+    /// download arrow for one that must be fetched (or a plain torrent), and a globe for a direct URL.
+    private func deliveryGlyph(_ item: LabeledStream, isFocused: Bool) -> String {
+        if isFocused { return "play.fill" }
+        if let debrid = item.meta.debrid { return debrid.isCached ? "bolt.fill" : "arrow.down.to.line" }
+        return item.stream.infoHash != nil ? "arrow.down.to.line" : "globe"
     }
 
     // MARK: - Detail panel (reflects the focused stream)
@@ -448,6 +459,14 @@ struct StreamPickerView: View {
                     specRow("Source", m.sourceTag ?? "—", warning: m.sourceIsWarning, last: false)
                     specRow("File Size", m.size ?? "Unknown")
                     specRow("Delivery", item.stream.infoHash != nil ? "Torrent" : "Direct")
+                    // Always rendered (with a — fallback) so the spec block keeps a constant height
+                    // as focus moves between debrid and non-debrid streams — otherwise the Play
+                    // button below would jump by one row.
+                    specRow(
+                        "Debrid",
+                        m.debrid.map { "\($0.service) · \($0.isCached ? "Cached" : "Download")" } ?? "—",
+                        valueColor: m.debrid.map { $0.isCached ? DebridBadge.cachedColor : DebridBadge.downloadColor }
+                    )
                     specRow("Provider", item.addonName, last: true)
                 }
 
@@ -479,7 +498,7 @@ struct StreamPickerView: View {
 
     private func videoSpec(_ m: StreamMeta) -> String { model.videoSpec(m) }
 
-    private func specRow(_ label: String, _ value: String, warning: Bool = false, last: Bool = false) -> some View {
+    private func specRow(_ label: String, _ value: String, warning: Bool = false, valueColor: Color? = nil, last: Bool = false) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label)
@@ -488,7 +507,7 @@ struct StreamPickerView: View {
                 Spacer(minLength: 16)
                 Text(value)
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(warning ? Theme.Color.destructive : Theme.Color.primaryText)
+                    .foregroundStyle(valueColor ?? (warning ? Theme.Color.destructive : Theme.Color.primaryText))
                     .multilineTextAlignment(.trailing)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -784,30 +803,31 @@ struct StreamPickerView: View {
     }
 
     private func sampleStreams() -> [LabeledStream] {
-        let samples: [(String, String, String?, String?)] = [
-            ("Torrentio TB", "Obsession.2026.2160p.UHD.WEB-DL.DV.HDR10Plus.HEVC.Atmos.TrueHD.7.1.MULTi.ENG.FRA.GER.ITA.SPA.JPN-FLUX 62.4 GB", "abc123hash", nil),
-            ("Torrentio TB", "Obsession.2026.REMUX.2160p.UHD.BluRay.HDR.TrueHD.7.1.x265-GROUP 48.1 GB", "def456hash", nil),
-            ("Torrentio TB", "Obsession.2026.1080p.BluRay.x265.10bit.DTS-HD-RARBG 8.1 GB", "ghi789hash", nil),
-            ("Torrentio TB", "Obsession.2026.1080p.WEB-DL.DDP5.1.H.264-NTb 4.7 GB", "jkl012hash", nil),
-            ("Torrentio TB", "Obsession.2026.720p.WEB-DL.AAC.H.264 1.9 GB", "stu678hash", nil),
-            ("Torrentio TB", "Obsession.2026.1080p.CAMRip.LAT.ENG.DUB.1XBET.mp4 3.15 GB", "mno345hash", nil),
-            ("Public Domain Movies", "Obsession.2026.1080p.H.264.AAC 2.6 GB", nil, "https://archive.org/sample/1080.mp4"),
-            ("Public Domain Movies", "Obsession 720p 1.3 GB", nil, "https://archive.org/sample/720.mp4")
+        // `debrid` is the tag a debrid-enabled add-on prefixes onto the stream name: [RD+]/[AD+]
+        // (cached, instant) or [RD download] (must be fetched first). nil = a plain torrent/direct.
+        let samples: [(addon: String, title: String, hash: String?, url: String?, debrid: String?)] = [
+            ("Torrentio TB", "Obsession.2026.2160p.UHD.WEB-DL.DV.HDR10Plus.HEVC.Atmos.TrueHD.7.1.MULTi.ENG.FRA.GER.ITA.SPA.JPN-FLUX 62.4 GB", "abc123hash", nil, "[RD+]"),
+            ("Torrentio TB", "Obsession.2026.REMUX.2160p.UHD.BluRay.HDR.TrueHD.7.1.x265-GROUP 48.1 GB", "def456hash", nil, "[RD+]"),
+            ("Torrentio TB", "Obsession.2026.1080p.BluRay.x265.10bit.DTS-HD-RARBG 8.1 GB", "ghi789hash", nil, "[RD download]"),
+            ("Torrentio TB", "Obsession.2026.1080p.WEB-DL.DDP5.1.H.264-NTb 4.7 GB", "jkl012hash", nil, "[AD+]"),
+            ("Torrentio TB", "Obsession.2026.720p.WEB-DL.AAC.H.264 1.9 GB", "stu678hash", nil, nil),
+            ("Torrentio TB", "Obsession.2026.1080p.CAMRip.LAT.ENG.DUB.1XBET.mp4 3.15 GB", "mno345hash", nil, nil),
+            ("Public Domain Movies", "Obsession.2026.1080p.H.264.AAC 2.6 GB", nil, "https://archive.org/sample/1080.mp4", nil),
+            ("Public Domain Movies", "Obsession 720p 1.3 GB", nil, "https://archive.org/sample/720.mp4", nil)
         ]
         return samples.map { sample in
-            let (addon, title, hash, url) = sample
             let stream = Stream(
-                name: addon,
-                title: title,
+                name: sample.debrid.map { "\($0) \(sample.addon)" } ?? sample.addon,
+                title: sample.title,
                 description: nil,
-                url: url,
+                url: sample.url,
                 ytId: nil,
-                infoHash: hash,
+                infoHash: sample.hash,
                 fileIdx: nil,
                 sources: nil,
                 behaviorHints: nil
             )
-            return LabeledStream(stream: stream, addonName: addon, meta: StreamMeta.make(from: stream))
+            return LabeledStream(stream: stream, addonName: sample.addon, meta: StreamMeta.make(from: stream))
         }
     }
 
