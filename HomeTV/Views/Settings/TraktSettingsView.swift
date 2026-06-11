@@ -8,6 +8,7 @@ import SwiftUI
 /// a user never sees setup instructions — credentials are a build-time concern (see TraktConfig).
 struct TraktSettingsRow: View {
     @State private var trakt = TraktService.shared
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 28) {
@@ -17,7 +18,7 @@ struct TraktSettingsRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Trakt")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 Text(subtitle)
                     .font(.callout)
                     .foregroundStyle(subtitleColor)
@@ -37,7 +38,7 @@ struct TraktSettingsRow: View {
         .padding(.vertical, Theme.Spacing.rowVertical)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                .fill(Theme.Color.cardRest)
+                .fill(theme.cardRest)
         )
         .fullScreenCover(isPresented: authenticatingBinding) {
             TraktActivationView()
@@ -51,7 +52,7 @@ struct TraktSettingsRow: View {
     }
 
     private var subtitleColor: Color {
-        (!trakt.isSignedIn && trakt.lastError != nil) ? Theme.Color.destructive : Theme.Color.secondaryText
+        (!trakt.isSignedIn && trakt.lastError != nil) ? theme.destructive : theme.secondaryText
     }
 
     private func primaryAction() {
@@ -76,10 +77,11 @@ struct TraktSettingsRow: View {
 private struct TraktActivationView: View {
     @State private var trakt = TraktService.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ZStack {
-            Theme.Color.background.ignoresSafeArea()
+            theme.background.ignoresSafeArea()
 
             VStack(spacing: 28) {
                 TraktMark()
@@ -89,15 +91,15 @@ private struct TraktActivationView: View {
                 case .awaitingActivation(let code, let url):
                     Text("Connect Trakt")
                         .font(.system(size: 44, weight: .bold))
-                        .foregroundStyle(Theme.Color.primaryText)
+                        .foregroundStyle(theme.primaryText)
                     VStack(spacing: 6) {
                         Text("On your phone or computer, go to")
-                            .foregroundStyle(Theme.Color.secondaryText)
+                            .foregroundStyle(theme.secondaryText)
                         Text(url)
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(Theme.Color.primaryText)
+                            .foregroundStyle(theme.primaryText)
                         Text("and enter this code:")
-                            .foregroundStyle(Theme.Color.secondaryText)
+                            .foregroundStyle(theme.secondaryText)
                     }
                     .font(.title3)
                     .multilineTextAlignment(.center)
@@ -105,20 +107,20 @@ private struct TraktActivationView: View {
                     Text(code)
                         .font(.system(size: 76, weight: .heavy, design: .monospaced))
                         .tracking(10)
-                        .foregroundStyle(Theme.Color.primaryText)
+                        .foregroundStyle(theme.primaryText)
 
                     HStack(spacing: 14) {
                         ProgressView()
                         Text("Waiting for activation…")
                             .font(.callout)
-                            .foregroundStyle(Theme.Color.secondaryText)
+                            .foregroundStyle(theme.secondaryText)
                     }
 
                 default:
                     ProgressView().scaleEffect(1.5)
                     Text("Starting…")
                         .font(.title3)
-                        .foregroundStyle(Theme.Color.secondaryText)
+                        .foregroundStyle(theme.secondaryText)
                 }
 
                 Button("Cancel") { dismiss() }
@@ -136,14 +138,20 @@ private struct TraktActivationView: View {
 /// dependency; drop a `TraktLogo` image into Assets and swap this for `Image("TraktLogo")` if you
 /// want the exact official logo.
 struct TraktMark: View {
+    @Environment(\.theme) private var theme
+
     var body: some View {
+        // Drawn in the theme's primary text color so the mark stays legible in either appearance
+        // (white-on-dark would vanish on the light page).
+        let mark = theme.primaryText
+
         Canvas { ctx, size in
             let w = size.width, h = size.height
             let lw = max(2, w * 0.09)
 
             // Outer ring.
             let ring = Path(ellipseIn: CGRect(x: lw / 2, y: lw / 2, width: w - lw, height: h - lw))
-            ctx.stroke(ring, with: .color(.white), lineWidth: lw)
+            ctx.stroke(ring, with: .color(mark), lineWidth: lw)
 
             // Two layered checks (the doubled stroke reads as the Trakt mark).
             func check(dx: CGFloat, dy: CGFloat) -> Path {
@@ -154,8 +162,8 @@ struct TraktMark: View {
                 return p
             }
             let style = StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round)
-            ctx.stroke(check(dx: 0, dy: -0.10), with: .color(.white), style: style)
-            ctx.stroke(check(dx: 0, dy: 0.06), with: .color(.white), style: style)
+            ctx.stroke(check(dx: 0, dy: -0.10), with: .color(mark), style: style)
+            ctx.stroke(check(dx: 0, dy: 0.06), with: .color(mark), style: style)
         }
     }
 }
@@ -172,15 +180,18 @@ private struct TraktPillStyle: ButtonStyle {
     private struct PillBody: View {
         let configuration: Configuration
         @Environment(\.isFocused) private var isFocused
+        @Environment(\.theme) private var theme
 
         var body: some View {
             configuration.label
                 .padding(.horizontal, 32)
                 .padding(.vertical, 16)
-                .foregroundStyle(isFocused ? .black : Theme.Color.primaryText)
+                // Inverts on focus (text takes the page color, fill takes the accent) so the pill
+                // reads as a solid chip in either appearance — matching the hero buttons.
+                .foregroundStyle(isFocused ? theme.background : theme.primaryText)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isFocused ? Color.white : Color.white.opacity(0.16))
+                        .fill(isFocused ? theme.accent : theme.primaryText.opacity(0.12))
                 )
                 .scaleEffect(configuration.isPressed ? 0.97 : (isFocused ? 1.05 : 1.0))
                 .animation(.easeInOut(duration: 0.18), value: isFocused)

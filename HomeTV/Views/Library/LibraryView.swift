@@ -6,11 +6,12 @@ import SwiftUI
 struct LibraryView: View {
     @State private var trakt = TraktService.shared
     @State private var selection: MetaPreview?
+    @Environment(\.theme) private var theme
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.Color.background.ignoresSafeArea()
+                theme.background.ignoresSafeArea()
 
                 if trakt.isSignedIn {
                     signedInContent
@@ -33,7 +34,7 @@ struct LibraryView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 48) {
                     ScreenTitle(title: "Library")
-                        .padding(.horizontal, Theme.Row.contentInset)
+                        .padding(.horizontal, Theme.Layout.horizontalMargin)
 
                     if !trakt.continueWatchingItems.isEmpty {
                         metaRow(title: "Continue Watching", items: trakt.continueWatchingItems)
@@ -44,6 +45,7 @@ struct LibraryView: View {
                 }
                 .padding(.vertical, 60)
             }
+            .pageHorizontalInsets()
         }
     }
 
@@ -51,8 +53,8 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: Theme.Row.headerSpacing) {
             Text(title)
                 .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(Theme.Color.primaryText)
-                .padding(.horizontal, Theme.Row.contentInset)
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, Theme.Layout.horizontalMargin)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: Theme.Row.posterCardSpacing) {
@@ -60,7 +62,7 @@ struct LibraryView: View {
                         ContentCard(meta: meta) { selection = meta }
                     }
                 }
-                .padding(.horizontal, Theme.Row.contentInset)
+                .padding(.horizontal, Theme.Layout.horizontalMargin)
                 .padding(.vertical, Theme.Row.posterVerticalPadding)
             }
             .frame(height: Theme.Row.posterHeight)
@@ -73,13 +75,13 @@ struct LibraryView: View {
         VStack(spacing: 24) {
             Image(systemName: "books.vertical")
                 .font(.system(size: 80))
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(theme.tertiaryText)
             Text("Your Library is empty")
                 .font(.system(size: 48, weight: .bold))
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(theme.primaryText)
             Text("Add titles to your Trakt watchlist, or resume something you've started elsewhere.")
                 .font(.title3)
-                .foregroundStyle(Theme.Color.secondaryText)
+                .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(40)
@@ -89,13 +91,13 @@ struct LibraryView: View {
         VStack(spacing: 24) {
             Image(systemName: "books.vertical")
                 .font(.system(size: 80))
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(theme.tertiaryText)
             Text("Library")
                 .font(.system(size: 56, weight: .bold))
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(theme.primaryText)
             Text("Connect Trakt in Settings to see your watchlist and continue watching here.")
                 .font(.title3)
-                .foregroundStyle(Theme.Color.secondaryText)
+                .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(40)

@@ -34,10 +34,11 @@ struct AddonManagerView: View {
     @State private var statusMessage: String?
     @State private var pendingRemovalID: String?
     @State private var showManualInput: Bool = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ZStack {
-            Theme.Color.background.ignoresSafeArea()
+            theme.background.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
@@ -46,10 +47,10 @@ struct AddonManagerView: View {
                     manualSection
                     installedSection
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Theme.Layout.horizontalMargin)
                 .padding(.vertical, 60)
-                .frame(maxWidth: 1400, alignment: .leading)
             }
+            .pageHorizontalInsets()
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -76,13 +77,13 @@ struct AddonManagerView: View {
             if let statusMessage {
                 Text(statusMessage)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, Theme.Spacing.rowHorizontal)
             }
             if let errorMessage {
                 Text(errorMessage)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.destructive)
+                    .foregroundStyle(theme.destructive)
                     .lineLimit(2)
                     .padding(.horizontal, Theme.Spacing.rowHorizontal)
             }
@@ -97,10 +98,10 @@ struct AddonManagerView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(addon.name)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 Text(addon.blurb)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
@@ -114,7 +115,7 @@ struct AddonManagerView: View {
             } else {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
             }
         }
     }
@@ -129,14 +130,14 @@ struct AddonManagerView: View {
                         .font(.callout.weight(.bold))
                     Text("Add by manifest URL")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(Theme.Color.primaryText)
+                        .foregroundStyle(theme.primaryText)
                     Spacer()
                 }
                 .padding(.horizontal, Theme.Spacing.rowHorizontal)
                 .padding(.vertical, 18)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .fill(Theme.Color.cardRest)
+                        .fill(theme.cardRest)
                 )
             }
             .buttonStyle(SettingsCardStyle())
@@ -145,7 +146,7 @@ struct AddonManagerView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Type the URL with a hardware keyboard (⇧⌘K). Programmatic clipboard access is blocked on tvOS — there's no Paste button I can offer.")
                         .font(.callout)
-                        .foregroundStyle(Theme.Color.secondaryText)
+                        .foregroundStyle(theme.secondaryText)
 
                     TextField("Manifest URL", text: $newAddonURL)
                         .textContentType(.URL)
@@ -156,9 +157,9 @@ struct AddonManagerView: View {
                         .padding(.vertical, 24)
                         .background(
                             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                                .fill(Theme.Color.cardRest)
+                                .fill(theme.cardRest)
                         )
-                        .foregroundStyle(Theme.Color.primaryText)
+                        .foregroundStyle(theme.primaryText)
 
                     Button {
                         Task { await addAddon() }
@@ -189,7 +190,7 @@ struct AddonManagerView: View {
             if registry.addons.isEmpty {
                 Text("No addons installed yet.")
                     .font(.title3)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, Theme.Spacing.rowHorizontal)
             } else {
                 VStack(spacing: 12) {
@@ -255,22 +256,23 @@ private struct AddonRow: View {
     let onRemoveTapped: () -> Void
     let onRemoveConfirmed: () -> Void
     let onRemoveCancelled: () -> Void
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(addon.manifest.name)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 if let description = addon.manifest.description, !description.isEmpty {
                     Text(description)
                         .font(.callout)
-                        .foregroundStyle(Theme.Color.secondaryText)
+                        .foregroundStyle(theme.secondaryText)
                         .lineLimit(2)
                 }
                 Text(addon.manifestURL.absoluteString)
                     .font(.caption.monospaced())
-                    .foregroundStyle(Theme.Color.tertiaryText)
+                    .foregroundStyle(theme.tertiaryText)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -288,7 +290,7 @@ private struct AddonRow: View {
                     .labelsHidden()
                 Button(action: onRemoveTapped) {
                     Image(systemName: "trash")
-                        .foregroundStyle(Theme.Color.destructive)
+                        .foregroundStyle(theme.destructive)
                 }
             }
         }
@@ -296,7 +298,7 @@ private struct AddonRow: View {
         .padding(.vertical, Theme.Spacing.rowVertical)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                .fill(Theme.Color.cardRest)
+                .fill(theme.cardRest)
         )
     }
 }

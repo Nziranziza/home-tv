@@ -2,13 +2,14 @@ import SwiftUI
 
 struct SettingsView: View {
     @State private var path: [SettingsRoute] = SettingsView.initialPath()
+    @Environment(\.theme) private var theme
 
     enum SettingsRoute: Hashable { case addons, player }
 
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                Theme.Color.background.ignoresSafeArea()
+                theme.background.ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
@@ -53,18 +54,18 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("HomeTV")
                                 .font(.title3.weight(.semibold))
-                                .foregroundStyle(Theme.Color.primaryText)
+                                .foregroundStyle(theme.primaryText)
                             Text("Stremio client. v0.1")
                                 .font(.callout)
-                                .foregroundStyle(Theme.Color.secondaryText)
+                                .foregroundStyle(theme.secondaryText)
                         }
                         .padding(.horizontal, Theme.Spacing.rowHorizontal)
                     }
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Theme.Layout.horizontalMargin)
                     .padding(.top, 36)
                     .padding(.bottom, 60)
-                    .frame(maxWidth: 1400, alignment: .leading)
                 }
+                .pageHorizontalInsets()
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: SettingsRoute.self) { route in
@@ -88,21 +89,21 @@ struct SettingsView: View {
         HStack(spacing: 28) {
             Image(systemName: icon)
                 .font(.system(size: 32))
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(theme.primaryText)
                 .frame(width: 56)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.leading)
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(Theme.Color.tertiaryText)
+                .foregroundStyle(theme.tertiaryText)
         }
     }
 }

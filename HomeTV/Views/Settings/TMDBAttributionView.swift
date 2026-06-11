@@ -5,6 +5,8 @@ import SwiftUI
 /// icon slot, title + disclaimer beside it — so it matches the carded look of the rest of Settings,
 /// rather than reading as a bare footer. Kept off the Apple-TV+-styled detail screen.
 struct TMDBAttributionView: View {
+    @Environment(\.theme) private var theme
+
     var body: some View {
         HStack(spacing: 28) {
             Image("TMDBLogo")
@@ -15,10 +17,10 @@ struct TMDBAttributionView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Metadata provided by TMDB")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Color.primaryText)
+                    .foregroundStyle(theme.primaryText)
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
                     .font(.callout)
-                    .foregroundStyle(Theme.Color.secondaryText)
+                    .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -28,7 +30,7 @@ struct TMDBAttributionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                .fill(Theme.Color.cardRest)
+                .fill(theme.cardRest)
         )
     }
 }
