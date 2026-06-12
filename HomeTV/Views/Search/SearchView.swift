@@ -12,13 +12,13 @@ struct SearchView: View {
         NavigationStack {
             ZStack {
                 // Same page background as the Watch Now screen.
-                theme.background.ignoresSafeArea()
                 content
             }
             .searchable(text: $viewModel.query, prompt: "Movies, series…")
             .task { await viewModel.loadBrowse() }
             .task(id: viewModel.query) { await viewModel.runSearch() }
             .metaDetailDestinations(selection: $selection)
+            .padding(.vertical, 40)
         }
     }
 

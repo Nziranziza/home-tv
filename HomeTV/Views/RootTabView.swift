@@ -5,22 +5,23 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            WatchNowView()
-                .tag(0)
-                .tabItem { Text("Watch Now") }
+            Tab("Search", systemImage: "magnifyingglass", value: 2) {
+                SearchView()
+            }
 
-            LibraryView()
-                .tag(1)
-                .tabItem { Text("Library") }
+            Tab("Watch Now", systemImage: "play.circle", value: 0) {
+                WatchNowView()
+            }
 
-            SearchView()
-                .tag(2)
-                .tabItem { Text("Search") }
+            Tab("Library", systemImage: "books.vertical", value: 1) {
+                LibraryView()
+            }
 
-            SettingsView()
-                .tag(3)
-                .tabItem { Text("Settings") }
+            Tab("Settings", systemImage: "gearshape", value: 3) {
+                SettingsView()
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
     }
 
     private static func initialSelection() -> Int {
