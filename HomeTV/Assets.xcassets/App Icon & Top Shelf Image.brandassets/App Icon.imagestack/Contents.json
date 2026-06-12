@@ -1,0 +1,20 @@
+{
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "layers": [
+    {
+      "filename": "Antennas.imagestacklayer"
+    },
+    {
+      "filename": "TV.imagestacklayer"
+    },
+    {
+      "filename": "Glow.imagestacklayer"
+    },
+    {
+      "filename": "Background.imagestacklayer"
+    }
+  ]
+}
