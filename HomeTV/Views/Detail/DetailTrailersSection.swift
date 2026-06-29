@@ -1,10 +1,14 @@
 import SwiftUI
 
-/// Real TMDB trailers (YouTube) when enriched; otherwise the single placeholder card so the row —
-/// which is the top content row for movies — is never empty (the collapse relies on it).
+/// Trailers row. Prefers the Trailerio in-app trailer (a single card that plays full-screen in-app, no
+/// YouTube hand-off) when the addon is installed; otherwise falls back to the TMDB YouTube trailers,
+/// and finally to the single placeholder card so the row — the top content row for movies — is never
+/// empty (the collapse relies on it).
 struct DetailTrailersSection: View {
     let model: MetaDetailModel
     let scroll: DetailScrollState
+    /// Set to present the full-screen in-app trailer player (Trailerio path).
+    @Binding var trailerRequest: TrailerPlaybackRequest?
     var zone: FocusState<MetaDetailView.Zone?>.Binding
     @Environment(\.openURL) private var openURL
 
@@ -13,10 +17,14 @@ struct DetailTrailersSection: View {
             DetailSectionHeader(title: "Trailers", scroll: scroll)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 28) {
-                    if let trailers = model.enrichment?.trailers, !trailers.isEmpty {
+                    if !model.trailerCandidates.isEmpty {
+                        // Trailerio: one in-app-playable card (the title's trailer). Movies have no
+                        // episodes, so Trailers is the top content row.
+                        TrailerPlaceholderCard(model: model) { playInApp() }
+                            .contentZone(model.seasons.isEmpty, zone)
+                    } else if let trailers = model.enrichment?.trailers, !trailers.isEmpty {
                         ForEach(trailers) { trailer in
                             TrailerCard(trailer: trailer) { openTrailer(trailer) }
-                                // Movies have no episodes, so Trailers is the top content row.
                                 .contentZone(model.seasons.isEmpty, zone)
                         }
                     } else {
@@ -32,13 +40,21 @@ struct DetailTrailersSection: View {
         }
     }
 
-    /// Hand a trailer off to the YouTube app. There is no public in-app YouTube playback on tvOS, so
-    /// this is a best-effort deep link (a no-op if YouTube isn't installed to claim the scheme).
+    /// Play the title's trailer in-app, full-screen (Trailerio sources).
+    private func playInApp() {
+        trailerRequest = TrailerPlaybackRequest(
+            title: model.meta?.name ?? model.fallbackTitle,
+            candidates: model.trailerCandidates
+        )
+    }
+
+    /// Fallback when Trailerio isn't installed: hand a TMDB trailer off to the YouTube app. There is no
+    /// public in-app YouTube playback on tvOS, so this is a best-effort deep link (a no-op if YouTube
+    /// isn't installed to claim the scheme).
     private func openTrailer(_ trailer: Trailer) {
         guard let url = URL(string: "youtube://watch?v=\(trailer.youTubeKey)") else { return }
         openURL(url)
     }
-
 }
 
 /// Placeholder shown when TMDB has no real trailers, so the row — the top content row for movies, and
@@ -50,9 +66,11 @@ struct DetailTrailersSection: View {
 /// faintly visible behind it — NOT an opaque caption bar. Title + "▶ 1m" sit low over the gradient.
 private struct TrailerPlaceholderCard: View {
     let model: MetaDetailModel
+    /// Selecting the card. Empty for the pure placeholder; plays the in-app trailer for Trailerio.
+    var action: () -> Void = {}
 
     var body: some View {
-        Button { } label: {
+        Button(action: action) {
             RemoteImage(
                 url: (model.meta?.background ?? model.meta?.poster).flatMap(URL.init(string:)),
                 targetSize: CGSize(width: 426, height: 270),

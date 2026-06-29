@@ -37,4 +37,11 @@ extension View {
             )
         }
     }
+
+    /// Presents the full-screen in-app trailer player for a `TrailerPlaybackRequest`.
+    func trailerPlayerCover(request: Binding<TrailerPlaybackRequest?>) -> some View {
+        fullScreenCover(item: request) { req in
+            TrailerPlayerCover(request: req)
+        }
+    }
 }

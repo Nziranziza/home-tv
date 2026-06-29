@@ -82,6 +82,13 @@ actor StremioClient {
         return try await get(url: url, as: StreamResponse.self)
     }
 
+    /// Generic decoded GET against an addon endpoint. Exposed (internal) so the Trailerio extension can
+    /// reuse the client's session/error handling for its non-standard `meta` response without
+    /// duplicating networking.
+    func fetch<T: Decodable & Sendable>(baseURL: URL, segments: [String], as type: T.Type) async throws -> T {
+        try await get(url: endpoint(base: baseURL, segments: segments), as: type)
+    }
+
     private func endpoint(base: URL, segments: [String], extra: [String: String] = [:]) -> URL {
         let trimmed = trimmedBase(base)
         var path = segments.joined(separator: "/")

@@ -2,6 +2,10 @@ import SwiftUI
 
 struct HeroShelf: View {
     let items: [MetaPreview]
+    /// False while a detail screen is pushed over Watch Now. A NavigationStack push doesn't disappear
+    /// the root, so without this the covered hero keeps fetching + decoding a trailer (and could steal
+    /// audio from the detail). When inactive the trailer is torn down; it reloads on return.
+    var isActive: Bool = true
     var defaultFocusNamespace: Namespace.ID? = nil
     var onSelect: (MetaPreview) -> Void = { _ in }
     var onPlay: (MetaPreview) -> Void = { _ in }
@@ -10,6 +14,8 @@ struct HeroShelf: View {
 
     @State private var index: Int = 0
     @State private var forward = true
+    /// Inline trailer for the current featured title (Trailerio). Plays once, then pages on.
+    @State private var trailerController = TrailerPlaybackController()
     @FocusState private var focusedControl: HeroControl?
 
     enum HeroControl: Hashable { case play, upNext, info, more }
@@ -38,12 +44,39 @@ struct HeroShelf: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea(edges: [.horizontal, .top])
+        // Item-reset: when the feed changes, jump back to the first title and warm its neighbors.
+        // Keyed on items only — NOT isActive — so covering/uncovering the hero never resets the page.
         .task(id: items.map(\.id)) {
             index = 0
             prefetchNeighbors()
+        }
+        // Timer-driven auto-advance, gated on isActive so the carousel doesn't keep paging underneath
+        // a pushed detail (a NavigationStack push doesn't disappear the root). Keyed on isActive as
+        // well — kept separate from the item-reset task — so toggling active state pauses/resumes the
+        // timer without disturbing the current index.
+        .task(id: "\(items.map(\.id))|\(isActive)") {
+            guard isActive else { return }
             await autoAdvance()
         }
+        // Load + autoplay the current title's trailer (no loop — it pages on when the trailer ends).
+        // Re-runs when the featured item changes or the hero is covered/uncovered (isActive), so a
+        // covered hero tears its player down and a returning one reloads (candidates are cached).
+        .task(id: "\(currentItem?.id ?? "none")|\(isActive)") {
+            guard isActive, let meta = currentItem else { trailerController.teardown(); return }
+            // Stop the previous item's trailer at once (before the await), so the old video doesn't
+            // keep rendering over the new page while candidates are being fetched.
+            trailerController.teardown()
+            // Multi-item: play once then page on. Single item: loop (nothing to page to).
+            trailerController.loops = items.count <= 1
+            trailerController.onPlaybackEnded = { advance(by: 1) }
+            let candidates = await TrailerSource.candidates(type: meta.type, id: meta.id)
+            // Bail if the item changed (or the hero was covered) while fetching.
+            guard !Task.isCancelled, !candidates.isEmpty else { return }
+            trailerController.load(candidates)
+            trailerController.autoplay()
+        }
         .onChange(of: index) { prefetchNeighbors() }
+        .onDisappear { trailerController.teardown() }
     }
 
     private var currentItem: MetaPreview? {
@@ -59,6 +92,12 @@ struct HeroShelf: View {
                     .id(meta.id)
                     .transition(pageTransition)
             }
+            // The inline trailer crossfades over the still once it's producing frames.
+            TrailerVideoLayer(player: trailerController.player)
+                .scaleEffect(Theme.Hero.trailerFillZoom)   // crop baked-in scope letterbox to fill the hero
+                .opacity(trailerController.isReady ? 1 : 0)
+                .animation(.easeInOut(duration: Theme.Hero.crossfadeDuration), value: trailerController.isReady)
+                .allowsHitTesting(false)
         }
     }
 
@@ -126,7 +165,9 @@ struct HeroShelf: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(Theme.Hero.autoAdvanceInterval))
             if Task.isCancelled { break }
-            if focusedControl != nil { continue }
+            // Don't shift content under an aimed button, and don't yank a title mid-trailer — a playing
+            // trailer pages on its own when it ends (onPlaybackEnded), so the timer stands down.
+            if focusedControl != nil || trailerController.isReady { continue }
             advance(by: 1)
         }
     }

@@ -22,6 +22,9 @@ struct WatchNowView: View {
                         // Play.
                         HeroShelf(
                             items: model.heroItems,
+                            // Inactive while a detail is pushed or the stream picker modal is up, so the
+                            // hero trailer isn't left decoding underneath either.
+                            isActive: path.isEmpty && streamRequest == nil,
                             defaultFocusNamespace: contentFocus,
                             onSelect: { meta in path.append(meta) },
                             onPlay: { meta in play(meta) },
