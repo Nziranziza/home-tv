@@ -5,6 +5,8 @@ import SwiftUI
 struct DetailCastSection: View {
     let model: MetaDetailModel
     let scroll: DetailScrollState
+    /// Set when a cast headshot is selected → pushes the person/cast screen.
+    @Binding var castSelection: CastPerson?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -14,7 +16,14 @@ struct DetailCastSection: View {
                 // name+role straight down, instead of a centered row re-centering and eating the push.
                 LazyHStack(alignment: .top, spacing: 48) {
                     ForEach(model.vm.creditEntries) { entry in
-                        CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL)
+                        CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL) {
+                            // Only TMDB cast (with a person id) navigate into the cast screen;
+                            // name-only crew entries are inert.
+                            if let personID = entry.personID {
+                                castSelection = CastPerson(id: personID, name: entry.name,
+                                                           profileURL: entry.imageURL)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)

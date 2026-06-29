@@ -104,7 +104,9 @@ struct InfoPair: View {
 /// The value text. When it overflows `lineLimit`, CoreText wraps it so the last visible line ends with an
 /// ellipsis followed *inline* by a plain bold uppercase "MORE" cue (no box, no fill) — e.g.
 /// "…Japanese (Dolby 5.1, AA… MORE". With no `lineLimit` (the overlay) it shows the full value.
-private struct InfoValueText: View {
+///
+/// Reused by the cast screen's biography (same Apple inline-MORE truncation), so it's `internal`.
+struct InfoValueText: View {
     let value: String
     let lineLimit: Int?
     var fontSize: CGFloat = 24
@@ -158,7 +160,7 @@ private struct InfoValueText: View {
 /// CoreText line-wrapping helper: breaks a string into rendered lines at a given width and, past a line
 /// limit, builds an AttributedString of those lines whose last line ends with "…" followed by a bold
 /// inline "MORE" cue. CoreText/Foundation only — no UIKit.
-private enum InfoTextWrap {
+enum InfoTextWrap {
     private static func systemFont(_ size: CGFloat) -> CTFont {
         CTFontCreateUIFontForLanguage(.system, size, nil)
             ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)

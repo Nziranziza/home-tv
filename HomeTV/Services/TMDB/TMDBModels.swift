@@ -238,6 +238,51 @@ struct TMDBTVDetail: Codable, Sendable {
     let externalIds: TMDBExternalIDs?
 }
 
+// MARK: - Person detail (cast/crew screen)
+
+struct TMDBPersonDetail: Codable, Sendable {
+    let id: Int
+    let name: String?
+    let biography: String?
+    let birthday: String?
+    let placeOfBirth: String?
+    let profilePath: String?
+    let knownForDepartment: String?
+
+    // append_to_response payloads
+    let combinedCredits: TMDBCombinedCredits?
+    let externalIds: TMDBExternalIDs?
+}
+
+/// A person's movie + TV credits in one list (`/person/{id}/combined_credits`). Each entry is both a
+/// cast and a crew shape merged — only the relevant fields are populated for a given role.
+struct TMDBCombinedCredits: Codable, Sendable {
+    let cast: [TMDBPersonCredit]
+    let crew: [TMDBPersonCredit]
+}
+
+/// One filmography entry. `mediaType` selects movie (`title`/`releaseDate`) vs tv (`name`/`firstAirDate`).
+/// `character` is set on cast entries; `job`/`department` on crew entries.
+struct TMDBPersonCredit: Codable, Sendable {
+    let id: Int
+    let mediaType: String?       // "movie" | "tv"
+    let title: String?           // movies
+    let name: String?            // tv
+    let character: String?       // cast role
+    let job: String?             // crew job (e.g. "Producer")
+    let department: String?      // crew department (e.g. "Production")
+    let posterPath: String?
+    let backdropPath: String?
+    let overview: String?
+    let genreIds: [Int]?
+    let releaseDate: String?
+    let firstAirDate: String?
+    let voteCount: Int?
+    let popularity: Double?
+    let episodeCount: Int?       // tv: how many episodes the person appears in
+    let order: Int?              // cast billing order
+}
+
 // MARK: - Season detail
 
 struct TMDBSeasonDetail: Codable, Sendable {

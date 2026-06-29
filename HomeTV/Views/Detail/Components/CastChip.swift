@@ -8,6 +8,9 @@ struct CreditEntry: Identifiable, Hashable {
     let name: String
     let role: String
     let imageURL: URL?
+    /// TMDB person id, when known (cast from TMDB). Drives navigation into the person/cast screen;
+    /// nil for name-only crew (addon director/writer) entries, which aren't tappable through.
+    var personID: Int? = nil
 }
 
 /// A focusable Cast & Crew avatar with the person's name and role beneath it. On focus the circular

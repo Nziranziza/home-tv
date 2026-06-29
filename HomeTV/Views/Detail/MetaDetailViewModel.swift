@@ -249,7 +249,8 @@ struct MetaDetailViewModel {
     var creditEntries: [CreditEntry] {
         if let e = enrichment, !e.cast.isEmpty || !e.directors.isEmpty || !e.writers.isEmpty {
             var entries = e.cast.prefix(12).map {
-                CreditEntry(id: "cast-\($0.id)", name: $0.name, role: $0.character ?? "Cast", imageURL: $0.profileURL)
+                CreditEntry(id: "cast-\($0.id)", name: $0.name, role: $0.character ?? "Cast",
+                            imageURL: $0.profileURL, personID: $0.id)
             }
             entries += e.directors.map { CreditEntry(id: "dir-\($0)", name: $0, role: "Director", imageURL: nil) }
             entries += e.writers.map { CreditEntry(id: "wri-\($0)", name: $0, role: "Writer", imageURL: nil) }
