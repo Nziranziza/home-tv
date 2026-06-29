@@ -104,6 +104,25 @@ struct MetaPreview: Codable, Identifiable, Hashable, Sendable {
     let releaseInfo: String?
     let imdbRating: String?
     let genres: [String]?
+
+    /// A preview carrying only the identity the detail screen needs; artwork and full metadata are
+    /// loaded from `id` once it appears. Shared by the deep-link router and the INITIAL_DETAIL
+    /// launch path, which both open detail knowing nothing but the type/id (and maybe a name).
+    static func placeholder(type: String, id: String, name: String = "Loading…") -> MetaPreview {
+        MetaPreview(
+            id: id,
+            type: type,
+            name: name,
+            poster: nil,
+            posterShape: nil,
+            background: nil,
+            logo: nil,
+            description: nil,
+            releaseInfo: nil,
+            imdbRating: nil,
+            genres: nil
+        )
+    }
 }
 
 struct MetaResponse: Codable, Sendable {

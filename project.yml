@@ -39,6 +39,12 @@ targets:
         LSApplicationQueriesSchemes:
           - infuse
           - vlc-x-callback
+        # Custom scheme HomeTV answers to, so Top Shelf posters (and any future
+        # deep links) reach the app via onOpenURL. Parsed by DeepLinkRouter.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.hometv.HomeTV.deeplink
+            CFBundleURLSchemes:
+              - hometv
         # Trakt credentials are injected from Secrets.xcconfig at build time via
         # variable substitution, then read at runtime with Bundle.main (see TraktConfig).
         TRAKT_CLIENT_ID: "$(TRAKT_CLIENT_ID)"
@@ -53,3 +59,48 @@ targets:
         SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+    # Shared container the Top Shelf extension writes composited hero images into and the
+    # system's out-of-process renderer reads them from.
+    entitlements:
+      path: HomeTV/HomeTV.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.hometv.HomeTV
+    # Embeds the dynamic Top Shelf extension into the app bundle.
+    dependencies:
+      - target: HomeTVTopShelf
+
+  # TV Top Shelf extension: supplies the popular-content rows shown behind the app
+  # icon in the Home screen's top row. Reuses the app's Stremio client + models to
+  # fetch Cinemeta's public popular catalogs directly (no auth, no App Group needed).
+  HomeTVTopShelf:
+    type: app-extension
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: HomeTVTopShelf
+        excludes:
+          - "**/.DS_Store"
+      - path: HomeTV/Services/Stremio/Models.swift
+      - path: HomeTV/Services/Stremio/StremioClient.swift
+    info:
+      path: HomeTVTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: HomeTV Top Shelf
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV.TopShelf
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "3"
+        SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
+        SUPPORTS_MACCATALYST: NO
+    # Same App Group as the host app, so the composited hero PNGs land somewhere the
+    # system Top Shelf renderer can read.
+    entitlements:
+      path: HomeTVTopShelf/HomeTVTopShelf.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.hometv.HomeTV

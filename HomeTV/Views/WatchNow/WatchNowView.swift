@@ -4,13 +4,14 @@ struct WatchNowView: View {
     @State private var model = WatchNowViewModel()
     @State private var history = WatchHistory.shared
     @State private var trakt = TraktService.shared
-    @State private var selection: MetaPreview? = WatchNowView.initialSelection()
+    @State private var path: [MetaPreview] = WatchNowView.initialPath()
     @State private var streamRequest: StreamRequest?
+    @State private var router = DeepLinkRouter.shared
     @Namespace private var contentFocus
     @Environment(\.theme) private var theme
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack {
                 theme.background.ignoresSafeArea()
 
@@ -22,9 +23,9 @@ struct WatchNowView: View {
                         HeroShelf(
                             items: model.heroItems,
                             defaultFocusNamespace: contentFocus,
-                            onSelect: { meta in selection = meta },
+                            onSelect: { meta in path.append(meta) },
                             onPlay: { meta in play(meta) },
-                            onInfo: { meta in selection = meta }
+                            onInfo: { meta in path.append(meta) }
                         )
                         .containerRelativeFrame(.vertical)
                         .focusSection()
@@ -32,14 +33,14 @@ struct WatchNowView: View {
 
                         if !continueWatchingItems.isEmpty {
                             ContinueWatchingRow(items: continueWatchingItems) { item in
-                                selection = item.preview
+                                path.append(item.preview)
                             }
                             .padding(.top, Theme.WatchNow.interRowSpacing)
                         }
 
                         ForEach(model.rowSpecs) { spec in
                             ContentRow(spec: spec) { meta in
-                                selection = meta
+                                path.append(meta)
                             }
                             .padding(.top, Theme.WatchNow.interRowSpacing)
                         }
@@ -56,7 +57,12 @@ struct WatchNowView: View {
             .task(id: model.rowSpecs.first?.id) {
                 await model.loadHero()
             }
-            .metaDetailDestinations(selection: $selection)
+            // Cold launch from a Top Shelf poster: the link may already be pending before the first
+            // render, so onChange would miss it. Consume any waiting target on appear.
+            .task { consumePendingDetail() }
+            // Warm path: a poster tapped while the app is running flips pendingDetail.
+            .onChange(of: router.pendingDetail) { _, _ in consumePendingDetail() }
+            .metaDetailDestination()
             .streamPickerCover(request: $streamRequest)
         }
     }
@@ -90,6 +96,17 @@ struct WatchNowView: View {
         )
     }
 
+    /// Presents the detail screen for a deep-linked title, if one is waiting. Replacing the whole
+    /// navigation path makes this work from any state: cold launch (empty path), warm with nothing
+    /// open, and — crucially — warm while another detail is already on the stack (the user opened one,
+    /// pressed Home, then chose a Top Shelf poster). A path is a value collection, so swapping its
+    /// contents always takes effect, unlike `navigationDestination(item:)` which ignores value→value.
+    private func consumePendingDetail() {
+        guard let pending = router.pendingDetail else { return }
+        router.pendingDetail = nil
+        path = [pending]
+    }
+
     private var emptyState: some View {
         VStack(spacing: 24) {
             Text("No addons installed")
@@ -101,22 +118,10 @@ struct WatchNowView: View {
         }
     }
 
-    private static func initialSelection() -> MetaPreview? {
-        guard let raw = ProcessInfo.processInfo.environment["INITIAL_DETAIL"] else { return nil }
+    private static func initialPath() -> [MetaPreview] {
+        guard let raw = ProcessInfo.processInfo.environment["INITIAL_DETAIL"] else { return [] }
         let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return nil }
-        return MetaPreview(
-            id: parts[1],
-            type: parts[0],
-            name: "Loading…",
-            poster: nil,
-            posterShape: nil,
-            background: nil,
-            logo: nil,
-            description: nil,
-            releaseInfo: nil,
-            imdbRating: nil,
-            genres: nil
-        )
+        guard parts.count == 2 else { return [] }
+        return [.placeholder(type: parts[0], id: parts[1])]
     }
 }
