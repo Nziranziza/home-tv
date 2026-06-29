@@ -22,6 +22,8 @@ struct HomeTVApp: App {
                 // If a Trakt session is restored from the Keychain, validate it and warm the
                 // watched/watchlist/playback caches so the views have data on first paint.
                 .task { await TraktService.shared.bootstrap() }
+                // Top Shelf posters open hometv:// links; route them to the right detail screen.
+                .onOpenURL { DeepLinkRouter.shared.handle($0) }
         }
     }
 }

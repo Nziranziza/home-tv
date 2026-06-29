@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>HomeTV</string>
+	<string>HomeTV Top Shelf</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,34 +15,17 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
-	<string>APPL</string>
+	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.hometv.HomeTV.deeplink</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>hometv</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>infuse</string>
-		<string>vlc-x-callback</string>
-	</array>
-	<key>TMDB_API_KEY</key>
-	<string>$(TMDB_API_KEY)</string>
-	<key>TRAKT_CLIENT_ID</key>
-	<string>$(TRAKT_CLIENT_ID)</string>
-	<key>TRAKT_CLIENT_SECRET</key>
-	<string>$(TRAKT_CLIENT_SECRET)</string>
-	<key>UILaunchScreen</key>
-	<dict/>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.tv-top-shelf</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ContentProvider</string>
+	</dict>
 </dict>
 </plist>

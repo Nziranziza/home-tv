@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootTabView: View {
     @State private var selection: Int = Self.initialSelection()
+    @State private var router = DeepLinkRouter.shared
 
     var body: some View {
         TabView(selection: $selection) {
@@ -22,6 +23,12 @@ struct RootTabView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        // A deep link asked for a specific tab (Watch Now hosts detail navigation) — bring it forward.
+        .onChange(of: router.requestedTab) { _, newValue in
+            guard let newValue else { return }
+            selection = newValue
+            router.requestedTab = nil
+        }
     }
 
     private static func initialSelection() -> Int {
