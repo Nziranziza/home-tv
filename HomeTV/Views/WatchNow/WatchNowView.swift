@@ -7,51 +7,80 @@ struct WatchNowView: View {
     @State private var path: [MetaPreview] = WatchNowView.initialPath()
     @State private var streamRequest: StreamRequest?
     @State private var router = DeepLinkRouter.shared
+    /// Shared hero carousel state, read by the pinned backdrop and the scrolling overlay alike.
+    @State private var heroModel = HeroCarouselModel()
+    /// Collapse clock: feeds the pinned backdrop's fade as the content sheet scrolls up over it.
+    @State private var scrollState = WatchNowScrollState()
     @Namespace private var contentFocus
     @Environment(\.theme) private var theme
+
+    /// Inactive while a detail is pushed or the stream picker modal is up, so the hero trailer isn't
+    /// left decoding underneath either.
+    private var isHeroActive: Bool { path.isEmpty && streamRequest == nil }
 
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
                 theme.background.ignoresSafeArea()
 
-                ScrollView(.vertical, showsIndicators: false) {
+                // Pinned hero backdrop, behind the scroll view so it stays fixed while the content sheet
+                // scrolls up over it. Wrapped so only it (not this body, and so not the lazy rows) reads
+                // the scroll clock: it fades out and drifts up a touch as the hero collapses.
+                if !model.hasNoAddons {
+                    PinnedHeroBackdrop(model: heroModel, scrollState: scrollState)
+                }
+
+                ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // Full-screen hero. It's a clean full-width focus section above the rows
-                        // (Down from the tab bar lands in it), with its own focus scope defaulting to
-                        // Play.
-                        HeroShelf(
-                            items: model.heroItems,
-                            // Inactive while a detail is pushed or the stream picker modal is up, so the
-                            // hero trailer isn't left decoding underneath either.
-                            isActive: path.isEmpty && streamRequest == nil,
-                            defaultFocusNamespace: contentFocus,
-                            onSelect: { meta in path.append(meta) },
-                            onPlay: { meta in play(meta) },
-                            onInfo: { meta in path.append(meta) }
-                        )
-                        .containerRelativeFrame(.vertical)
+                        // Scrolling hero content (logo/meta/buttons/dots) over the pinned backdrop. A
+                        // focus section with its own scope defaulting to Play (Down from the tab bar
+                        // lands here); sized below the viewport so the first row peeks at rest. Wrapped so
+                        // its extra parallax read (it drifts up faster than the sheet) re-renders only the
+                        // overlay on scroll, never WatchNowView.body or the lazy rows.
+                        ParallaxHeroOverlay(scrollState: scrollState) {
+                            HeroOverlay(
+                                model: heroModel,
+                                trakt: trakt,
+                                defaultFocusNamespace: contentFocus,
+                                onPlay: { meta in play(meta) },
+                                onInfo: { meta in path.append(meta) }
+                            )
+                            // Sized to the viewport minus the sheet's peek strip, so the sheet's top sits
+                            // on-screen at rest (the first row peeks) and the LazyVStack renders it.
+                            .containerRelativeFrame(.vertical) { length, _ in
+                                length - Theme.WatchNow.heroOverlayPeek
+                            }
+                        }
                         .focusSection()
                         .focusScope(contentFocus)
 
-                        if !continueWatchingItems.isEmpty {
-                            ContinueWatchingRow(items: continueWatchingItems) { item in
-                                path.append(item.preview)
+                        // Light content sheet that rises over the hero, carrying every row. Its top sits
+                        // just below the hero's dots so the first row peeks at rest. Transparent at rest
+                        // (rows on the dark hero); its light surface fades in only as you scroll.
+                        WatchNowSheet(scrollState: scrollState) {
+                            if !continueWatchingItems.isEmpty {
+                                ContinueWatchingRow(items: continueWatchingItems) { item in
+                                    path.append(item.preview)
+                                }
                             }
-                            .padding(.top, Theme.WatchNow.interRowSpacing)
-                        }
 
-                        ForEach(model.rowSpecs) { spec in
-                            ContentRow(spec: spec) { meta in
-                                path.append(meta)
+                            ForEach(model.rowSpecs) { spec in
+                                ContentRow(spec: spec) { meta in
+                                    path.append(meta)
+                                }
                             }
-                            .padding(.top, Theme.WatchNow.interRowSpacing)
                         }
                     }
-                    .padding(.bottom, Theme.WatchNow.bottomPadding)
                 }
+                .scrollIndicators(.hidden)
                 .ignoresSafeArea()
                 .contentMargins(.top, 0, for: .scrollContent)
+                .onScrollGeometryChange(for: ScrollMetrics.self) {
+                    ScrollMetrics(offset: $0.contentOffset.y, viewport: $0.containerSize.height)
+                } action: { _, newValue in
+                    scrollState.offset = newValue.offset
+                    scrollState.viewport = newValue.viewport
+                }
 
                 if model.hasNoAddons {
                     emptyState
@@ -59,6 +88,10 @@ struct WatchNowView: View {
             }
             .task(id: model.rowSpecs.first?.id) {
                 await model.loadHero()
+                heroModel.items = model.heroItems
+            }
+            .onChange(of: isHeroActive, initial: true) { _, active in
+                heroModel.isActive = active
             }
             // Cold launch from a Top Shelf poster: the link may already be pending before the first
             // render, so onChange would miss it. Consume any waiting target on appear.
@@ -126,5 +159,41 @@ struct WatchNowView: View {
         let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return [] }
         return [.placeholder(type: parts[0], id: parts[1])]
+    }
+
+    /// Scroll geometry sampled each tick to drive the backdrop fade. Equatable so the action fires only
+    /// when the values actually change.
+    private struct ScrollMetrics: Equatable {
+        let offset: CGFloat
+        let viewport: CGFloat
+    }
+}
+
+/// Wraps the pinned backdrop so it — and not `WatchNowView.body` — is what reads the scroll clock on
+/// each tick. Keeping the clock reads out of the parent body means scrolling never re-evaluates the
+/// (lazily loaded) catalog rows; only this small view re-renders to fade and drift the backdrop.
+private struct PinnedHeroBackdrop: View {
+    let model: HeroCarouselModel
+    let scrollState: WatchNowScrollState
+
+    var body: some View {
+        HeroBackdropLayer(model: model)
+            .opacity(scrollState.backdropOpacity)
+            .offset(y: scrollState.backdropParallax)
+    }
+}
+
+/// Applies the hero overlay's extra scroll parallax in isolation: it reads the scroll clock each tick so
+/// the wrapped overlay drifts up faster than the 1x content sheet, opening the dots→header gap as the
+/// hero races off the top. Keeping the read here (not in `WatchNowView.body`) means scrolling re-renders
+/// only this wrapper, never the lazily loaded catalog rows. The offset is visual only, so the overlay's
+/// layout slot — and thus the sheet's position and the focus engine's scroll target — is unchanged.
+private struct ParallaxHeroOverlay<Content: View>: View {
+    let scrollState: WatchNowScrollState
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .offset(y: scrollState.heroParallax)
     }
 }

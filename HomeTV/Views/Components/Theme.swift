@@ -67,16 +67,26 @@ enum Theme {
         static let kenBurnsOffsetY: CGFloat = 16
 
         static let horizontalPadding: CGFloat = 88
-        static let bottomPadding: CGFloat = 140
+        // Bottom-anchored hero content sits in the lower third (≈ buttons at 71% of the screen, on a
+        // 1080-pt viewport), just above the page dots and the content sheet that peeks below — matching
+        // Apple TV's Watch Now hero. Measured from the overlay's bottom edge, which sits at the top of
+        // the peeking sheet (see `WatchNow.heroOverlayPeek`), not the screen bottom.
+        static let bottomPadding: CGFloat = 80
         static let contentSpacing: CGFloat = 22
         static let actionRowSpacing: CGFloat = 22
         static let actionRowTopPadding: CGFloat = 6
         static let metaChipsSpacing: CGFloat = 14
-        static let pageDotsBottomPadding: CGFloat = 60
+        // Page dots sit just above the sheet's top edge (the overlay's bottom). Together with the
+        // sheet's small top padding this keeps the dots close to the Continue Watching header — the
+        // tight gap Apple TV uses, not a wide band.
+        static let pageDotsBottomPadding: CGFloat = 4
         static let pageDotsSpacing: CGFloat = 8
         static let pageDotSize: CGFloat = 8
         static let pageDotActiveWidth: CGFloat = 22
         static let pageDotsMaxVisible: Int = 9
+        // Inset of the dots run within its rounded pill platter.
+        static let pageDotsPillHorizontalPadding: CGFloat = 16
+        static let pageDotsPillVerticalPadding: CGFloat = 9
 
         static let buttonHeight: CGFloat = 66
         static let primaryButtonHorizontalPadding: CGFloat = 44
@@ -92,6 +102,56 @@ enum Theme {
     enum WatchNow {
         static let interRowSpacing: CGFloat = 48
         static let bottomPadding: CGFloat = 100
+
+        /// How tall a strip of the content sheet peeks below the hero at rest (≈ first row's header +
+        /// card tops), like Apple TV. The hero overlay is sized to the viewport *minus* this, so the
+        /// sheet's top sits on-screen and the (lazy) sheet actually renders — pulling a full-height
+        /// overlay up with a negative inset leaves the sheet below the fold, so `LazyVStack` never
+        /// materializes it.
+        static let heroOverlayPeek: CGFloat = 200
+
+        /// Scroll window (as fractions of the viewport) over which the pinned backdrop fades out. It
+        /// holds full while the hero is at rest so the peeking first row sits on the dark hero, then
+        /// cross-fades with the rising light sheet as the hero scrolls off, so the page resolves to flat
+        /// page colour once you're into the deep rows.
+        static let backdropFadeStartFraction: CGFloat = 0.15
+        static let backdropFadeEndFraction: CGFloat = 0.75
+
+        /// Scroll window over which the (opaque) light content sheet reveals. It starts at 0 and is
+        /// transparent *at rest* (fraction 0 → opacity 0), so the peeking first row shows the dark hero
+        /// directly behind it — there is no light background at rest. The window is deliberately short:
+        /// the sheet snaps to fully opaque within the first sliver of scroll, so it is never a lingering
+        /// translucent wash over the backdrop (Apple TV's sheet is opaque — the artwork only shows in the
+        /// dark band *above* its rising top edge, never through the sheet body).
+        static let sheetRevealStartFraction: CGFloat = 0.0
+        static let sheetRevealEndFraction: CGFloat = 0.08
+
+        /// Gentle upward drift of the pinned backdrop per point of scroll, so the hero reads as pushed up
+        /// a touch while the content rises over it at full rate (parallax depth, like Apple TV). 0 = off.
+        static let backdropParallaxFactor: CGFloat = 0.12
+
+        /// Extra upward drift of the scrolling hero overlay (logo/meta/buttons/page dots) per point of
+        /// scroll, on top of its natural 1x scroll. The hero pulls away faster than the 1x content sheet,
+        /// so the page dots lift off the rising sheet edge and a gap opens between them while scrolling —
+        /// matching Apple TV, where the dots→header gap grows as the hero races off the top. 0 = rigid.
+        static let heroParallaxFactor: CGFloat = 0.22
+
+        /// How far the light sheet's surface extends *above* its content top (the first row header) per
+        /// point of scroll. Lets the opaque surface grow upward into the space the hero vacates, so a
+        /// band of light appears above the header as you scroll — without widening the tight dots→header
+        /// gap at rest (zero overshoot at offset 0). Capped in the scroll state so it never runs away.
+        static let sheetSurfaceOvershootFactor: CGFloat = 0.12
+        static let sheetSurfaceOvershootMax: CGFloat = 80
+
+        /// Top padding inside the sheet, between its (flat, full-width) top edge and the first row's
+        /// header. Small, so the Continue Watching header sits just below the page dots (which hover
+        /// just above the edge) — the tight dots→header gap Apple TV uses.
+        static let sheetTopPadding: CGFloat = 2
+
+        /// Fixed medium grey for the catalog row headers (Continue Watching, catalog names). Constant —
+        /// not themed — so it reads identically on the dark hero at rest and the light sheet when
+        /// scrolled, matching Apple TV. A `.black.opacity()` header would disappear against the hero.
+        static let rowHeaderColor = SwiftUI.Color(red: 0.45, green: 0.45, blue: 0.47)
     }
 
     /// Search screen — the keyboard, query header and "Press ⏯…" hint are the native tvOS
@@ -132,8 +192,9 @@ enum Theme {
         static let landscapeVerticalPadding: CGFloat = 32
         static let landscapeCardSpacing: CGFloat = 28
 
-        // Tight header→cards spacing, shared by every row (matches Continue Watching).
-        static let headerSpacing: CGFloat = 6
+        // Header→cards spacing, shared by every row (matches Continue Watching). A touch wider than the
+        // dots→header gap above it, mirroring Apple TV.
+        static let headerSpacing: CGFloat = 16
         static let continueWatchingVerticalPadding: CGFloat = 16
         // Apple's Continue Watching uses a slightly wider gap (~10.5% of card width) than other
         // landscape rows; dedicated so it doesn't widen those.
@@ -330,13 +391,17 @@ struct ScreenTitle: View {
 struct RowHeader: View {
     let title: String
     var subtitle: String? = nil
+    /// Overrides the themed header colour. Watch Now passes a fixed medium grey so the header reads the
+    /// same whether it sits on the dark hero (at rest) or the light sheet (scrolled) — a themed
+    /// black-opacity colour would vanish against the hero.
+    var color: SwiftUI.Color? = nil
     @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(theme.rowHeader)
+                .foregroundStyle(color ?? theme.rowHeader)
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)

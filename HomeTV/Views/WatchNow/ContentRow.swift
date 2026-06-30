@@ -37,7 +37,7 @@ struct ContentRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Row.headerSpacing) {
-            RowHeader(title: spec.title)
+            RowHeader(title: spec.title, color: Theme.WatchNow.rowHeaderColor)
             switch status {
             case .loading, .idle:
                 placeholderRow

@@ -10,7 +10,7 @@ struct ContinueWatchingRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Row.headerSpacing) {
-            RowHeader(title: "Continue Watching")
+            RowHeader(title: "Continue Watching", color: Theme.WatchNow.rowHeaderColor)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: Theme.Row.continueWatchingCardSpacing) {
