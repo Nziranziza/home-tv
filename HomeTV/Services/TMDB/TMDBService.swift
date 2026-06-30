@@ -20,6 +20,8 @@ final class TMDBService {
     @ObservationIgnored private var resolutionCache: [String: TMDBResolution] = [:]
     /// Per-season episode info + poster, keyed by "{tvID}:{season}".
     @ObservationIgnored private var seasonCache: [String: SeasonEnrichment] = [:]
+    /// Person bio + grouped filmography, keyed by TMDB person id (drives the cast/crew screen).
+    @ObservationIgnored private var personCache: [Int: PersonProfile] = [:]
 
     private struct TMDBResolution: Sendable { let id: Int; let mediaType: String }
     struct SeasonEnrichment: Sendable { var episodes: [String: EpisodeEnrichment]; var posterURL: URL? }
@@ -78,6 +80,112 @@ final class TMDBService {
         )
         seasonCache[key] = result
         return result
+    }
+
+    // MARK: - Person (cast/crew screen)
+
+    /// Resolve a TMDB person to their bio + grouped filmography. Cached per id. Returns nil when TMDB
+    /// isn't configured or the person can't be fetched, so the cast screen can degrade gracefully.
+    func personProfile(id: Int) async -> PersonProfile? {
+        guard isConfigured else { return nil }
+        if let cached = personCache[id] { return cached }
+        guard let detail = try? await client.person(id: id) else { return nil }
+        let profile = Self.makeProfile(from: detail)
+        personCache[id] = profile
+        return profile
+    }
+
+    /// Map a raw person detail into the view-facing profile: the header fields plus the filmography
+    /// rows, grouped to mirror Apple's person page — Movies (film roles), one row per crew job
+    /// (Producer, Director, …) ordered by how many credits it has, then TV guest appearances.
+    private static func makeProfile(from detail: TMDBPersonDetail) -> PersonProfile {
+        let cast = detail.combinedCredits?.cast ?? []
+        let crew = detail.combinedCredits?.crew ?? []
+        var sections: [FilmographySection] = []
+
+        // Movies — film cast roles, poster cards.
+        if let movies = section(title: "Movies", style: .poster,
+                                 from: cast.filter { ($0.mediaType ?? "movie") == "movie" },
+                                 role: { $0.character }) {
+            sections.append(movies)
+        }
+
+        // Crew work — grouped by job, ordered by credit count (Producer first for a film producer),
+        // dropping one-off jobs so the page stays the handful of meaningful rows Apple shows.
+        let byJob = Dictionary(grouping: crew) { $0.job ?? "Crew" }
+            .filter { $0.value.count >= crewJobMinimum }
+            .sorted { $0.value.count != $1.value.count ? $0.value.count > $1.value.count : $0.key < $1.key }
+        for (job, list) in byJob {
+            if let s = section(title: job, style: .poster, from: list, role: { _ in nil }) {
+                sections.append(s)
+            }
+        }
+
+        // Guest Appearances — TV cast roles, landscape cards with a caption.
+        if let guests = section(title: "Guest Appearances", style: .landscape,
+                                from: cast.filter { $0.mediaType == "tv" },
+                                role: { $0.character }) {
+            sections.append(guests)
+        }
+
+        return PersonProfile(
+            id: detail.id,
+            name: detail.name ?? "",
+            biography: detail.biography?.nilIfBlank,
+            profileURL: TMDBConfig.imageURL(path: detail.profilePath, size: .w500),
+            sections: sections
+        )
+    }
+
+    /// Build one filmography section: de-duplicate by title, sort by popularity, drop art-less items,
+    /// and cap the count. Returns nil when nothing survives.
+    private static func section(
+        title: String, style: FilmographySection.Style,
+        from credits: [TMDBPersonCredit], role: (TMDBPersonCredit) -> String?
+    ) -> FilmographySection? {
+        var seen = Set<Int>()
+        let items = credits
+            .sorted { ($0.popularity ?? 0, $0.voteCount ?? 0) > ($1.popularity ?? 0, $1.voteCount ?? 0) }
+            .compactMap { credit -> FilmographyItem? in
+                guard seen.insert(credit.id).inserted else { return nil }
+                return item(from: credit, style: style, role: role(credit))
+            }
+            .prefix(filmographySectionLimit)
+        guard !items.isEmpty else { return nil }
+        return FilmographySection(title: title, style: style, items: Array(items))
+    }
+
+    /// Map one credit to a display item, encoding a `TMDBRef` id so selecting it resolves to an IMDB
+    /// id on demand (same bridge as the Related row). Poster rows require a poster; landscape rows
+    /// prefer a backdrop and fall back to the poster. Art-less credits are dropped.
+    private static func item(
+        from credit: TMDBPersonCredit, style: FilmographySection.Style, role: String?
+    ) -> FilmographyItem? {
+        let mediaType = credit.mediaType ?? "movie"
+        let name = credit.title ?? credit.name ?? ""
+        guard !name.isEmpty else { return nil }
+
+        let posterURL = TMDBConfig.imageURL(path: credit.posterPath, size: .w500)
+        let backdropURL = TMDBConfig.imageURL(path: credit.backdropPath, size: .w780)
+        let primaryArt = style == .poster ? posterURL : (backdropURL ?? posterURL)
+        guard primaryArt != nil else { return nil }
+
+        let year = (credit.releaseDate ?? credit.firstAirDate)
+            .map { String($0.prefix(4)) }?.nilIfBlank
+        let preview = MetaPreview(
+            id: TMDBRef(mediaType: mediaType, id: credit.id).encoded,
+            type: mediaType == "tv" ? "series" : "movie",
+            name: name,
+            poster: posterURL?.absoluteString,
+            posterShape: nil,
+            background: backdropURL?.absoluteString,
+            logo: nil,
+            description: credit.overview?.nilIfBlank,
+            releaseInfo: year,
+            imdbRating: nil,
+            genres: TMDBGenres.primaryName(ids: credit.genreIds, mediaType: mediaType).map { [$0] }
+        )
+        return FilmographyItem(preview: preview, role: role?.nilIfBlank)
     }
 
     // MARK: - Resolution (IMDB → TMDB id)
@@ -307,6 +415,11 @@ final class TMDBService {
     // MARK: - Statics
 
     private static let recommendationLimit = 12
+
+    /// Cap per filmography row, and the minimum credits a crew job needs to earn its own row (so a
+    /// one-off "Thanks" credit doesn't become a section).
+    private static let filmographySectionLimit = 20
+    private static let crewJobMinimum = 2
 
     /// Region for watch-provider availability (providers differ per country). Tied to the en-US locale.
     private static let providerRegion = "US"

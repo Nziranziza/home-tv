@@ -23,6 +23,8 @@ struct MetaDetailView: View {
     @State private var trakt = TraktService.shared
     @State private var streamRequest: StreamRequest?
     @State private var relatedSelection: MetaPreview?
+    /// Set when a Cast & Crew headshot is selected → pushes the person/cast screen.
+    @State private var castSelection: CastPerson?
     /// The inline hero trailer player (Trailerio). Owned here so it survives scroll/collapse and is torn
     /// down on disappear; the background and hero observe it.
     @State private var trailerController = TrailerPlaybackController()
@@ -76,6 +78,7 @@ struct MetaDetailView: View {
                     DetailContent(
                         model: model, scroll: scroll, trakt: trakt,
                         streamRequest: $streamRequest, relatedSelection: $relatedSelection,
+                        castSelection: $castSelection,
                         trailerRequest: $trailerRequest, zone: $zone
                     )
                 }
@@ -146,6 +149,9 @@ struct MetaDetailView: View {
         .navigationDestination(item: $relatedSelection) { item in
             MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
         }
+        .navigationDestination(item: $castSelection) { person in
+            CastView(person: person)
+        }
         .streamPickerCover(request: $streamRequest)
         .trailerPlayerCover(request: $trailerRequest)
     }
@@ -159,7 +165,7 @@ struct MetaDetailView: View {
     /// Whether something is covering the hero — a pushed related detail, the stream picker, or the
     /// full-screen trailer player. Drives tearing the inline trailer down to free its buffer.
     private var trailerCovered: Bool {
-        relatedSelection != nil || streamRequest != nil || trailerRequest != nil
+        relatedSelection != nil || streamRequest != nil || trailerRequest != nil || castSelection != nil
     }
 }
 
@@ -172,6 +178,7 @@ private struct DetailContent: View {
     let trakt: TraktService
     @Binding var streamRequest: StreamRequest?
     @Binding var relatedSelection: MetaPreview?
+    @Binding var castSelection: CastPerson?
     @Binding var trailerRequest: TrailerPlaybackRequest?
     var zone: FocusState<MetaDetailView.Zone?>.Binding
 
@@ -219,7 +226,7 @@ private struct DetailContent: View {
                 DetailHowToWatchSection(model: model, scroll: scroll)
             }
             if !model.vm.creditEntries.isEmpty {
-                DetailCastSection(model: model, scroll: scroll)
+                DetailCastSection(model: model, scroll: scroll, castSelection: $castSelection)
             }
             DetailAboutSection(model: model, scroll: scroll).id("about")
             DetailInformationSection(model: model).id("information")

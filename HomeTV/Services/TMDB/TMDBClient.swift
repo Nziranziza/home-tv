@@ -64,6 +64,14 @@ actor TMDBClient {
         ])
     }
 
+    /// Person details (biography + headshot) bundled with their full movie/TV filmography and
+    /// external ids — drives the cast/crew screen reached from the Cast & Crew row.
+    func person(id: Int) async throws -> TMDBPersonDetail {
+        try await get(["person", String(id)], extra: [
+            "append_to_response": "combined_credits,external_ids"
+        ])
+    }
+
     /// Per-season episode metadata (runtime/stills/overviews) and the season poster.
     func season(tvID: Int, season: Int) async throws -> TMDBSeasonDetail {
         try await get(["tv", String(tvID), "season", String(season)])
