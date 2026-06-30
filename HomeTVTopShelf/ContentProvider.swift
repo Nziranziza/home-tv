@@ -8,8 +8,10 @@ import Foundation
 /// icon. Each item pairs wide landscape artwork with full details (synopsis, year, rating, runtime,
 /// cast) and carries a `hometv://` deep link so selecting it opens that title in the app.
 ///
-/// The popular catalog is public (no auth, no app state), so the extension fetches it directly
-/// rather than sharing the app's addon registry through an App Group.
+/// The popular catalog is public (no auth, no app state), so the extension fetches it directly.
+/// A Top Shelf extension runs under a hard ~25 MB memory limit (the system jetsam-kills it past
+/// that), so it only fetches lightweight JSON and hands tvOS the artwork as remote URLs — it never
+/// downloads or composites images in-process.
 final class ContentProvider: TVTopShelfContentProvider {
     private static let base = URL(string: "https://v3-cinemeta.strem.io")
 
@@ -29,45 +31,18 @@ final class ContentProvider: TVTopShelfContentProvider {
         guard let base else { return [] }
         async let movies = previews(base: base, type: "movie", id: "top")
         async let series = previews(base: base, type: "series", id: "top")
-        // Interleave movies and shows, keeping only titles with wide artwork (a poster looks wrong
-        // in the hero frame), and take the first few as the banner candidates.
+        // Interleave movies and shows and take the first few as banner candidates. Titles with no
+        // usable wide artwork are dropped later by carouselItem, which can fall back to the full
+        // metadata's background even when the catalog preview lacked one.
         let candidates = Array(
             interleave(await movies, await series)
-                .filter { $0.background != nil }
                 .prefix(maxItems)
         )
 
         let details = await fetchDetails(base: base, for: candidates)
-        // Composite each hero (logo over background) concurrently; file URLs are Sendable, so the
-        // non-Sendable carousel items get built synchronously afterwards.
-        let heroes = await fetchHeroes(candidates: candidates, details: details)
-        // Drop heroes left over from titles that have since rotated out of the popular catalog.
-        HeroImageComposer.pruneHeroes(keeping: candidates.map(\.id))
-        return zip(zip(candidates, details), heroes).compactMap { pair, hero in
-            carouselItem(preview: pair.0, detail: pair.1, heroImageURL: hero)
+        return zip(candidates, details).compactMap { preview, detail in
+            carouselItem(preview: preview, detail: detail)
         }
-    }
-
-    /// Composited hero artwork per candidate (nil when compositing fails), aligned by index.
-    private static func fetchHeroes(candidates: [MetaPreview], details: [Meta?]) async -> [URL?] {
-        await withTaskGroup(of: (Int, URL?).self) { group in
-            for (index, pair) in zip(candidates, details).enumerated() {
-                group.addTask { (index, await heroImageURL(preview: pair.0, detail: pair.1)) }
-            }
-            var result = [URL?](repeating: nil, count: candidates.count)
-            for await (index, url) in group { result[index] = url }
-            return result
-        }
-    }
-
-    /// Renders the title-over-artwork hero, preferring full-meta artwork and falling back to the
-    /// preview's. Returns nil (and the item uses the plain remote background) if there's no artwork.
-    private static func heroImageURL(preview: MetaPreview, detail: Meta?) async -> URL? {
-        guard let background = (detail?.background ?? preview.background).flatMap({ URL(string: $0) }) else {
-            return nil
-        }
-        let logo = (detail?.logo ?? preview.logo).flatMap { URL(string: $0) }
-        return await HeroImageComposer.makeHero(identifier: preview.id, backgroundURL: background, logoURL: logo)
     }
 
     private static func previews(base: URL, type: String, id: String) async -> [MetaPreview] {
@@ -102,18 +77,12 @@ final class ContentProvider: TVTopShelfContentProvider {
     }
 
     /// Builds one carousel item from a catalog preview and its (optional) full metadata. Falls back
-    /// to the preview's own fields whenever the detail lookup failed.
-    private static func carouselItem(preview: MetaPreview, detail: Meta?, heroImageURL: URL?) -> TVTopShelfCarouselItem? {
-        // Prefer the composited title-over-artwork hero; fall back to the plain remote background.
-        let url: URL?
-        if let heroImageURL {
-            url = heroImageURL
-        } else if let artwork = detail?.background ?? preview.background {
-            url = URL(string: artwork)
-        } else {
-            url = nil
-        }
-        guard let url else { return nil }
+    /// to the preview's own fields whenever the detail lookup failed. The wide background is handed to
+    /// tvOS as a remote URL so the system fetches and renders it out-of-process, keeping the extension
+    /// within its tight memory budget.
+    private static func carouselItem(preview: MetaPreview, detail: Meta?) -> TVTopShelfCarouselItem? {
+        guard let artwork = detail?.background ?? preview.background,
+              let url = URL(string: artwork) else { return nil }
 
         let item = TVTopShelfCarouselItem(identifier: preview.id)
         item.title = detail?.name ?? preview.name

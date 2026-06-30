@@ -29,6 +29,10 @@ final class MetaDetailModel {
     /// isn't configured / the id isn't an IMDB id) — every consumer falls back to addon `meta`.
     var enrichment: Enrichment?
     var related: [MetaPreview] = []
+    /// In-app-playable trailers from the Trailerio addon (empty unless it's installed and has the
+    /// title). Drives the hero's inline autoplay and the in-app Trailers row. Loaded after the base
+    /// meta so it never blocks the image-first paint.
+    var trailerCandidates: [TrailerCandidate] = []
     /// Per-episode TMDB info (runtime/still/overview/title), keyed by "season:episode". Filled lazily
     /// for the season currently in view (see `loadSeasonEnrichment`), merged over addon `Video` data.
     var episodeInfo: [String: EpisodeEnrichment] = [:]
@@ -95,6 +99,7 @@ final class MetaDetailModel {
         enrichment = nil
         episodeInfo = [:]
         seasonPosters = [:]
+        trailerCandidates = []
         if let previewMeta {                       // sample/preview path — no networking
             meta = previewMeta
             status = .loaded
@@ -114,7 +119,11 @@ final class MetaDetailModel {
                 // already-displayed base meta. Enrichment is best-effort — `enrich` returns nil when
                 // TMDB isn't configured, the id isn't an IMDB id, or there's no match.
                 async let relatedTask: Void = loadRelated()
+                async let trailerTask = TrailerSource.candidates(type: typeID, id: metaID)
                 async let enrichTask = TMDBService.shared.enrich(stremioType: typeID, imdbID: metaID)
+                // Assign trailers first so autoplay starts as soon as they resolve — don't gate it
+                // behind the (often slower) related-catalog fetch. All three still run concurrently.
+                trailerCandidates = await trailerTask
                 _ = await relatedTask
                 enrichment = await enrichTask
                 return

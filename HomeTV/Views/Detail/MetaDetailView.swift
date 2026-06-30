@@ -23,6 +23,12 @@ struct MetaDetailView: View {
     @State private var trakt = TraktService.shared
     @State private var streamRequest: StreamRequest?
     @State private var relatedSelection: MetaPreview?
+    /// The inline hero trailer player (Trailerio). Owned here so it survives scroll/collapse and is torn
+    /// down on disappear; the background and hero observe it.
+    @State private var trailerController = TrailerPlaybackController()
+    /// Set when a Trailers-row card is selected → presents the full-screen in-app trailer player.
+    @State private var trailerRequest: TrailerPlaybackRequest?
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Which region currently holds focus. Crossing the hero↔content boundary drives the full-viewport scroll.
     @FocusState private var zone: Zone?
@@ -63,13 +69,14 @@ struct MetaDetailView: View {
 
             // Fixed background image; everything scrolls above it. A real Gaussian blur ramps with the
             // scroll (sharp behind the hero, blurred behind the content).
-            DetailBackground(model: model, scroll: scroll)
+            DetailBackground(model: model, scroll: scroll, trailer: trailerController)
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     DetailContent(
                         model: model, scroll: scroll, trakt: trakt,
-                        streamRequest: $streamRequest, relatedSelection: $relatedSelection, zone: $zone
+                        streamRequest: $streamRequest, relatedSelection: $relatedSelection,
+                        trailerRequest: $trailerRequest, zone: $zone
                     )
                 }
                 .scrollIndicators(.hidden)
@@ -105,10 +112,42 @@ struct MetaDetailView: View {
         }
         .toolbar(.hidden, for: .tabBar)   // full-screen detail (no tab bar over the content)
         .task(id: "\(typeID):\(metaID)") { await model.load() }
+        // Feed the loaded Trailerio sources to the inline hero player (autoplay is triggered by the
+        // hero layer once it has a player and the hero is expanded). Empty → tear down.
+        .onChange(of: model.trailerCandidates) { _, candidates in
+            // Don't spin a player up if the hero is currently covered — the trailerCovered handler
+            // will load it once the cover is dismissed.
+            if candidates.isEmpty || trailerCovered {
+                trailerController.teardown()
+            } else {
+                trailerController.load(candidates)
+            }
+        }
+        // Covered by a pushed related detail, the stream picker, or the full-screen trailer player:
+        // tear the inline trailer down to reclaim its decode buffer (these are "gone for a while"), and
+        // reload it on return. (Scroll-collapse keeps the player alive instead — see DetailHeroTrailerLayer.)
+        .onChange(of: trailerCovered) { _, covered in
+            if covered {
+                trailerController.teardown()
+            } else if !model.trailerCandidates.isEmpty {
+                trailerController.load(model.trailerCandidates)
+            }
+        }
+        // Pause the trailer when the app is backgrounded; resume on return if the hero is still the
+        // visible, uncovered, expanded surface.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                if !trailerCovered, scroll.p <= 0.12 { trailerController.play() }
+            } else {
+                trailerController.pause()
+            }
+        }
+        .onDisappear { trailerController.teardown() }
         .navigationDestination(item: $relatedSelection) { item in
             MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
         }
         .streamPickerCover(request: $streamRequest)
+        .trailerPlayerCover(request: $trailerRequest)
     }
 
     /// The single clock for the whole hero↔browse interaction. Translation, opacity, blur, brightness,
@@ -116,6 +155,12 @@ struct MetaDetailView: View {
     /// on this one spring — decelerating, no bounce, no overshoot. (Matches the reference exactly; the
     /// usual reason a copy looks "off" is desynced / differently-eased sub-animations.)
     private var heroScroll: Animation { .spring(response: 0.55, dampingFraction: 0.9) }
+
+    /// Whether something is covering the hero — a pushed related detail, the stream picker, or the
+    /// full-screen trailer player. Drives tearing the inline trailer down to free its buffer.
+    private var trailerCovered: Bool {
+        relatedSelection != nil || streamRequest != nil || trailerRequest != nil
+    }
 }
 
 /// The scrolling content column. Reads only model content (never the scroll clock), so a scroll tick
@@ -127,6 +172,7 @@ private struct DetailContent: View {
     let trakt: TraktService
     @Binding var streamRequest: StreamRequest?
     @Binding var relatedSelection: MetaPreview?
+    @Binding var trailerRequest: TrailerPlaybackRequest?
     var zone: FocusState<MetaDetailView.Zone?>.Binding
 
     var body: some View {
@@ -153,11 +199,15 @@ private struct DetailContent: View {
                     )
                 }
                 .id("contentTop")
-                DetailTrailersSection(model: model, scroll: scroll, zone: zone)
+                DetailTrailersSection(
+                    model: model, scroll: scroll, trailerRequest: $trailerRequest, zone: zone
+                )
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     DetailCenteredLogo(model: model, scroll: scroll)
-                    DetailTrailersSection(model: model, scroll: scroll, zone: zone)
+                    DetailTrailersSection(
+                    model: model, scroll: scroll, trailerRequest: $trailerRequest, zone: zone
+                )
                 }
                 .id("contentTop")
             }

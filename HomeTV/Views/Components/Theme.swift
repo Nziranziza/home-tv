@@ -47,6 +47,12 @@ enum Theme {
         /// Target decode size for the full-bleed backdrop (tvOS renders at 1920×1080 points).
         static let backdropTargetSize = CGSize(width: 1920, height: 1080)
 
+        /// Zoom applied to an inline hero trailer so a scope (≈2.39:1) clip — delivered letterboxed
+        /// inside a 16:9 file — fills the 16:9 hero instead of showing its baked-in black bars. The
+        /// bars are part of the pixels, so the only way to hide them is to scale up and crop the sides
+        /// (fine for an ambient backdrop; the full-screen Trailers-row player stays un-zoomed). 1.0 = off.
+        static let trailerFillZoom: CGFloat = 1.35
+
         static let autoAdvanceInterval: Double = 7
         static let crossfadeDuration: Double = 0.9
         /// Duration of the horizontal page-slide when the featured item changes.

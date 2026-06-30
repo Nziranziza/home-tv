@@ -9,12 +9,15 @@ import SwiftUI
 struct DetailBackground: View {
     let model: MetaDetailModel
     let scroll: DetailScrollState
+    /// The inline hero trailer (Trailerio). Renders over the sharp still and crossfades with it.
+    let trailer: TrailerPlaybackController
 
     var body: some View {
         ZStack {
             DetailBackdropBlurredLayer(url: model.vm.backdropURL)
             DetailBackdropSharpLayer(url: model.vm.backdropURL)
                 .opacity(1 - scroll.p)
+            DetailHeroTrailerLayer(controller: trailer, scroll: scroll)
         }
         .ignoresSafeArea()
     }
