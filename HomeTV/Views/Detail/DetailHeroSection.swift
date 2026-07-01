@@ -132,7 +132,7 @@ struct DetailHeroSection: View {
 
     // Reuses the shared hero buttons (HeroPlayButton / HeroCircleButton) from the home hero. Every button
     // reports `zone == .hero` while focused; moving focus down to the content flips the zone and drives
-    // the full-viewport scroll. (Applying `.focused` externally works here as in HeroShelf's HeroActionRow.)
+    // the full-viewport scroll. (Applying `.focused` externally works here as in HeroOverlay's HeroActionRow.)
     private var actionButtons: some View {
         HStack(spacing: 18) {
             HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }

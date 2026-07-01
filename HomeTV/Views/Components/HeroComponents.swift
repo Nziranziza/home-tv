@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Shared hero building blocks used by BOTH the home hero (`HeroShelf`) and the detail hero
+// Shared hero building blocks used by BOTH the home hero (`HeroOverlay`) and the detail hero
 // (`MetaDetailView`): the source badge, rating badge, metadata chip row, and the action buttons.
 
 // MARK: - Source badge
