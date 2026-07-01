@@ -35,8 +35,8 @@ enum Theme {
     /// One side margin for the list/grid pages — Search, Library, and Settings — so their content all
     /// lines up at the same left edge. Change it here to move every one of them together.
     ///
-    /// Watch Now is intentionally NOT driven by this: its hero and catalog rows use the wider
-    /// `Row.contentInset` (88) gutter so the rows align under the full-bleed hero.
+    /// Watch Now is intentionally NOT driven by this: its hero column uses `Hero.horizontalPadding` (80)
+    /// and its catalog rows use `Row.contentInset` (88).
     enum Layout {
         static let horizontalMargin: CGFloat = 80
     }
@@ -55,8 +55,11 @@ enum Theme {
 
         static let autoAdvanceInterval: Double = 7
         static let crossfadeDuration: Double = 0.9
-        /// Duration of the horizontal page-slide when the featured item changes.
-        static let pageSlideDuration: Double = 0.55
+        /// Motion for the horizontal page-slide when the featured item changes. A decelerating,
+        /// barely-underdamped spring — dampingFraction 0.9 is the same damping as the detail-hero collapse
+        /// spring, so it glides to rest with at most an imperceptible overshoot rather than the symmetric
+        /// easeInOut that reads as mechanical.
+        static let pageSlideSpring: Animation = .spring(response: 0.5, dampingFraction: 0.9)
 
         static let kenBurnsDuration: Double = 22
         // Both scale ends stay zoomed enough that the pan offset never exposes an edge of the image
@@ -66,7 +69,9 @@ enum Theme {
         static let kenBurnsOffsetX: CGFloat = 22
         static let kenBurnsOffsetY: CGFloat = 16
 
-        static let horizontalPadding: CGFloat = 88
+        // Left gutter for the hero column, matched to Apple TV's Watch Now (measured at 80 pt on the
+        // 1920-pt canvas). The catalog rows keep their own slightly-wider `Row.contentInset` (88).
+        static let horizontalPadding: CGFloat = 80
         // Bottom-anchored hero content sits in the lower third (≈ buttons at 71% of the screen, on a
         // 1080-pt viewport), just above the page dots and the content sheet that peeks below — matching
         // Apple TV's Watch Now hero. Measured from the overlay's bottom edge, which sits at the top of
@@ -94,9 +99,13 @@ enum Theme {
         static let sourceBadgeSize: CGFloat = 30
 
         static let titleMaxWidth: CGFloat = 1100
-        static let logoMaxWidth: CGFloat = 700
-        static let logoMaxHeight: CGFloat = 200
-        static let taglineMaxWidth: CGFloat = 1000
+        // Logo art fit box, sized to Apple TV's Watch Now: a hero logo there measures ≈150 pt tall and
+        // ≈420 pt wide (e.g. Echo Valley 419×152). The box caps height first so tall/2-line logos land at
+        // Apple's scale, with the width cap only reining in unusually wide wordmarks.
+        static let logoMaxWidth: CGFloat = 500
+        static let logoMaxHeight: CGFloat = 150
+        // Description wrap width, measured from Apple's hero (~640 pt → two lines of ~30 pt text).
+        static let taglineMaxWidth: CGFloat = 640
     }
 
     enum WatchNow {
@@ -179,8 +188,8 @@ enum Theme {
         static let rowHeaderHeight: CGFloat = 36
     }
 
-    /// Horizontal rows of cards (catalogs, Continue Watching). `contentInset` matches
-    /// `Hero.horizontalPadding` so every row and the hero share one left gutter.
+    /// Horizontal rows of cards (catalogs, Continue Watching). `contentInset` is the catalog gutter for
+    /// Watch Now; the hero column uses its own (slightly narrower) `Hero.horizontalPadding` of 80.
     enum Row {
         static let contentInset: CGFloat = 88
 

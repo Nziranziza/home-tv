@@ -142,6 +142,10 @@ struct HeroPlayButton: View {
 struct HeroCircleButton: View {
     let icon: String
     let accessibilityLabel: String
+    /// When true the control shows no resting platter — just the bare glyph — and only forms the circle
+    /// on focus. Matches Apple TV's Watch Now, where the trailing carousel chevron is a bare `>` while
+    /// the +/info controls sit on faint dark circles.
+    var bare: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -150,7 +154,7 @@ struct HeroCircleButton: View {
                 .font(.system(size: 26, weight: .semibold))
                 .frame(width: Theme.Hero.buttonHeight, height: Theme.Hero.buttonHeight)
         }
-        .buttonStyle(HeroCircleButtonStyle())
+        .buttonStyle(HeroCircleButtonStyle(bare: bare))
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -176,21 +180,27 @@ private struct HeroPlayButtonStyle: ButtonStyle {
 }
 
 private struct HeroCircleButtonStyle: ButtonStyle {
+    var bare: Bool = false
+
     func makeBody(configuration: Configuration) -> some View {
-        StyleBody(configuration: configuration)
+        StyleBody(configuration: configuration, bare: bare)
     }
 
     private struct StyleBody: View {
         let configuration: Configuration
+        let bare: Bool
         @Environment(\.isFocused) private var isFocused
 
         var body: some View {
             configuration.label
                 .foregroundStyle(isFocused ? .black : .white)
+                // Focused: solid white circle. Unfocused: a dark near-black glass circle, or — for a
+                // `bare` control (the carousel chevron) — nothing, so only the glyph shows at rest.
                 .background(
-                    // Dark near-black glass when unfocused (the backdrop barely shows through), solid
-                    // white when focused.
-                    Circle().fill(isFocused ? Color.white : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85))
+                    isFocused
+                        ? Color.white
+                        : (bare ? Color.clear : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85)),
+                    in: .circle
                 )
                 .scaleEffect(configuration.isPressed ? 0.95 : (isFocused ? 1.08 : 1.0))
                 .shadow(color: .black.opacity(isFocused ? 0.45 : 0.0), radius: 14, y: 8)

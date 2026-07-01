@@ -17,6 +17,9 @@ struct HeroOverlay: View {
     var onInfo: (MetaPreview) -> Void = { _ in }
 
     @FocusState private var focusedControl: HeroControl?
+    /// The overlay's own width, measured here so the text filmstrip pages by the exact distance it spans
+    /// (self-consistent — a neighbour is always exactly one width off, so none peeks at the edge).
+    @State private var width: CGFloat = 0
 
     enum HeroControl: Hashable { case play, watchlist, info, next }
 
@@ -25,18 +28,21 @@ struct HeroOverlay: View {
             HeroContentColumn(
                 model: model,
                 trakt: trakt,
+                width: width,
                 focus: $focusedControl,
                 defaultFocusNamespace: defaultFocusNamespace,
                 onPlay: onPlay,
                 onInfo: onInfo
             )
             if model.canPage {
-                HeroPageDots(count: model.items.count, current: model.index)
+                // Track the in-flight slide so the active dot follows the paging motion.
+                HeroPageDots(count: model.items.count, current: model.displayedIndex)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, Theme.Hero.pageDotsBottomPadding)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // Keep the model's focus gate in sync so its timer doesn't shift content under an aimed button.
         .onChange(of: focusedControl) { _, new in model.isControlFocused = (new != nil) }
     }
@@ -46,13 +52,14 @@ struct HeroOverlay: View {
 // MARK: - Content column
 
 /// The hero's bottom-anchored text/art + action row column, split into its own `View` (not a computed
-/// property) so the body stays composed of real `View` types. The text/art block crossfades per page
-/// (keyed by item id); the action row below does NOT carry an id, so it persists across pages and keeps
-/// the user's focus while they page left/right. The whole block is bottom-anchored, so a taller info
-/// block grows upward and the buttons stay put.
+/// property) so the body stays composed of real `View` types. The per-title text/art slides as a
+/// filmstrip (`HeroTextFilmstrip`); the action row below does NOT slide, so it persists across pages and
+/// keeps the user's focus while they page left/right. The whole block is bottom-anchored, so a taller
+/// info block grows upward and the buttons stay put.
 private struct HeroContentColumn: View {
     let model: HeroCarouselModel
     let trakt: TraktService
+    let width: CGFloat
     var focus: FocusState<HeroOverlay.HeroControl?>.Binding
     var defaultFocusNamespace: Namespace.ID?
     let onPlay: (MetaPreview) -> Void
@@ -60,48 +67,74 @@ private struct HeroContentColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Hero.contentSpacing) {
-            ZStack(alignment: .bottomLeading) {
-                if let meta = model.currentItem {
-                    HeroInfo(meta: meta)
-                        .id(meta.id)
-                        .transition(pageTransition)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            HeroTextFilmstrip(model: model, width: width)
 
             if let meta = model.currentItem {
                 HeroActionRow(
                     focus: focus,
                     canPage: model.canPage,
                     defaultFocusNamespace: defaultFocusNamespace,
-                    onPlay: { onPlay(meta) },
+                    // Ignore a Select that lands mid-slide: `meta` is the outgoing title until the page
+                    // settles, so these fire only for the item that has come to rest (page nav is separate
+                    // and `advance(by:)` already guards itself while paging).
+                    onPlay: { if !model.isPaging { onPlay(meta) } },
                     showWatchlist: trakt.isSignedIn,
                     inWatchlist: trakt.isInWatchlist(imdb: meta.id),
-                    onWatchlist: { trakt.toggleWatchlist(type: meta.type, imdb: meta.id) },
-                    onInfo: { onInfo(meta) },
+                    onWatchlist: { if !model.isPaging { trakt.toggleWatchlist(type: meta.type, imdb: meta.id) } },
+                    onInfo: { if !model.isPaging { onInfo(meta) } },
                     onPagePrevious: { model.advance(by: -1) },
                     onPageNext: { model.advance(by: 1) }
                 )
+                // The gutter that used to wrap the whole column now lives on the sliding text's content
+                // (per slot) and here, so the action row keeps its position while the text can span — and
+                // therefore slide — the full viewport width.
+                .padding(.leading, Theme.Hero.horizontalPadding)
             }
         }
-        .padding(.horizontal, Theme.Hero.horizontalPadding)
         .padding(.bottom, Theme.Hero.bottomPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
+}
 
-    /// Horizontal page-slide following the paging direction, shared with the backdrop so the whole
-    /// hero pages as one.
-    private var pageTransition: AnyTransition {
-        .asymmetric(
-            insertion: .move(edge: model.forward ? .trailing : .leading),
-            removal: .move(edge: model.forward ? .leading : .trailing)
-        )
+/// The per-title text (logo / metadata / tagline) as a horizontally-translating 3-slot window
+/// (previous / current / next), so it pages in exact lockstep with the backdrop filmstrip. Each slot is a
+/// **viewport-width** view positioned by `model.windowOffset(slot:width:)`: the current slot (0) sits at
+/// rest, the neighbours (±1) sit one viewport off each edge, and the shared `slide` glides the trio.
+/// Because every slot is exactly one viewport wide and `.offset` is render-only, the `ZStack` never
+/// becomes an oversized subtree — its layout footprint stays one viewport, so it can't inflate the scroll
+/// content. Bottom-leading anchored, so a taller neighbour grows upward into empty space and never shifts
+/// the action row; the content is inset by the shared gutter so the current slot lines up exactly as before.
+private struct HeroTextFilmstrip: View {
+    let model: HeroCarouselModel
+    let width: CGFloat
+
+    var body: some View {
+        if model.canPage, width > 0 {
+            ZStack(alignment: .bottomLeading) {
+                ForEach([-1, 0, 1], id: \.self) { slot in
+                    if let item = model.windowItem(slot) {
+                        HeroInfo(meta: item)
+                            .padding(.leading, Theme.Hero.horizontalPadding)
+                            .frame(width: width, alignment: .leading)
+                            .offset(x: model.windowOffset(slot: slot, width: width))
+                            .id(item.id)
+                    }
+                }
+            }
+            .frame(width: width, alignment: .leading)
+        } else if let meta = model.currentItem {
+            // Single featured title: nothing to page, so render the text without a window or offset.
+            HeroInfo(meta: meta)
+                .padding(.leading, Theme.Hero.horizontalPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
 // MARK: - Content
 
-/// The per-page art/text: logo or title, metadata chips, tagline. Crossfades on page change.
+/// One title's art/text: logo or title, metadata chips, tagline. A static block — the enclosing
+/// `HeroTextFilmstrip` is what slides it on a page change.
 private struct HeroInfo: View {
     let meta: MetaPreview
 
@@ -115,12 +148,13 @@ private struct HeroInfo: View {
         }
     }
 
+    /// The hero logline. Apple surfaces the whole short logline and lets it truncate; Stremio
+    /// descriptions can run longer, so we return the full text and let `lineLimit(3)` clamp it to three
+    /// lines rather than pre-cutting to the first sentence (which capped short loglines at ~two lines).
     private var tagline: String? {
-        guard let desc = meta.description, !desc.isEmpty else { return nil }
+        guard let desc = meta.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !desc.isEmpty else { return nil }
         return desc
-            .split(separator: ". ", omittingEmptySubsequences: true)
-            .first
-            .map(String.init) ?? desc
     }
 }
 
@@ -198,9 +232,9 @@ private struct HeroTagline: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 28))
-            .foregroundStyle(.white.opacity(0.6))
-            .lineLimit(2)
+            .font(.system(size: 30))
+            .foregroundStyle(.white.opacity(0.5))
+            .lineLimit(3)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: Theme.Hero.taglineMaxWidth, alignment: .leading)
     }
@@ -247,7 +281,7 @@ private struct HeroActionRow: View {
             // also on a right press at this last button — no focus target lies right, mirroring Play's
             // left-press-to-previous. Shown only when there's more than one featured title to page to.
             if canPage {
-                HeroCircleButton(icon: "chevron.right", accessibilityLabel: "Next", action: onPageNext)
+                HeroCircleButton(icon: "chevron.right", accessibilityLabel: "Next", bare: true, action: onPageNext)
                     .focused(focus, equals: .next)
                     .onMoveCommand { if $0 == .right { onPageNext() } }
             }

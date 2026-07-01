@@ -26,8 +26,16 @@ final class HeroCarouselModel {
     var isControlFocused = false
 
     private(set) var index = 0
-    /// Last paging direction, so the backdrop and the text/logo slide the same way on a page change.
-    private(set) var forward = true
+
+    /// The single shared paging driver: sub-page slide progress in page-width units, read by BOTH hero
+    /// layers so they translate as one rigid surface. `0` at rest; a page springs it to `±1` and then an
+    /// instant recenter snaps it back to `0` (see `advance(by:)`). Both layers position their window
+    /// slots through `windowOffset(slot:width:)`, so they apply one identical offset and cannot desync.
+    private(set) var slide: CGFloat = 0
+    /// True while a page-slide is animating, so a second page press (or an auto-advance tick) is dropped
+    /// mid-slide rather than corrupting the recenter bookkeeping. Also gates the trailer off during the
+    /// slide so a playing video doesn't sit static over the moving stills.
+    private(set) var isPaging = false
 
     /// Inline trailer for the current featured title (Trailerio). Plays once, then pages on.
     let trailer = TrailerPlaybackController()
@@ -38,20 +46,67 @@ final class HeroCarouselModel {
 
     var canPage: Bool { items.count > 1 }
 
-    /// Item-reset: when the feed changes, jump back to the first title and warm its neighbours.
+    /// The item at a window slot offset (`-1` previous / `0` current / `+1` next) from the current index,
+    /// wrapped. This is the 3-slot window both hero layers render so a page-slide always has the
+    /// neighbour it's gliding toward already on-screen and cached.
+    func windowItem(_ slot: Int) -> MetaPreview? {
+        guard !items.isEmpty else { return nil }
+        return items[(index + slot + items.count) % items.count]
+    }
+
+    /// Horizontal offset (in points) for a window slot at the current `slide`. Both hero layers position
+    /// every slot through this one function, so the backdrop still and the text translate by the exact
+    /// same amount — the shared driver made literal. At rest (`slide == 0`) slot 0 sits centred and ±1 sit
+    /// one viewport off each edge; as `slide` springs to `±1` the whole trio glides one page.
+    func windowOffset(slot: Int, width: CGFloat) -> CGFloat {
+        (CGFloat(slot) - slide) * width
+    }
+
+    /// The page currently occupying the viewport centre, following the in-flight `slide` so the page dots
+    /// track the motion (flipping as the new page crosses the halfway point) rather than snapping only at
+    /// the end when `index` recenters. Equal to `index` at rest and after a page settles.
+    var displayedIndex: Int {
+        guard !items.isEmpty else { return 0 }
+        return (index + Int(slide.rounded()) + items.count) % items.count
+    }
+
+    /// Item-reset: when the feed changes, jump back to the first title and warm its neighbours. Also
+    /// clears any in-flight slide so a feed change (or a return from a covering screen that cancelled the
+    /// slide animation before its completion fired) can never leave the strip off-centre or `isPaging`
+    /// stuck.
     func resetToFirst() {
         index = 0
+        slide = 0
+        isPaging = false
         prefetchNeighbors()
     }
 
-    /// Single place that moves the carousel, with wraparound + slide. Used by both manual edge-button
-    /// paging (step ±1) and auto-advance (step +1). The `withAnimation` transaction covers every view
-    /// that reads `index`/`forward`, so the pinned backdrop and the scrolling text slide together.
+    /// Single place that moves the carousel, with wraparound. Used by both manual edge-button paging
+    /// (step ±1) and auto-advance (step +1). Springs the shared `slide` driver one page (`0 → ±step`) so
+    /// the 3-slot window in both hero layers glides as one surface, then — on completion — recenters
+    /// instantly: bumps `index` and resets `slide` to 0 inside a transaction that disables animation. The
+    /// recenter is invisible because the destination slot already shows the destination title.
     func advance(by step: Int) {
-        guard items.count > 1 else { return }
-        forward = step > 0
-        withAnimation(.easeInOut(duration: Theme.Hero.pageSlideDuration)) {
-            index = (index + step + items.count) % items.count
+        guard items.count > 1, !isPaging else { return }
+        // Capture the feed identity: the ~0.5s slide can outlast a feed change, whose `.task(id:)` calls
+        // `resetToFirst()`. If the completion then fires on a different (or empty) feed, drop it — applying
+        // the recenter would overwrite that reset and, on an empty feed, divide by a zero count.
+        let pagingItems = items.map(\.id)
+        isPaging = true
+        // Silence the outgoing trailer for the duration of the slide; the item-change task tears it down
+        // and reloads the new title's trailer once the page settles.
+        if trailer.isReady { trailer.pause() }
+        withAnimation(Theme.Hero.pageSlideSpring) {
+            slide = CGFloat(step)
+        } completion: {
+            guard self.items.map(\.id) == pagingItems else { self.isPaging = false; return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                self.index = (self.index + step + self.items.count) % self.items.count
+                self.slide = 0
+            }
+            self.isPaging = false
         }
     }
 
