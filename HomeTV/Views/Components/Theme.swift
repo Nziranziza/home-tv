@@ -110,12 +110,12 @@ enum Theme {
         /// materializes it.
         static let heroOverlayPeek: CGFloat = 200
 
-        /// Scroll window (as fractions of the viewport) over which the pinned backdrop fades out. It
-        /// holds full while the hero is at rest so the peeking first row sits on the dark hero, then
-        /// cross-fades with the rising light sheet as the hero scrolls off, so the page resolves to flat
-        /// page colour once you're into the deep rows.
-        static let backdropFadeStartFraction: CGFloat = 0.15
-        static let backdropFadeEndFraction: CGFloat = 0.75
+        /// Scroll distance (as a fraction of the viewport) past which the hero trailer pauses: once this
+        /// much has scrolled up the hero is reduced to a thin sliver above the content sheet — too small
+        /// to watch — so playback (and its audio) stops rather than running for a strip you can't see.
+        /// Set below the point where that sliver appears, so the trailer stops before the hero shrinks to
+        /// it, not right as it does.
+        static let heroTrailerPauseFraction: CGFloat = 0.6
 
         /// Scroll window over which the (opaque) light content sheet reveals. It starts at 0 and is
         /// transparent *at rest* (fraction 0 → opacity 0), so the peeking first row shows the dark hero

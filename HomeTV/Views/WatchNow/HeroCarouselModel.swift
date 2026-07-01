@@ -16,6 +16,11 @@ final class HeroCarouselModel {
     /// False while a detail screen / stream picker covers Watch Now, so the trailer tears down instead
     /// of decoding underneath. The auto-advance timer also stands down.
     var isActive = true
+    /// Whether the hero is still on screen (hasn't scrolled off the top under the content sheet), driven
+    /// from the scroll clock via `setHeroVisible(_:)`. Distinct from `isActive`: covering the hero tears
+    /// the player fully down, whereas scrolling it off merely pauses playback so scrolling back resumes
+    /// instantly.
+    private(set) var isHeroVisible = true
     /// Set by the overlay while a hero control holds focus, so the timer doesn't shift content under an
     /// aimed button (Apple TV behaviour).
     var isControlFocused = false
@@ -50,15 +55,31 @@ final class HeroCarouselModel {
         }
     }
 
-    /// Rotates featured items on a timer, paused while the user is focused on a hero control or a
-    /// trailer is mid-play (a playing trailer pages on its own when it ends, so the timer stands down).
+    /// Rotates featured items on a timer, paused while the user is focused on a hero control, a trailer
+    /// is mid-play (a playing trailer pages on its own when it ends, so the timer stands down), or the
+    /// hero has scrolled off screen (nothing should shift under the content sheet where it isn't seen).
     func autoAdvance() async {
         guard items.count > 1 else { return }
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(Theme.Hero.autoAdvanceInterval))
             if Task.isCancelled { break }
-            if isControlFocused || trailer.isReady { continue }
+            if isControlFocused || trailer.isReady || !isHeroVisible { continue }
             advance(by: 1)
+        }
+    }
+
+    /// Reflect the hero's on-screen visibility as the content sheet scrolls over it. When the hero
+    /// scrolls off the top its trailer is no longer part of the visible screen, so pause playback
+    /// (keeping the player warm so scrolling back resumes instantly); resume when it returns. A no-op
+    /// while the hero is inactive — a covering detail / stream picker has already torn the player down.
+    func setHeroVisible(_ visible: Bool) {
+        guard visible != isHeroVisible else { return }
+        isHeroVisible = visible
+        guard isActive else { return }
+        if visible {
+            trailer.play()
+        } else {
+            trailer.pause()
         }
     }
 
@@ -72,7 +93,9 @@ final class HeroCarouselModel {
         let candidates = await TrailerSource.candidates(type: meta.type, id: meta.id)
         guard !Task.isCancelled, !candidates.isEmpty else { return }
         trailer.load(candidates)
-        trailer.autoplay()
+        // Only begin playing if the hero is actually on screen — a title that loads (e.g. via
+        // auto-advance) while scrolled away stays paused until the hero scrolls back into view.
+        if isHeroVisible { trailer.autoplay() }
     }
 
     /// Warm BOTH neighbours so a page-slide in either direction shows the real image immediately.

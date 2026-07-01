@@ -171,15 +171,22 @@ struct WatchNowView: View {
 
 /// Wraps the pinned backdrop so it — and not `WatchNowView.body` — is what reads the scroll clock on
 /// each tick. Keeping the clock reads out of the parent body means scrolling never re-evaluates the
-/// (lazily loaded) catalog rows; only this small view re-renders to fade and drift the backdrop.
+/// (lazily loaded) catalog rows; only this small view re-renders to drift the backdrop and to pause the
+/// trailer as the hero scrolls off. The backdrop stays at full brightness — the opaque content sheet
+/// simply rises over it (Apple TV's Watch Now), so it's covered rather than dimmed.
 private struct PinnedHeroBackdrop: View {
     let model: HeroCarouselModel
     let scrollState: WatchNowScrollState
 
     var body: some View {
         HeroBackdropLayer(model: model)
-            .opacity(scrollState.backdropOpacity)
             .offset(y: scrollState.backdropParallax)
+            // Pause the hero trailer once it scrolls off the top and resume it on return. Driven from
+            // here — this wrapper already re-reads the scroll clock each tick — so the crossing never
+            // touches WatchNowView.body or the lazily loaded catalog rows.
+            .onChange(of: scrollState.isHeroVisible) { _, visible in
+                model.setHeroVisible(visible)
+            }
     }
 }
 
