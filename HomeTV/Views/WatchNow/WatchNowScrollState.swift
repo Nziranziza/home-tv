@@ -4,10 +4,9 @@ import SwiftUI
 /// read it (the pinned backdrop and the sheet's light surface) re-render on each scroll tick — the
 /// content rows never read it, so scrolling doesn't re-evaluate the (lazily loaded) catalogs.
 ///
-/// It drives two coordinated cross-fades, mirroring Apple TV's Watch Now:
-/// - the pinned backdrop fades *out* as the hero scrolls off, and
-/// - the light content sheet fades *in* as it rises — but is fully transparent at rest, so the peeking
-///   first row sits on the dark hero with no light background until you actually scroll.
+/// The pinned backdrop stays at full brightness; the light content sheet fades *in* as it rises over it
+/// (mirroring Apple TV's Watch Now) — but is fully transparent at rest, so the peeking first row sits on
+/// the dark hero with no light background until you actually scroll.
 @MainActor
 @Observable
 final class WatchNowScrollState {
@@ -15,11 +14,14 @@ final class WatchNowScrollState {
     var offset: CGFloat = 0
     var viewport: CGFloat = 0
 
-    /// Pinned backdrop opacity: full at rest (the peeking first row sits on the dark hero), fading as
-    /// the hero scrolls off so the page resolves to flat light colour in the deep rows.
-    var backdropOpacity: Double {
-        Double(1 - ramp(from: Theme.WatchNow.backdropFadeStartFraction,
-                        to: Theme.WatchNow.backdropFadeEndFraction))
+    /// Whether the hero is still on screen *enough to be worth playing its trailer*. It stays true until
+    /// the hero has scrolled up past `heroTrailerPauseFraction` of the viewport — before it's reduced to
+    /// the thin sliver above the content sheet — at which point playback (and its audio) pauses rather
+    /// than running for a strip too small to watch. Mirrors the detail hero, which pauses as it collapses.
+    /// A boolean, not the fade ramp, so its consumer reacts only on the crossing, not on every tick.
+    var isHeroVisible: Bool {
+        guard viewport > 0 else { return true }
+        return offset < viewport * Theme.WatchNow.heroTrailerPauseFraction
     }
 
     /// Light content-sheet opacity: 0 at rest — the sheet is fully transparent so the peeking first row

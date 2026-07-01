@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The Watch Now hero's **pinned** layer: full-bleed backdrop + inline trailer + scrims. It sits
-/// behind the scroll view and stays fixed while the content sheet scrolls up over it, fading out as
-/// the hero collapses (`opacity` is driven by the caller from the scroll clock) so that once you're
-/// into the rows the backdrop is gone and the opaque sheet reads as flat page colour, not artwork.
+/// behind the scroll view and stays fixed while the content sheet scrolls up over it. It keeps full
+/// brightness throughout — the opaque sheet simply rises to cover it (Apple TV's Watch Now), so once
+/// you're into the rows the backdrop is occluded rather than dimmed.
 ///
 /// All carousel + trailer lifecycle lives here (it's always present whenever there are items), reading
 /// the shared `HeroCarouselModel`; the focusable logo/buttons live in the sibling `HeroOverlay`.
