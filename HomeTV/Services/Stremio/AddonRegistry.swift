@@ -29,6 +29,10 @@ final class AddonRegistry {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         load()
+        // Publish the current Trailerio base URL to the shared App Group so the Top Shelf extension can
+        // resolve trailers. Done at launch too (not only on mutation) so an addon list already installed
+        // before this feature shipped still reaches the extension without the user re-toggling anything.
+        syncTopShelfState()
         if addons.isEmpty {
             Task { await seedDefaults() }
         }
@@ -91,5 +95,13 @@ final class AddonRegistry {
     private func save() {
         guard let data = try? JSONEncoder().encode(addons) else { return }
         defaults.set(data, forKey: storageKey)
+        syncTopShelfState()
+    }
+
+    /// Let the trailer feature mirror the Trailerio base URL to the shared App Group for the Top Shelf
+    /// extension. Passing `enabledAddons` keeps the detection off the `AddonRegistry.shared` accessor,
+    /// so this is safe to call from `init`; the Trailerio/App-Group specifics live in `TrailerSource`.
+    private func syncTopShelfState() {
+        TrailerSource.syncTopShelfState(with: enabledAddons)
     }
 }

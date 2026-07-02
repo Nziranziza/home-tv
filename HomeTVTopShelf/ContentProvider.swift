@@ -39,9 +39,15 @@ final class ContentProvider: TVTopShelfContentProvider {
                 .prefix(maxItems)
         )
 
-        let details = await fetchDetails(base: base, for: candidates)
-        return zip(candidates, details).compactMap { preview, detail in
-            carouselItem(preview: preview, detail: detail)
+        // Full metadata and (when the user has Trailerio installed) a playable trailer per candidate are
+        // independent lookups, so resolve them concurrently. Both stay aligned to `candidates` by index.
+        async let detailsTask = fetchDetails(base: base, for: candidates)
+        async let trailersTask = trailerURLs(base: TopShelfSharedState.trailerioBaseURL, for: candidates)
+        let details = await detailsTask
+        let trailers = await trailersTask
+
+        return candidates.enumerated().compactMap { index, preview in
+            carouselItem(preview: preview, detail: details[index], trailerURL: trailers[index])
         }
     }
 
@@ -66,6 +72,26 @@ final class ContentProvider: TVTopShelfContentProvider {
         }
     }
 
+    /// One best playable trailer URL per candidate (nil where unavailable), resolved concurrently from
+    /// the user's Trailerio addon. `base` is the addon's URL shared from the app via `TopShelfSharedState`;
+    /// when Trailerio isn't installed it's nil and every slot is nil, leaving the carousel a static-poster
+    /// carousel exactly as before. Only lightweight JSON is fetched — the trailer is later handed to tvOS
+    /// as a remote URL and never downloaded here, so this stays within the extension's tight memory budget.
+    private static func trailerURLs(base: URL?, for candidates: [MetaPreview]) async -> [URL?] {
+        guard let base else { return [URL?](repeating: nil, count: candidates.count) }
+        return await withTaskGroup(of: (Int, URL?).self) { group in
+            for (index, preview) in candidates.enumerated() {
+                group.addTask {
+                    let best = await TrailerResolver.candidates(baseURL: base, type: preview.type, id: preview.id)?.first
+                    return (index, best?.url)
+                }
+            }
+            var result = [URL?](repeating: nil, count: candidates.count)
+            for await (index, url) in group { result[index] = url }
+            return result
+        }
+    }
+
     /// Alternates the two catalogs (movie, show, movie, show, …) so the banner mixes content types.
     private static func interleave(_ first: [MetaPreview], _ second: [MetaPreview]) -> [MetaPreview] {
         var result: [MetaPreview] = []
@@ -80,7 +106,7 @@ final class ContentProvider: TVTopShelfContentProvider {
     /// to the preview's own fields whenever the detail lookup failed. The wide background is handed to
     /// tvOS as a remote URL so the system fetches and renders it out-of-process, keeping the extension
     /// within its tight memory budget.
-    private static func carouselItem(preview: MetaPreview, detail: Meta?) -> TVTopShelfCarouselItem? {
+    private static func carouselItem(preview: MetaPreview, detail: Meta?, trailerURL: URL?) -> TVTopShelfCarouselItem? {
         guard let artwork = detail?.background ?? preview.background,
               let url = URL(string: artwork) else { return nil }
 
@@ -97,6 +123,9 @@ final class ContentProvider: TVTopShelfContentProvider {
         item.namedAttributes = namedAttributes(preview: preview, detail: detail)
         item.setImageURL(url, for: .screenScale1x)
         item.setImageURL(url, for: .screenScale2x)
+        // The poster shows first; tvOS then auto-plays this trailer muted (swipe-up goes full screen).
+        // nil when Trailerio isn't installed or has nothing for the title → poster-only, as before.
+        item.previewVideoURL = trailerURL
         if let link = deepLink(for: preview) {
             let action = TVTopShelfAction(url: link)
             item.displayAction = action

@@ -15,11 +15,26 @@ enum TrailerSource {
     /// The installed, enabled Trailerio addon, or nil. Matches by manifest id first, then falls back to
     /// any enabled addon served from a `trailerio` host (so a re-published manifest id still resolves).
     static var installedAddon: InstalledAddon? {
-        let enabled = AddonRegistry.shared.enabledAddons
+        installedAddon(in: AddonRegistry.shared.enabledAddons)
+    }
+
+    /// Same detection against an explicit addon list, so `syncTopShelfState(with:)` can run without
+    /// re-entering the `AddonRegistry.shared` singleton (which it can't safely touch while that
+    /// singleton is itself initializing).
+    private static func installedAddon(in enabled: [InstalledAddon]) -> InstalledAddon? {
         if let byID = enabled.first(where: { $0.manifest.id == manifestID }) {
             return byID
         }
         return enabled.first { $0.manifestURL.host?.localizedStandardContains("trailerio") ?? false }
+    }
+
+    /// Mirror the enabled Trailerio addon's base URL (or nil) into the shared App Group so the
+    /// out-of-process Top Shelf extension can resolve trailer autoplay URLs. `AddonRegistry` calls this
+    /// whenever its addon list changes (and at launch); the list is passed in explicitly to keep this
+    /// off the `AddonRegistry.shared` accessor. Trailerio detection and the shared-state key both live
+    /// here, in the trailer feature, rather than leaking into the generic addon store.
+    static func syncTopShelfState(with enabled: [InstalledAddon]) {
+        TopShelfSharedState.trailerioBaseURL = installedAddon(in: enabled)?.baseURL
     }
 
     /// Whether trailer autoplay is available at all (the addon is installed). Cheap; safe to read on
@@ -38,7 +53,7 @@ enum TrailerSource {
     /// - `id`: must be an IMDb id (`tt…`); a series episode id (`tt…:S:E`) is reduced to the show id.
     static func candidates(type: String, id: String) async -> [TrailerCandidate] {
         guard let addon = installedAddon else { return [] }
-        let showID = String(id.split(separator: ":").first ?? Substring(id))
+        let showID = TrailerResolver.showID(from: id)
         guard showID.hasPrefix("tt") else { return [] }
 
         let cacheKey = "\(type):\(showID)"
@@ -46,45 +61,13 @@ enum TrailerSource {
             return entry.candidates
         }
 
-        let response: TrailerioMetaResponse
-        do {
-            // Trailerio answers the standard `meta` path but with a non-standard `meta.links` payload.
-            response = try await StremioClient.shared.fetch(
-                baseURL: addon.baseURL,
-                segments: ["meta", type, showID],
-                as: TrailerioMetaResponse.self
-            )
-        } catch {
-            return []   // best-effort: any failure simply yields no autoplay (don't cache failures)
+        // The fetch-and-rank core is shared with the Top Shelf extension via `TrailerResolver`. A nil
+        // result is a failure we don't cache (so it can be retried); a successful lookup — even an
+        // empty one — is cached so repeated hero asks don't re-fetch the same title.
+        guard let sorted = await TrailerResolver.candidates(baseURL: addon.baseURL, type: type, id: showID) else {
+            return []
         }
-
-        // Guard against a mismatched response (wrong title) before caching/returning. Only the id is
-        // checked: Trailerio echoes the requested tt id exactly, whereas `type` is optional and may be
-        // omitted, so a type equality check could wrongly reject a valid response.
-        guard response.meta.id == showID else { return [] }
-
-        var seen = Set<String>()
-        let candidates = (response.meta.links ?? [])
-            .compactMap { link -> TrailerCandidate? in
-                guard let url = URL(string: link.trailers) else { return nil }
-                guard seen.insert(url.absoluteString).inserted else { return nil }
-                return TrailerCandidate(url: url, provider: link.provider ?? "Trailer")
-            }
-        // Stable sort by source preference: enumerate so equal ranks keep Trailerio's original order.
-        let sorted = candidates
-            .enumerated()
-            .sorted { (providerRank($0.element.provider), $0.offset) < (providerRank($1.element.provider), $1.offset) }
-            .map(\.element)
         cache[cacheKey] = CacheEntry(date: Date(), candidates: sorted)
         return sorted
-    }
-
-    /// Source preference, lower = tried first. The ⭐/Plex pick (Trailerio's own curated, reliably
-    /// direct-mp4 source) leads, then any 1080p source, then everything else — all kept as fallbacks the
-    /// player walks if one fails. Ties preserve Trailerio's original order (a stable sort via the index).
-    private static func providerRank(_ provider: String) -> Int {
-        if provider.contains("⭐") || provider.localizedStandardContains("plex") { return 0 }
-        if provider.localizedStandardContains("1080") { return 1 }
-        return 2
     }
 }
