@@ -15,6 +15,7 @@ struct Enrichment: Sendable, Hashable {
     var overview: String?
     var genres: [String]?
     var rating: Double?                 // TMDB vote_average (0...10)
+    var year: String?                   // release year ("2026"), from TMDB release_date / first_air_date
 
     // Details
     var runtimeMinutes: Int?            // formatted in the view via FormatStyle

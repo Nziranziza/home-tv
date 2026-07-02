@@ -9,12 +9,22 @@ import SwiftUI
 /// the shared `HeroCarouselModel`; the focusable logo/buttons live in the sibling `HeroOverlay`.
 struct HeroBackdropLayer: View {
     let model: HeroCarouselModel
+    /// The hero's own **full-bleed** width — the width the backdrop actually renders at after it expands
+    /// past the safe area, NOT the safe-area-inset width the parent proposes. One page spans this, so the
+    /// filmstrip translates by `slot * width - slide * width` and a neighbour sits exactly one viewport off
+    /// each edge. Critically the measurement is taken *inside* `.ignoresSafeArea()` (below): read outside
+    /// it, `proxy.size.width` is the inset width (~overscan margins narrower), so the +1 neighbour would be
+    /// positioned short of the true right edge and a sliver of the next still would peek — the reported bug.
+    @State private var width: CGFloat = 0
 
     var body: some View {
         ZStack {
-            HeroBackdropContent(model: model)
+            HeroBackdropContent(model: model, width: width)
             HeroScrim()
         }
+        // Measure BEFORE `.ignoresSafeArea()` so the proxy reports the expanded full-bleed size the ZStack
+        // is proposed, not the inset size. Getting this wrong is what left the neighbour peeking at the edge.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .clipped()
         .ignoresSafeArea()
         // Item-reset: when the feed changes, jump back to the first title and warm its neighbours.
@@ -41,49 +51,66 @@ struct HeroBackdropLayer: View {
 
 // MARK: - Backdrop (current item only; the next is prefetched into the image cache)
 
-/// The backdrop still + inline trailer crossfade, split into its own `View` (not a computed property)
-/// so the layer's body stays composed of real view types.
+/// The backdrop stills + inline trailer, split into its own `View` (not a computed property) so the
+/// layer's body stays composed of real view types.
 private struct HeroBackdropContent: View {
     let model: HeroCarouselModel
+    let width: CGFloat
 
     var body: some View {
         ZStack {
-            if let meta = model.currentItem {
-                HeroBackdrop(url: meta.background.flatMap(URL.init(string:)))
-                    .id(meta.id)
-                    .transition(pageTransition)
-            }
-            // The inline trailer crossfades over the still once it's producing frames.
+            HeroBackdropFilmstrip(model: model, width: width)
+
+            // The inline trailer crossfades over the CURRENT still once it's producing frames. It stays a
+            // pinned centre overlay (not part of the sliding strip, since it's torn down and reloaded when
+            // the title changes anyway) and is hidden while a page slides, so a playing video never sits
+            // static over the moving stills.
             TrailerVideoLayer(player: model.trailer.player)
                 .scaleEffect(Theme.Hero.trailerFillZoom)   // crop baked-in scope letterbox to fill the hero
-                .opacity(model.trailer.isReady ? 1 : 0)
+                .opacity(model.trailer.isReady && !model.isPaging ? 1 : 0)
                 .animation(.easeInOut(duration: Theme.Hero.crossfadeDuration), value: model.trailer.isReady)
                 .allowsHitTesting(false)
         }
     }
-
-    /// Horizontal page-slide that follows the paging direction, shared with `HeroOverlay` so the
-    /// backdrop and the text/logo page as one.
-    private var pageTransition: AnyTransition {
-        .asymmetric(
-            insertion: .move(edge: model.forward ? .trailing : .leading),
-            removal: .move(edge: model.forward ? .leading : .trailing)
-        )
-    }
 }
 
-// MARK: - Backdrop image
-
-private struct HeroBackdrop: View {
-    let url: URL?
-
+/// The backdrop stills as a horizontally-translating 3-slot window (previous / current / next), paging in
+/// exact lockstep with the overlay text — one rigid surface — rather than as an independent per-item
+/// transition. Each slot is a **viewport-width** still positioned by `model.windowOffset(slot:width:)`:
+/// the current slot (0) fills the hero at rest, the neighbours (±1) sit one viewport off each edge, and the
+/// shared `slide` glides the trio. Because every slot is exactly one viewport wide and `.offset` is
+/// render-only, the `ZStack` stays one viewport in size — so it never inflates the sibling trailer layer.
+/// Neighbours are prefetched (see `HeroCarouselModel.prefetchNeighbors`), so the incoming still is already
+/// decoded and shows no placeholder gap.
+private struct HeroBackdropFilmstrip: View {
+    let model: HeroCarouselModel
+    let width: CGFloat
+    /// Ken Burns drift, applied to the whole strip rather than to each still, so it is ONE continuous pan
+    /// that never resets when the window's slot contents shift at a page recenter. Per-still drift would
+    /// pop the newly-centred image back to the base scale as its view is rebuilt — the "re-adjust after
+    /// sliding in" artifact. The pan is slow relative to the page slide, so the two motions don't fight.
     @State private var drift = false
 
     var body: some View {
-        RemoteImage(url: url, targetSize: Theme.Hero.backdropTargetSize, contentMode: .fill) {
-            Color(white: 0.04)
+        Group {
+            if model.canPage, width > 0 {
+                ZStack {
+                    ForEach([-1, 0, 1], id: \.self) { slot in
+                        if let item = model.windowItem(slot) {
+                            HeroBackdrop(url: item.background.flatMap(URL.init(string:)))
+                                .frame(width: width)
+                                .offset(x: model.windowOffset(slot: slot, width: width))
+                                .id(item.id)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let meta = model.currentItem {
+                // Single featured title: nothing to page, so render the still without a window or offset.
+                HeroBackdrop(url: meta.background.flatMap(URL.init(string:)))
+                    .id(meta.id)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .scaleEffect(drift ? Theme.Hero.kenBurnsScale : Theme.Hero.kenBurnsBaseScale, anchor: .center)
         .offset(
             x: drift ? -Theme.Hero.kenBurnsOffsetX : Theme.Hero.kenBurnsOffsetX,
@@ -93,8 +120,21 @@ private struct HeroBackdrop: View {
             .easeInOut(duration: Theme.Hero.kenBurnsDuration).repeatForever(autoreverses: true),
             value: drift
         )
-        .clipped()
         .onAppear { drift = true }
+    }
+}
+
+// MARK: - Backdrop image
+
+private struct HeroBackdrop: View {
+    let url: URL?
+
+    var body: some View {
+        RemoteImage(url: url, targetSize: Theme.Hero.backdropTargetSize, contentMode: .fill) {
+            Color(white: 0.04)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 }
 

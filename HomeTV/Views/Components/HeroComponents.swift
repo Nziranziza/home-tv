@@ -30,14 +30,28 @@ struct RatingBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .font(.caption2.weight(.bold))
+            // Tight padding so the thin outline hugs the small rating text (e.g. IMDb 7.7 / TV-MA).
+            .padding(.horizontal, 2)
+            .padding(.vertical, 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .stroke(.white.opacity(0.55), lineWidth: 1)
             )
             .foregroundStyle(.white.opacity(0.9))
+    }
+}
+
+// MARK: - Genre normalization
+
+extension Array where Element == String {
+    /// Normalize genre entries for display. Addons/TMDB sometimes deliver a title's genres as one
+    /// comma-joined string ("Comedy, Family") rather than separate entries; split them into individual,
+    /// trimmed genres so both heroes render them as separate " · "-joined chips, not a comma in one chip.
+    func splitGenres() -> [String] {
+        flatMap { $0.split(separator: ",").map(String.init) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }
 
@@ -56,7 +70,7 @@ struct MetaChipRow: View {
 
     let parts: [String]
     var trailingBadge: String? = nil
-    var font: Font = .callout
+    var font: Font = Theme.Hero.chipFont
     var leading: LeadingBadge = .source
 
     var body: some View {
@@ -116,6 +130,60 @@ struct ProviderBadge: View {
     }
 }
 
+// MARK: - Hero description
+
+/// The hero logline / synopsis, shared by the Watch Now hero and the Detail hero so the description
+/// reads identically in both. All of its styling — size, dimming, line spacing, clamp, and wrap width —
+/// lives on `Theme.Hero`, so a change there moves both heroes at once.
+struct HeroDescription: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Theme.Hero.descriptionFont)
+            .foregroundStyle(.white.opacity(Theme.Hero.descriptionOpacity))
+            .lineSpacing(Theme.Hero.descriptionLineSpacing)
+            .lineLimit(Theme.Hero.descriptionLineLimit)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: Theme.Hero.descriptionMaxWidth, alignment: .leading)
+    }
+}
+
+// MARK: - Hero title
+
+/// The hero title: the title's logo art when it has one — aspect-fit and pinned bottom-leading so it
+/// sits flush at the text gutter — otherwise the `fallback` wordmark (also shown while the logo loads).
+/// Shared by the Watch Now hero and the Detail hero; each passes its own logo box size and whether to
+/// drop a shadow (Watch Now lifts the logo off its bright trailer; the Detail hero doesn't).
+///
+/// Any left/top inset you see on a given logo is transparent padding baked into the source PNG — the art
+/// is left-aligned here, so the padding is the artwork's own, not a layout offset.
+struct HeroTitleArt<Fallback: View>: View {
+    let logoURL: URL?
+    let accessibilityName: String
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    var shadow: Bool = false
+    @ViewBuilder var fallback: () -> Fallback
+
+    var body: some View {
+        if let logoURL {
+            RemoteImage(
+                url: logoURL,
+                targetSize: CGSize(width: maxWidth, height: maxHeight),
+                contentMode: .fit
+            ) {
+                fallback()
+            }
+            .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .bottomLeading)
+            .shadow(color: .black.opacity(shadow ? 0.5 : 0), radius: shadow ? 10 : 0, y: shadow ? 4 : 0)
+            .accessibilityLabel(accessibilityName)
+        } else {
+            fallback()
+        }
+    }
+}
+
 // MARK: - Hero action buttons
 
 /// Primary hero action — a white pill (e.g. "Play").
@@ -142,6 +210,10 @@ struct HeroPlayButton: View {
 struct HeroCircleButton: View {
     let icon: String
     let accessibilityLabel: String
+    /// When true the control shows no resting platter — just the bare glyph — and only forms the circle
+    /// on focus. Matches Apple TV's Watch Now, where the trailing carousel chevron is a bare `>` while
+    /// the +/info controls sit on faint dark circles.
+    var bare: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -150,7 +222,7 @@ struct HeroCircleButton: View {
                 .font(.system(size: 26, weight: .semibold))
                 .frame(width: Theme.Hero.buttonHeight, height: Theme.Hero.buttonHeight)
         }
-        .buttonStyle(HeroCircleButtonStyle())
+        .buttonStyle(HeroCircleButtonStyle(bare: bare))
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -176,21 +248,27 @@ private struct HeroPlayButtonStyle: ButtonStyle {
 }
 
 private struct HeroCircleButtonStyle: ButtonStyle {
+    var bare: Bool = false
+
     func makeBody(configuration: Configuration) -> some View {
-        StyleBody(configuration: configuration)
+        StyleBody(configuration: configuration, bare: bare)
     }
 
     private struct StyleBody: View {
         let configuration: Configuration
+        let bare: Bool
         @Environment(\.isFocused) private var isFocused
 
         var body: some View {
             configuration.label
                 .foregroundStyle(isFocused ? .black : .white)
+                // Focused: solid white circle. Unfocused: a dark near-black glass circle, or — for a
+                // `bare` control (the carousel chevron) — nothing, so only the glyph shows at rest.
                 .background(
-                    // Dark near-black glass when unfocused (the backdrop barely shows through), solid
-                    // white when focused.
-                    Circle().fill(isFocused ? Color.white : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85))
+                    isFocused
+                        ? Color.white
+                        : (bare ? Color.clear : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85)),
+                    in: .circle
                 )
                 .scaleEffect(configuration.isPressed ? 0.95 : (isFocused ? 1.08 : 1.0))
                 .shadow(color: .black.opacity(isFocused ? 0.45 : 0.0), radius: 14, y: 8)

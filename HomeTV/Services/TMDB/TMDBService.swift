@@ -170,8 +170,7 @@ final class TMDBService {
         let primaryArt = style == .poster ? posterURL : (backdropURL ?? posterURL)
         guard primaryArt != nil else { return nil }
 
-        let year = (credit.releaseDate ?? credit.firstAirDate)
-            .map { String($0.prefix(4)) }?.nilIfBlank
+        let year = Self.year(from: credit.releaseDate ?? credit.firstAirDate)
         let preview = MetaPreview(
             id: TMDBRef(mediaType: mediaType, id: credit.id).encoded,
             type: mediaType == "tv" ? "series" : "movie",
@@ -225,6 +224,7 @@ final class TMDBService {
         e.overview = detail.overview?.nilIfBlank
         e.genres = detail.genres?.map(\.name)
         e.rating = detail.voteAverage
+        e.year = Self.year(from: detail.releaseDate)
         e.runtimeMinutes = detail.runtime
         e.status = detail.status?.nilIfBlank
         e.country = detail.productionCountries?.first?.name
@@ -249,6 +249,7 @@ final class TMDBService {
         e.overview = detail.overview?.nilIfBlank
         e.genres = detail.genres?.map(\.name)
         e.rating = detail.voteAverage
+        e.year = Self.year(from: detail.firstAirDate)
         e.runtimeMinutes = detail.episodeRunTime?.first
         e.status = detail.status?.nilIfBlank
         e.country = detail.productionCountries?.first?.name
@@ -260,6 +261,12 @@ final class TMDBService {
         e.trailers = trailers(from: detail.videos)
         e.recommendations = Self.recommendationPreviews(detail.recommendations, fallbackType: "tv")
         return e
+    }
+
+    /// Four-digit release year from a TMDB date string ("2026-05-29" → "2026"). nil when absent/malformed.
+    private static func year(from date: String?) -> String? {
+        guard let date, date.count >= 4 else { return nil }
+        return String(date.prefix(4))
     }
 
     // MARK: - Field helpers

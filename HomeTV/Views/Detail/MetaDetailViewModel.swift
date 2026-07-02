@@ -168,7 +168,7 @@ struct MetaDetailViewModel {
 
     var typeAndGenreParts: [String] {
         var parts = [StremioType.displayLabel(for: typeID)]
-        let genres = displayGenres
+        let genres = displayGenres.splitGenres()
         if !genres.isEmpty {
             parts.append(contentsOf: genres.prefix(2))
         }
@@ -182,7 +182,7 @@ struct MetaDetailViewModel {
 
     var factsLine: String {
         var parts: [String] = []
-        if let year = meta?.releaseInfo, !year.isEmpty { parts.append(year) }
+        if let year = displayYear { parts.append(year) }
         if let runtime = displayRuntime { parts.append(runtime) }
         if let rating = meta?.imdbRating, !rating.isEmpty {
             parts.append("★ \(rating)")
@@ -213,6 +213,15 @@ struct MetaDetailViewModel {
     var displayGenres: [String] {
         if let genres = enrichment?.genres, !genres.isEmpty { return genres }
         return meta?.genres ?? []
+    }
+
+    /// Release year, preferring TMDB and falling back to the addon's `releaseInfo` — the same TMDB-first,
+    /// Cinemeta-fallback precedence as `displayGenres` / `displayRuntime`. This is why the year previously
+    /// vanished on titles whose addon `meta.releaseInfo` was empty: there was no TMDB fallback.
+    var displayYear: String? {
+        if let year = enrichment?.year, !year.isEmpty { return year }
+        if let year = meta?.releaseInfo, !year.isEmpty { return year }
+        return nil
     }
 
     /// Real TMDB certification ("PG-13" / "TV-MA") when available, else the placeholder.
