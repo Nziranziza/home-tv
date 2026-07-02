@@ -59,9 +59,8 @@ targets:
         SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
-    # App Group shared with the Top Shelf extension. The extension now hands tvOS remote artwork
-    # URLs directly (no in-process compositing), so nothing is written to the container today; it
-    # is kept for any future shared state.
+    # App Group shared with the Top Shelf extension. The app mirrors the enabled Trailerio addon's
+    # base URL here (see TopShelfSharedState) so the extension can resolve trailer autoplay URLs.
     entitlements:
       path: HomeTV/HomeTV.entitlements
       properties:
@@ -71,9 +70,10 @@ targets:
     dependencies:
       - target: HomeTVTopShelf
 
-  # TV Top Shelf extension: supplies the popular-content rows shown behind the app
-  # icon in the Home screen's top row. Reuses the app's Stremio client + models to
-  # fetch Cinemeta's public popular catalogs directly (no auth, no App Group needed).
+  # TV Top Shelf extension: supplies the popular-content carousel shown behind the app
+  # icon in the Home screen's top row. Reuses the app's Stremio client + models to fetch
+  # Cinemeta's public popular catalogs directly, and reads the Trailerio base URL from the
+  # shared App Group to auto-play a trailer per item.
   HomeTVTopShelf:
     type: app-extension
     platform: tvOS
@@ -84,6 +84,13 @@ targets:
           - "**/.DS_Store"
       - path: HomeTV/Services/Stremio/Models.swift
       - path: HomeTV/Services/Stremio/StremioClient.swift
+      # Trailer autoplay, shared with the app: TrailerResolver fetches/ranks Trailerio's playable URLs
+      # (with its model types), and TopShelfSharedState reads the Trailerio base URL the app mirrors
+      # into the App Group.
+      - path: HomeTV/Services/Trailers/TrailerResolver.swift
+      - path: HomeTV/Services/Trailers/TrailerCandidate.swift
+      - path: HomeTV/Services/Trailers/TrailerioModels.swift
+      - path: HomeTV/Services/Shared/TopShelfSharedState.swift
     info:
       path: HomeTVTopShelf/Info.plist
       properties:
@@ -98,8 +105,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "3"
         SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
         SUPPORTS_MACCATALYST: NO
-    # Same App Group as the host app, retained for any future shared state. The extension now hands
-    # tvOS remote artwork URLs and writes no composited images here.
+    # Same App Group as the host app. The extension reads the Trailerio base URL the app mirrors here
+    # (see TopShelfSharedState) to resolve trailer autoplay URLs; it writes nothing back.
     entitlements:
       path: HomeTVTopShelf/HomeTVTopShelf.entitlements
       properties:
