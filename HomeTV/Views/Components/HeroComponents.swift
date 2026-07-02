@@ -30,14 +30,28 @@ struct RatingBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .font(.caption2.weight(.bold))
+            // Tight padding so the thin outline hugs the small rating text (e.g. IMDb 7.7 / TV-MA).
+            .padding(.horizontal, 2)
+            .padding(.vertical, 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .stroke(.white.opacity(0.55), lineWidth: 1)
             )
             .foregroundStyle(.white.opacity(0.9))
+    }
+}
+
+// MARK: - Genre normalization
+
+extension Array where Element == String {
+    /// Normalize genre entries for display. Addons/TMDB sometimes deliver a title's genres as one
+    /// comma-joined string ("Comedy, Family") rather than separate entries; split them into individual,
+    /// trimmed genres so both heroes render them as separate " · "-joined chips, not a comma in one chip.
+    func splitGenres() -> [String] {
+        flatMap { $0.split(separator: ",").map(String.init) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }
 
@@ -56,7 +70,7 @@ struct MetaChipRow: View {
 
     let parts: [String]
     var trailingBadge: String? = nil
-    var font: Font = .callout
+    var font: Font = Theme.Hero.chipFont
     var leading: LeadingBadge = .source
 
     var body: some View {
@@ -113,6 +127,60 @@ struct ProviderBadge: View {
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: size * 0.22))
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Hero description
+
+/// The hero logline / synopsis, shared by the Watch Now hero and the Detail hero so the description
+/// reads identically in both. All of its styling — size, dimming, line spacing, clamp, and wrap width —
+/// lives on `Theme.Hero`, so a change there moves both heroes at once.
+struct HeroDescription: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Theme.Hero.descriptionFont)
+            .foregroundStyle(.white.opacity(Theme.Hero.descriptionOpacity))
+            .lineSpacing(Theme.Hero.descriptionLineSpacing)
+            .lineLimit(Theme.Hero.descriptionLineLimit)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: Theme.Hero.descriptionMaxWidth, alignment: .leading)
+    }
+}
+
+// MARK: - Hero title
+
+/// The hero title: the title's logo art when it has one — aspect-fit and pinned bottom-leading so it
+/// sits flush at the text gutter — otherwise the `fallback` wordmark (also shown while the logo loads).
+/// Shared by the Watch Now hero and the Detail hero; each passes its own logo box size and whether to
+/// drop a shadow (Watch Now lifts the logo off its bright trailer; the Detail hero doesn't).
+///
+/// Any left/top inset you see on a given logo is transparent padding baked into the source PNG — the art
+/// is left-aligned here, so the padding is the artwork's own, not a layout offset.
+struct HeroTitleArt<Fallback: View>: View {
+    let logoURL: URL?
+    let accessibilityName: String
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    var shadow: Bool = false
+    @ViewBuilder var fallback: () -> Fallback
+
+    var body: some View {
+        if let logoURL {
+            RemoteImage(
+                url: logoURL,
+                targetSize: CGSize(width: maxWidth, height: maxHeight),
+                contentMode: .fit
+            ) {
+                fallback()
+            }
+            .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .bottomLeading)
+            .shadow(color: .black.opacity(shadow ? 0.5 : 0), radius: shadow ? 10 : 0, y: shadow ? 4 : 0)
+            .accessibilityLabel(accessibilityName)
+        } else {
+            fallback()
+        }
     }
 }
 

@@ -33,12 +33,7 @@ struct DetailHeroSection: View {
                 titleView
                 chipLine
                 if let description = model.vm.displayDescription, !description.isEmpty {
-                    Text(description)
-                        .font(.system(size: 27))
-                        .foregroundStyle(.white.opacity(0.68))
-                        .lineSpacing(6)               // ≈ line-height 1.25 at 27 pt
-                        .lineLimit(4)
-                        .frame(maxWidth: 780, alignment: .leading)   // wraps at ≈ x 746 from the x 86 guide
+                    HeroDescription(text: description)
                 }
                 metaLine
                 actionButtons
@@ -50,32 +45,33 @@ struct DetailHeroSection: View {
         .focusSection()
     }
 
-    @ViewBuilder
+    // Per-title logo art, scaled to the reference (block ≈ 278 × 119, wordmark ≈ 14% of width). No
+    // shadow here — the Detail hero doesn't lift the logo the way the Watch Now hero does.
     private var titleView: some View {
-        if let url = model.vm.displayLogoURL {
-            RemoteImage(url: url, targetSize: CGSize(width: 800, height: 220), contentMode: .fit) {
-                titleTextFallback
-            }
-            // Per-title logo art, scaled to the reference (block ≈ 278 × 119, wordmark ≈ 14% of width).
-            .frame(maxWidth: 280, maxHeight: 120, alignment: .bottomLeading)
-            .accessibilityLabel(model.meta?.name ?? model.fallbackTitle)
-        } else {
+        HeroTitleArt(
+            logoURL: model.vm.displayLogoURL,
+            accessibilityName: model.meta?.name ?? model.fallbackTitle,
+            maxWidth: 280,
+            maxHeight: 120
+        ) {
             titleTextFallback
         }
     }
 
     private var titleTextFallback: some View {
         Text(model.meta?.name ?? model.fallbackTitle)
-            .font(.system(size: 52, weight: .heavy))
+            .font(Theme.Hero.titleFallbackFont)
             .foregroundStyle(Theme.Color.primaryText)
             .lineLimit(2)
+            // Cap the width like the Watch Now fallback so a long no-logo title wraps instead of running
+            // into the credits column on the right.
+            .frame(maxWidth: Theme.Hero.titleMaxWidth, alignment: .leading)
     }
 
     // type · genre · genre  +  content-rating box (TMDB certification, with a placeholder fallback)
     // and a leading streaming-provider / network badge. Reuses the shared `MetaChipRow`.
     private var chipLine: some View {
         MetaChipRow(parts: model.vm.typeAndGenreParts, trailingBadge: model.vm.displayCertification,
-                    font: .system(size: 26, weight: .regular),
                     leading: .provider(model.enrichment?.providerBadgeURL))
     }
 

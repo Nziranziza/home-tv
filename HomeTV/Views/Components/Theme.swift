@@ -104,8 +104,19 @@ enum Theme {
         // Apple's scale, with the width cap only reining in unusually wide wordmarks.
         static let logoMaxWidth: CGFloat = 500
         static let logoMaxHeight: CGFloat = 150
-        // Description wrap width, measured from Apple's hero (~640 pt → two lines of ~30 pt text).
-        static let taglineMaxWidth: CGFloat = 640
+
+        // MARK: Shared hero text
+        // The Watch Now hero and the Detail hero read identically, so both draw their text from these one
+        // values — change a value here to move BOTH. `HeroDescription` and `MetaChipRow`'s default font
+        // consume them directly; the title font is applied by each hero, which keeps its own shadow/width
+        // treatment around the shared size.
+        static let titleFallbackFont: Font = .system(size: 52, weight: .heavy)
+        static let chipFont: Font = .system(size: 26, weight: .medium)
+        static let descriptionFont: Font = .system(size: 27)
+        static let descriptionOpacity: Double = 0.68
+        static let descriptionLineSpacing: CGFloat = 6
+        static let descriptionLineLimit: Int = 4
+        static let descriptionMaxWidth: CGFloat = 780
     }
 
     enum WatchNow {

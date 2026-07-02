@@ -198,6 +198,7 @@ struct TMDBMovieDetail: Codable, Sendable {
     let genres: [TMDBGenre]?
     let voteAverage: Double?
     let runtime: Int?                       // minutes
+    let releaseDate: String?                // "2026-05-29"
     let status: String?
     let posterPath: String?
     let backdropPath: String?
@@ -221,6 +222,7 @@ struct TMDBTVDetail: Codable, Sendable {
     let overview: String?
     let genres: [TMDBGenre]?
     let voteAverage: Double?
+    let firstAirDate: String?               // "2026-05-29"
     let episodeRunTime: [Int]?              // minutes
     let status: String?
     let posterPath: String?

@@ -143,14 +143,14 @@ private struct HeroInfo: View {
             HeroTitle(meta: meta)
             HeroMetaChips(meta: meta)
             if let tagline {
-                HeroTagline(text: tagline)
+                HeroDescription(text: tagline)
             }
         }
     }
 
     /// The hero logline. Apple surfaces the whole short logline and lets it truncate; Stremio
-    /// descriptions can run longer, so we return the full text and let `lineLimit(3)` clamp it to three
-    /// lines rather than pre-cutting to the first sentence (which capped short loglines at ~two lines).
+    /// descriptions can run longer, so we return the full text and let `HeroDescription`'s clamp truncate
+    /// it rather than pre-cutting to the first sentence (which capped short loglines at ~two lines).
     private var tagline: String? {
         guard let desc = meta.description?.trimmingCharacters(in: .whitespacesAndNewlines),
               !desc.isEmpty else { return nil }
@@ -162,22 +162,13 @@ private struct HeroTitle: View {
     let meta: MetaPreview
 
     var body: some View {
-        if let url = meta.logo.flatMap(URL.init(string:)) {
-            RemoteImage(
-                url: url,
-                targetSize: CGSize(width: Theme.Hero.logoMaxWidth, height: Theme.Hero.logoMaxHeight),
-                contentMode: .fit
-            ) {
-                HeroTitleText(name: meta.name)
-            }
-            .frame(
-                maxWidth: Theme.Hero.logoMaxWidth,
-                maxHeight: Theme.Hero.logoMaxHeight,
-                alignment: .bottomLeading
-            )
-            .shadow(color: .black.opacity(0.5), radius: 10, y: 4)
-            .accessibilityLabel(meta.name)
-        } else {
+        HeroTitleArt(
+            logoURL: meta.logo.flatMap(URL.init(string:)),
+            accessibilityName: meta.name,
+            maxWidth: Theme.Hero.logoMaxWidth,
+            maxHeight: Theme.Hero.logoMaxHeight,
+            shadow: true
+        ) {
             HeroTitleText(name: meta.name)
         }
     }
@@ -190,7 +181,7 @@ private struct HeroTitleText: View {
 
     var body: some View {
         Text(name)
-            .font(.system(size: 78, weight: .heavy))
+            .font(Theme.Hero.titleFallbackFont)
             .foregroundStyle(.white)
             .lineLimit(2)
             .shadow(color: .black.opacity(0.7), radius: 12, y: 4)
@@ -215,8 +206,11 @@ private struct HeroMetaChips: View {
     private var chips: [String] {
         var parts: [String] = [StremioType.displayLabel(for: meta.type)]
         if let year = meta.releaseInfo, !year.isEmpty { parts.append(year) }
-        if let genres = meta.genres, !genres.isEmpty {
-            parts.append(genres.prefix(2).joined(separator: ", "))
+        // Each genre is its own chip (comma-joined strings are split), so the row joins them with the
+        // same " · " separator as everything else — matching the Detail hero — not a comma in one chip.
+        let genres = meta.genres?.splitGenres() ?? []
+        if !genres.isEmpty {
+            parts.append(contentsOf: genres.prefix(2))
         }
         return parts
     }
@@ -224,19 +218,6 @@ private struct HeroMetaChips: View {
     private var ratingText: String? {
         guard let rating = meta.imdbRating, !rating.isEmpty else { return nil }
         return "IMDb \(rating)"
-    }
-}
-
-private struct HeroTagline: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 30))
-            .foregroundStyle(.white.opacity(0.5))
-            .lineLimit(3)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: Theme.Hero.taglineMaxWidth, alignment: .leading)
     }
 }
 
