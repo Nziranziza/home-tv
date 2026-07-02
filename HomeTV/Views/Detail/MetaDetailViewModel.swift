@@ -114,10 +114,16 @@ struct MetaDetailViewModel {
 
     /// Episode run time: real TMDB minutes (formatted via `FormatStyle`) when available, else the
     /// stable placeholder so the row stays populated for addons that don't provide per-episode runtime.
-    func episodeDurationText(_ episode: Video, info: EpisodeEnrichment?) -> String {
+    /// `width` is `.narrow` ("1h 9m") for the compact card overlay and `.abbreviated` ("1 hr 9 min") for
+    /// the episode hero / info, matching the reference.
+    func episodeDurationText(
+        _ episode: Video,
+        info: EpisodeEnrichment?,
+        width: Duration.UnitsFormatStyle.UnitWidth = .narrow
+    ) -> String {
         if let minutes = info?.runtimeMinutes, minutes > 0 {
             return Duration.seconds(minutes * 60)
-                .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+                .formatted(.units(allowed: [.hours, .minutes], width: width))
         }
         return episodeDuration(episode)
     }

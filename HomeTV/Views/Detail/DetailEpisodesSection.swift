@@ -13,7 +13,9 @@ struct DetailEpisodesSection: View {
     let scroll: DetailScrollState
     let trakt: TraktService
     @Binding var streamRequest: StreamRequest?
-    var zone: FocusState<MetaDetailView.Zone?>.Binding
+    /// Set when an episode's description is selected → the parent pushes the episode detail screen.
+    @Binding var episodeSelection: Video?
+    var zone: FocusState<DetailZone?>.Binding
 
     @State private var selectedSeason: Int?
     @FocusState private var focusedSeason: Int?
@@ -106,8 +108,11 @@ struct DetailEpisodesSection: View {
                                 season: episode.season ?? 0,
                                 episode: episode.episode ?? 0
                             )
-                        } : nil
+                        } : nil,
+                        // Description → open the episode detail screen (reuses the loaded show model).
+                        onOpenDetail: { episodeSelection = episode }
                     ) {
+                        // Thumbnail → play the episode.
                         streamRequest = StreamRequest(
                             type: model.typeID,
                             contentID: episode.id,

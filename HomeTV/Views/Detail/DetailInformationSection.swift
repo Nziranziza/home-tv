@@ -4,10 +4,15 @@ import SwiftUI
 /// card; Languages and Accessibility are plain text (with the inline "MORE" cue where truncated).
 struct DetailInformationSection: View {
     let model: MetaDetailModel
+    /// Episode-detail overrides: when set, the Information card shows the episode's own release year and
+    /// run time instead of the show-level values (the rest of the block stays show-level). nil on the
+    /// title detail, which shows the show's values.
+    var releasedOverride: String? = nil
+    var runtimeOverride: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 40) {
-            InformationColumn(model: model)
+            InformationColumn(model: model, releasedOverride: releasedOverride, runtimeOverride: runtimeOverride)
             LanguagesColumn(model: model)
             AccessibilityColumn()
         }
@@ -48,15 +53,17 @@ private struct FooterPanel: View {
 
 private struct InformationColumn: View {
     let model: MetaDetailModel
+    var releasedOverride: String? = nil
+    var runtimeOverride: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             InfoColumnHeader(title: "Information")
             InfoColumnCard {
-                if let year = model.meta?.releaseInfo, !year.isEmpty {
+                if let year = releasedOverride ?? model.meta?.releaseInfo, !year.isEmpty {
                     InfoPair(label: "Released", value: year)
                 }
-                if let runtime = model.vm.displayRuntime {
+                if let runtime = runtimeOverride ?? model.vm.displayRuntime {
                     InfoPair(label: "Run Time", value: runtime)
                 }
                 InfoPair(label: "Rated", value: model.vm.displayCertification)

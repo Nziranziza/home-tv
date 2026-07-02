@@ -5,7 +5,7 @@ extension View {
     /// into/out of it (from/to the hero) drives the full-viewport scroll. Applied only to top-row items so
     /// navigating among lower shelves doesn't re-trigger the scroll; a no-op otherwise.
     @ViewBuilder
-    func contentZone(_ active: Bool, _ binding: FocusState<MetaDetailView.Zone?>.Binding) -> some View {
+    func contentZone(_ active: Bool, _ binding: FocusState<DetailZone?>.Binding) -> some View {
         if active {
             focused(binding, equals: .content)
         } else {
