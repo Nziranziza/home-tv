@@ -8,7 +8,7 @@ struct DetailHeroSection: View {
     let scroll: DetailScrollState
     let trakt: TraktService
     @Binding var streamRequest: StreamRequest?
-    var zone: FocusState<MetaDetailView.Zone?>.Binding
+    var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
         heroContent

@@ -25,6 +25,8 @@ struct MetaDetailView: View {
     @State private var relatedSelection: MetaPreview?
     /// Set when a Cast & Crew headshot is selected → pushes the person/cast screen.
     @State private var castSelection: CastPerson?
+    /// Set when an episode's description is selected → pushes the single-episode detail screen.
+    @State private var episodeSelection: Video?
     /// The inline hero trailer player (Trailerio). Owned here so it survives scroll/collapse and is torn
     /// down on disappear; the background and hero observe it.
     @State private var trailerController = TrailerPlaybackController()
@@ -33,15 +35,7 @@ struct MetaDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// Which region currently holds focus. Crossing the hero↔content boundary drives the full-viewport scroll.
-    @FocusState private var zone: Zone?
-
-    enum Zone: Hashable { case hero, content }
-
-    /// Scroll offset + viewport height, read on each scroll tick; drives the collapse clock.
-    private struct ScrollMetrics: Equatable {
-        var offset: CGFloat
-        var viewport: CGFloat
-    }
+    @FocusState private var zone: DetailZone?
 
     init(typeID: String, metaID: String, fallbackTitle: String, previewMeta: Meta? = nil) {
         self.typeID = typeID
@@ -66,54 +60,25 @@ struct MetaDetailView: View {
     }
 
     var body: some View {
-        ZStack {
-            Theme.Color.background.ignoresSafeArea()
-
-            // Fixed background image; everything scrolls above it. A real Gaussian blur ramps with the
-            // scroll (sharp behind the hero, blurred behind the content).
+        // The shared detail shell (backdrop + collapse scroll + hero↔content zone scroll). This screen
+        // supplies the ramped-blur background (sharp behind the hero, blurred behind the content) and the
+        // full content column; the scaffold owns the tuned scroll/collapse machinery.
+        DetailScaffold(scroll: scroll, zone: $zone) {
             DetailBackground(model: model, scroll: scroll, trailer: trailerController)
-
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    DetailContent(
-                        model: model, scroll: scroll, trakt: trakt,
-                        streamRequest: $streamRequest, relatedSelection: $relatedSelection,
-                        castSelection: $castSelection,
-                        trailerRequest: $trailerRequest, zone: $zone
-                    )
-                }
-                .scrollIndicators(.hidden)
-                // Lay content out to the physical screen edges so the single `leftInset` guide is measured
-                // from the same edge as the hero (which also ignores the horizontal safe area). Otherwise
-                // the rows would inset by an extra safe-area margin and sit pushed-in relative to the hero.
-                .ignoresSafeArea(edges: [.top, .horizontal])
-                .contentMargins(.top, 0, for: .scrollContent)
-                .onScrollGeometryChange(for: ScrollMetrics.self) {
-                    ScrollMetrics(offset: $0.contentOffset.y, viewport: $0.containerSize.height)
-                } action: { _, newValue in
-                    scroll.offset = newValue.offset
-                    scroll.viewport = newValue.viewport
-                }
-                // Crossing the hero↔content boundary scrolls the full viewport (hero off / back).
-                .onChange(of: zone) { _, newZone in
-                    switch newZone {
-                    case .content:
-                        withAnimation(heroScroll) { proxy.scrollTo("contentTop", anchor: .top) }
-                    case .hero:
-                        withAnimation(heroScroll) { proxy.scrollTo("heroTop", anchor: .top) }
-                    case .none:
-                        break
-                    }
-                }
-                .onChange(of: model.related.count) { _, newCount in
-                    if newCount > 0,
-                       let target = ProcessInfo.processInfo.environment["SCROLL_TO"] {
-                        withAnimation { proxy.scrollTo(target, anchor: .top) }
-                    }
+        } content: { proxy in
+            DetailContent(
+                model: model, scroll: scroll, trakt: trakt,
+                streamRequest: $streamRequest, relatedSelection: $relatedSelection,
+                castSelection: $castSelection, episodeSelection: $episodeSelection,
+                trailerRequest: $trailerRequest, zone: $zone
+            )
+            .onChange(of: model.related.count) { _, newCount in
+                if newCount > 0,
+                   let target = ProcessInfo.processInfo.environment["SCROLL_TO"] {
+                    withAnimation { proxy.scrollTo(target, anchor: .top) }
                 }
             }
         }
-        .toolbar(.hidden, for: .tabBar)   // full-screen detail (no tab bar over the content)
         .task(id: "\(typeID):\(metaID)") { await model.load() }
         // Feed the loaded Trailerio sources to the inline hero player (autoplay is triggered by the
         // hero layer once it has a player and the hero is expanded). Empty → tear down.
@@ -152,20 +117,18 @@ struct MetaDetailView: View {
         .navigationDestination(item: $castSelection) { person in
             CastView(person: person)
         }
+        .navigationDestination(item: $episodeSelection) { episode in
+            EpisodeDetailView(model: model, episode: episode)
+        }
         .streamPickerCover(request: $streamRequest)
         .trailerPlayerCover(request: $trailerRequest)
     }
 
-    /// The single clock for the whole hero↔browse interaction. Translation, opacity, blur, brightness,
-    /// saturation, the logo fade, and the trailer-card focus-lift are ALL functions of `p` and animate
-    /// on this one spring — decelerating, no bounce, no overshoot. (Matches the reference exactly; the
-    /// usual reason a copy looks "off" is desynced / differently-eased sub-animations.)
-    private var heroScroll: Animation { .spring(response: 0.55, dampingFraction: 0.9) }
-
-    /// Whether something is covering the hero — a pushed related detail, the stream picker, or the
-    /// full-screen trailer player. Drives tearing the inline trailer down to free its buffer.
+    /// Whether something is covering the hero — a pushed related/episode detail, the stream picker, or
+    /// the full-screen trailer player. Drives tearing the inline trailer down to free its buffer.
     private var trailerCovered: Bool {
-        relatedSelection != nil || streamRequest != nil || trailerRequest != nil || castSelection != nil
+        relatedSelection != nil || streamRequest != nil || trailerRequest != nil
+            || castSelection != nil || episodeSelection != nil
     }
 }
 
@@ -179,8 +142,9 @@ private struct DetailContent: View {
     @Binding var streamRequest: StreamRequest?
     @Binding var relatedSelection: MetaPreview?
     @Binding var castSelection: CastPerson?
+    @Binding var episodeSelection: Video?
     @Binding var trailerRequest: TrailerPlaybackRequest?
-    var zone: FocusState<MetaDetailView.Zone?>.Binding
+    var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: DetailLayout.interSectionSpacing) {
@@ -202,7 +166,7 @@ private struct DetailContent: View {
                     DetailCenteredLogo(model: model, scroll: scroll)
                     DetailEpisodesSection(
                         model: model, scroll: scroll, trakt: trakt,
-                        streamRequest: $streamRequest, zone: zone
+                        streamRequest: $streamRequest, episodeSelection: $episodeSelection, zone: zone
                     )
                 }
                 .id("contentTop")

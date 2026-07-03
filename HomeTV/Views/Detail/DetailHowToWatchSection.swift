@@ -6,6 +6,10 @@ import SwiftUI
 struct DetailHowToWatchSection: View {
     let model: MetaDetailModel
     let scroll: DetailScrollState
+    /// When set (episode detail, where How to Watch is the top content row), each provider card reports
+    /// `zone == .content` while focused so Down from the hero drives the full-viewport collapse. nil on
+    /// the title detail, where the episodes/trailers row above owns that role.
+    var zone: FocusState<DetailZone?>.Binding? = nil
     @Environment(\.openURL) private var openURL
 
     /// Three flexible columns; the grid grows downward and the page scroll view handles vertical paging.
@@ -18,8 +22,13 @@ struct DetailHowToWatchSection: View {
             DetailSectionHeader(title: "How to Watch", scroll: scroll)
             LazyVGrid(columns: howToWatchColumns, spacing: 30) {
                 ForEach(model.vm.watchOptions) { option in
-                    WatchProviderCard(provider: option.provider, availability: option.availability) {
+                    let card = WatchProviderCard(provider: option.provider, availability: option.availability) {
                         if let link = model.enrichment?.watchLink { openURL(link) }
+                    }
+                    if let zone {
+                        card.contentZone(true, zone)
+                    } else {
+                        card
                     }
                 }
             }

@@ -42,9 +42,9 @@ struct CastHeader: View {
     }
 }
 
-/// The focusable biography. At rest it's plain truncated text aligned with the name; on focus a frosted
-/// rounded panel bleeds outward behind it (the text never shifts), matching the reference. Selecting it
-/// runs `action` to present the full-bio popover.
+/// The focusable biography. At rest it's plain truncated text aligned with the name; on focus a Liquid
+/// Glass panel bleeds outward behind it (the text never shifts, via the style's `bleed`), matching the
+/// reference. Selecting it runs `action` to present the full-bio popover.
 private struct BioButton: View {
     let text: String
     let width: CGFloat
@@ -55,32 +55,8 @@ private struct BioButton: View {
             InfoValueText(value: text, lineLimit: 3, fontSize: 28, palette: .castBio)
                 .frame(width: width, alignment: .leading)
         }
-        .buttonStyle(BioButtonStyle())
-    }
-}
-
-/// Plain text at rest, a frosted highlight panel on focus. The panel is drawn as a negative-inset
-/// background so the text stays put (aligned with the name) whether or not it's focused.
-struct BioButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        StyleBody(configuration: configuration)
-    }
-
-    private struct StyleBody: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
-            configuration.label
-                .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(.white.opacity(isFocused ? 0.12 : 0))
-                        .padding(.horizontal, -20)
-                        .padding(.vertical, -14)
-                }
-                .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
-                .animation(.easeOut(duration: 0.18), value: isFocused)
-        }
+        // Bleed the glass beyond the text so it stays aligned with the name while the panel grows.
+        .buttonStyle(.glassCard(cornerRadius: 18, bleedH: 20, bleedV: 14))
     }
 }
 

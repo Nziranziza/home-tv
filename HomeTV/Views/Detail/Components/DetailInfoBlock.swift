@@ -3,43 +3,6 @@ import CoreText
 
 // MARK: - Information block pieces
 
-/// The one reusable frosted-panel look shared by the About card and the Information card: a
-/// translucent `.ultraThinMaterial` fill (so the warm page gradient shows through), 22 pt corners,
-/// and 24 pt internal padding. White content reads cleanly over it.
-///
-/// The content's *leading* edge stays at the layout guide (so it aligns with the section header), and
-/// the frosted panel bleeds 24 pt further left as a background-only inset — matching the reference,
-/// where the card edge sits left of the header while the card text aligns with it.
-extension View {
-    /// `padding` insets the content from the panel edge uniformly. Vertical + trailing are always real
-    /// padding. When `bleedLeading` is true (default), the leading is supplied by the panel's
-    /// negative-leading bleed so the text leading stays aligned with the section header while the panel
-    /// edge sits `padding` further left. When false, the leading is a true padding (needed under a
-    /// clipping style like `.card`, which would otherwise chop the bleed off).
-    /// `showsBackground` toggles only the frosted panel — the padding is applied either way, so a card
-    /// can appear/disappear on focus without the content shifting (used by the focus-aware info columns,
-    /// which show the panel only while focused).
-    func frostedInfoCard(padding: CGFloat = 24, bleedLeading: Bool = true, showsBackground: Bool = true) -> some View {
-        self.padding(.vertical, padding)
-            .padding(.trailing, padding)
-            .padding(.leading, bleedLeading ? 0 : padding)
-            .background {
-                // Material gives the frost/blur; the white tint lifts it to the reference's lighter
-                // translucent panel (≈ rgb 107,95,94) so it reads clearly over a dark backdrop, not
-                // just over a bright one. Driven by opacity (not an `if`) so it can crossfade in/out on
-                // focus rather than popping — the panel is otherwise always laid out.
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(.white.opacity(0.10))
-                    )
-                    .padding(.leading, bleedLeading ? -padding : 0)   // panel bleeds left of the text/header guide
-                    .opacity(showsBackground ? 1 : 0)
-            }
-    }
-}
-
 /// Colour scheme for the Information block. The in-page sections render on the dark/translucent
 /// background (white text); the centered expand overlay renders on a light frosted card (dark text) —
 /// the inverse.
@@ -240,40 +203,23 @@ struct AccessibilityItem: View {
     }
 }
 
-/// A focusable info column (Information / Languages / Accessibility). Plain text at rest, a card when
-/// focused — but the button style is set ONCE and never swapped (tvOS drops focus the instant a focused
-/// button's style changes, so a `.plain`↔`.card` swap makes the element un-focusable). Instead a single
-/// style stays put and changes only its appearance on the element's own focus: nothing at rest, the
-/// frosted card panel (the About card's look — 22 pt real padding, `.ultraThinMaterial`) plus the
-/// native spring lift on focus. `spacing` sets the gap between items.
+/// A focusable info column (Information / Languages / Accessibility): plain text at rest, a Liquid Glass
+/// card on focus. The 22 pt padding is constant regardless of focus, so the text never shifts as focus
+/// moves between columns; the glass panel + native lift come from the shared `.glassCard` style.
+/// `spacing` sets the gap between items.
 struct InfoColumnCard<Content: View>: View {
     var spacing: CGFloat = 20
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         Button { } label: {
-            CardLabel(spacing: spacing, content: content)
-        }
-        .buttonStyle(CardFocusStyle())
-    }
-
-    /// Reads the button's focus from the environment so the frosted panel only shows while focused. The
-    /// padding is constant regardless, so the text doesn't shift as focus moves between columns.
-    private struct CardLabel<C: View>: View {
-        let spacing: CGFloat
-        @ViewBuilder var content: () -> C
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
             VStack(alignment: .leading, spacing: spacing) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frostedInfoCard(padding: 22, bleedLeading: false, showsBackground: isFocused)
-            // Same spring as CardFocusStyle's lift, so the frosted panel crossfades in step with the
-            // scale rather than popping — the two together read as one native card focus.
-            .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isFocused)
+            .padding(22)
         }
+        .buttonStyle(.glassCard(cornerRadius: 22))
     }
 }
 

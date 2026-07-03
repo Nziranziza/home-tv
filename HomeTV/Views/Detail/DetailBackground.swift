@@ -23,6 +23,24 @@ struct DetailBackground: View {
     }
 }
 
+/// The fixed page backdrop for the single-episode detail screen: the same crossfading sharp→blurred
+/// treatment as the title detail (sharp behind the hero, blurred behind the content, ramped on the
+/// collapse clock), but keyed off a single still URL and with no inline trailer layer — the episode
+/// hero shows its still, not an autoplaying trailer.
+struct EpisodeBackground: View {
+    let url: URL?
+    let scroll: DetailScrollState
+
+    var body: some View {
+        ZStack {
+            DetailBackdropBlurredLayer(url: url)
+            DetailBackdropSharpLayer(url: url)
+                .opacity(1 - scroll.p)
+        }
+        .ignoresSafeArea()
+    }
+}
+
 /// Full-bleed backdrop image (GeometryReader gives a definite full-screen frame so it covers behind
 /// the hero and the content below it).
 private struct DetailBackdropImage: View {

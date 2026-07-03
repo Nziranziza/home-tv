@@ -9,7 +9,7 @@ struct DetailTrailersSection: View {
     let scroll: DetailScrollState
     /// Set to present the full-screen in-app trailer player (Trailerio path).
     @Binding var trailerRequest: TrailerPlaybackRequest?
-    var zone: FocusState<MetaDetailView.Zone?>.Binding
+    var zone: FocusState<DetailZone?>.Binding
     @Environment(\.openURL) private var openURL
 
     var body: some View {
