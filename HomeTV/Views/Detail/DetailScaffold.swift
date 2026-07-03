@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// Which region currently holds focus on a detail-style screen. Crossing the hero↔content boundary
-/// drives the full-viewport collapse scroll. Shared by the title detail (`MetaDetailView`) and the
-/// single-episode detail (`EpisodeDetailView`) so both use the same scaffold wiring.
-enum DetailZone: Hashable { case hero, content }
-
 /// The shared shell for a detail-style screen: a fixed page backdrop, a vertical `ScrollView` whose
 /// geometry drives the collapse clock, and the hero↔content full-viewport scroll keyed on the focus
 /// `zone`. Both the title detail and the episode detail render their own backdrop and content column

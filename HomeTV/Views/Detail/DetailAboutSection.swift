@@ -16,8 +16,9 @@ struct DetailAboutSection: View {
     }
 }
 
-/// The frosted card with the title, genre, and synopsis. A focusable `.card` (empty action) so it
-/// lifts on focus like the Information cards — informational, but part of the focus traversal.
+/// The card with the title, genre, and synopsis. A focusable, informational card (empty action) that
+/// matches the Information columns: plain at rest, a Liquid Glass panel + native lift on focus via the
+/// shared `.glassCard` style.
 private struct AboutCard: View {
     let model: MetaDetailModel
 
@@ -44,10 +45,8 @@ private struct AboutCard: View {
                 }
             }
             .frame(width: DetailLayout.infoCardWidth - DetailLayout.infoCardPadding * 2, alignment: .leading)
-            // Real leading padding (no bleed): `.card` clips to the label bounds, which would chop a
-            // negative-leading bleed and squash the inset, so the leading is a true padding here.
-            .frostedInfoCard(padding: 22, bleedLeading: false)
+            .padding(DetailLayout.infoCardPadding)
         }
-        .buttonStyle(.card)
+        .buttonStyle(.glassCard(cornerRadius: 22))
     }
 }

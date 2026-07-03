@@ -48,12 +48,16 @@ struct EpisodeCard: View {
     private let imageHeight: CGFloat = 225
 
     var body: some View {
-        // When the image is focused it lifts/scales (.card); open the gap enough that the lifted image
-        // clears the description (rather than overlapping it), animating in step with the card. The
-        // description gaining focus doesn't lift the image, so the gap stays closed.
-        VStack(alignment: .leading, spacing: imageFocused ? 28 : 8) {
+        // When the image is focused it lifts/scales (.card); push the description down so the lifted image
+        // clears it (rather than overlapping). This is a render-only `.offset` — NOT a change to the VStack
+        // spacing — so the card's layout height stays constant across focus states. Growing the spacing
+        // would grow the card, which grows the horizontal strip (sized to the tallest card) and reflows the
+        // Trailers section below it. The offset keeps the exact visual gap (8 at rest, 8 + 20 focused) with
+        // no reflow, matching Apple's contained lift.
+        VStack(alignment: .leading, spacing: 8) {
             imageButton
             descriptionButton
+                .offset(y: imageFocused ? 20 : 0)
         }
         .frame(width: width)
         .animation(.easeOut(duration: 0.25), value: imageFocused)
@@ -179,24 +183,20 @@ struct EpisodeCard: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(width: width, alignment: .topLeading)
-            // Translucent container while the card is active (either element focused); plain text at rest.
-            .background(active ? Color.black.opacity(0.3) : Color.clear)
-            .clipShape(.rect(cornerRadius: 14, style: .continuous))
+            // Card-specific resting cue: while the thumbnail (not the description) is focused, keep the
+            // plain translucent panel the description had before. The glass panel + card lift come from
+            // `.glassCard` below, only once focus actually moves to the description itself.
+            .background {
+                if active && !descriptionFocused {
+                    Color.black.opacity(0.3)
+                        .clipShape(.rect(cornerRadius: 14, style: .continuous))
+                }
+            }
             .animation(.easeOut(duration: 0.18), value: active)
         }
-        .buttonStyle(EpisodeDescriptionButtonStyle())
+        // Content is pre-padded above, so the glass hugs it at the same 14 pt corner as the resting scrim.
+        .buttonStyle(.glassCard(cornerRadius: 14))
         .focused($descriptionFocused)
-    }
-}
-
-/// A focusable style for the episode description that adds no platter or lift of its own — the tvOS
-/// `.plain`/`.card` styles would overlay their own focus highlight, but Apple's episode description
-/// cues focus only with the card's translucent panel (driven by the card's `active` state). This custom
-/// style renders the label as-is so that panel is the sole focus cue, dimming slightly while pressed.
-private struct EpisodeDescriptionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 

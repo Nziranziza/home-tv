@@ -300,6 +300,66 @@ struct CardFocusStyle: ButtonStyle {
     }
 }
 
+/// The one reusable card-focus treatment, usable on ANY `Button` via `.buttonStyle(.glassCard)`: plain
+/// at rest, and on focus a tinted Liquid Glass panel behind the label plus the native tvOS card lift
+/// (scale + soft shadow on the same spring `.card` uses). This supersedes the `CardFocusStyle` +
+/// `frostedInfoCard` pairing and the per-screen bio/episode styles, which all reached for this effect
+/// but rendered different materials.
+///
+/// The label supplies its own internal padding so the glass hugs it; pass a matching `cornerRadius`.
+/// `bleedH`/`bleedV` grow the glass panel *beyond* the label without moving it (a background inset) — for
+/// text that must stay aligned with a neighbour while the panel expands around it (the cast biography).
+struct GlassCardButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat = 22
+    var tint: Color = .black.opacity(0.4)
+    var bleedH: CGFloat = 0
+    var bleedV: CGFloat = 0
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyleBody(configuration: configuration, cornerRadius: cornerRadius, tint: tint, bleedH: bleedH, bleedV: bleedV)
+    }
+
+    private struct StyleBody: View {
+        let configuration: Configuration
+        let cornerRadius: CGFloat
+        let tint: Color
+        let bleedH: CGFloat
+        let bleedV: CGFloat
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            configuration.label
+                .background {
+                    // Glass only while focused; the `if` keeps it off the resting layout, and the spring
+                    // below crossfades it in rather than popping. `glassEffect` has no isEnabled: param on
+                    // this SDK, so a conditional background is the way to toggle it.
+                    if isFocused {
+                        Color.clear
+                            .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius, style: .continuous))
+                            .padding(.horizontal, -bleedH)
+                            .padding(.vertical, -bleedV)
+                    }
+                }
+                .scaleEffect(configuration.isPressed ? 0.98 : (isFocused ? 1.04 : 1.0))
+                .shadow(color: .black.opacity(isFocused ? 0.3 : 0),
+                        radius: isFocused ? 16 : 0, y: isFocused ? 10 : 0)
+                // The exact native-card spring, shared by every focus lift in the app.
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isFocused)
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == GlassCardButtonStyle {
+    /// Liquid Glass card focus: plain at rest, glass panel + native lift on focus. See `GlassCardButtonStyle`.
+    static var glassCard: GlassCardButtonStyle { .init() }
+
+    static func glassCard(cornerRadius: CGFloat = 22, tint: Color = .black.opacity(0.4),
+                          bleedH: CGFloat = 0, bleedV: CGFloat = 0) -> GlassCardButtonStyle {
+        .init(cornerRadius: cornerRadius, tint: tint, bleedH: bleedH, bleedV: bleedV)
+    }
+}
+
 /// Circular icon button (e.g. the close "✕"). Owns its focus treatment so the
 /// system's default rounded-rect highlight doesn't fight the circular shape —
 /// on focus it fills solid and inverts the glyph, like tvOS system controls.
