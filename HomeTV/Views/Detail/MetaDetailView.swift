@@ -80,6 +80,14 @@ struct MetaDetailView: View {
             }
         }
         .task(id: "\(typeID):\(metaID)") { await model.load() }
+        // Load this show's per-episode watched state from Trakt. The watched-shows sync gives only
+        // show-level watched, so without this no episode would ever show a checkmark and the hero
+        // up-next couldn't advance. Movies have no episode grid to fetch.
+        .task(id: "episode-progress:\(metaID)") {
+            if typeID == "series", trakt.isSignedIn {
+                await trakt.loadEpisodeProgress(showIMDB: metaID)
+            }
+        }
         // Feed the loaded Trailerio sources to the inline hero player (autoplay is triggered by the
         // hero layer once it has a player and the hero is expanded). Empty → tear down.
         .onChange(of: model.trailerCandidates) { _, candidates in
@@ -106,6 +114,11 @@ struct MetaDetailView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 if !trailerCovered, scroll.p <= 0.12 { trailerController.play() }
+                // Returning from an external player (which scrobbles to Trakt) re-pulls this show's
+                // per-episode watched state, so the episode you just finished shows as watched.
+                if typeID == "series", trakt.isSignedIn {
+                    Task { await trakt.loadEpisodeProgress(showIMDB: metaID) }
+                }
             } else {
                 trailerController.pause()
             }

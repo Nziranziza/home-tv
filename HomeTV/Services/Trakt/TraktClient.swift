@@ -115,6 +115,13 @@ actor TraktClient {
         try decode(try await perform(request("sync/watched/shows", token: token)))
     }
 
+    /// Per-episode watched progress for a single show (by IMDB id / Trakt id / slug). Unlike
+    /// `sync/watched/shows`, this endpoint returns each episode's `completed` flag, so it's what drives
+    /// per-episode checkmarks and the hero up-next on the show detail screen.
+    func showProgress(imdb: String, token: String) async throws -> TraktShowProgress {
+        try decode(try await perform(request("shows/\(imdb)/progress/watched", token: token)))
+    }
+
     func watchlistMovies(token: String) async throws -> [TraktWatchlistMovie] {
         try decode(try await perform(request("sync/watchlist/movies", token: token)))
     }
