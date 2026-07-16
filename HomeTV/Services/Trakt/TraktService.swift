@@ -198,20 +198,18 @@ final class TraktService {
         let playbackMov = (try? await playbackMoviesReq) ?? []
         let playbackEp = (try? await playbackEpisodesReq) ?? []
 
-        // Watched
+        // Watched. `/sync/watched/shows` reliably reports which shows have any watched episode
+        // (show-level), but for many accounts it omits the per-season/episode breakdown entirely — so we
+        // derive only show-level watched here. Per-episode watched state is loaded on demand from the
+        // show progress endpoint when a show's detail opens (see `loadEpisodeProgress`), which is also
+        // the only endpoint that returns each episode's `completed` flag reliably.
         var movieIDs = Set<String>()
         for m in watchedMovies { if let id = m.movie.ids.imdb { movieIDs.insert(id) } }
 
         var showIDs = Set<String>()
-        var episodeKeys = Set<String>()
         for s in watchedShows {
             guard let showID = s.show.ids.imdb else { continue }
             showIDs.insert(showID)
-            for season in s.seasons ?? [] {
-                for ep in season.episodes {
-                    episodeKeys.insert("\(showID):\(season.number):\(ep.number)")
-                }
-            }
         }
 
         // Watchlist
@@ -257,11 +255,48 @@ final class TraktService {
 
         watchedMovieIDs = movieIDs
         watchedShowIDs = showIDs
-        watchedEpisodeKeys = episodeKeys
         watchlistIDs = listIDs
         watchlistItems = listItems
         playbackProgress = progress
         continueWatchingItems = continueItems
+        // `watchedEpisodeKeys` is a per-show cache this endpoint can't populate (no episode breakdown),
+        // so it's left to `loadEpisodeProgress` — but prune keys for shows that just dropped out of
+        // `watchedShowIDs` (un-watched entirely elsewhere) so the two caches stay aligned. Shows still
+        // watched keep their keys and refresh the next time their detail screen opens.
+        watchedEpisodeKeys = watchedEpisodeKeys.filter { key in
+            guard let separator = key.firstIndex(of: ":") else { return false }
+            return watchedShowIDs.contains(String(key[..<separator]))
+        }
+    }
+
+    /// Load the per-episode watched state for a single show from the show progress endpoint and merge it
+    /// into `watchedEpisodeKeys`. `/sync/watched/shows` doesn't return the season/episode breakdown, so
+    /// this is the source of truth for episode checkmarks and the hero up-next. Called when a series
+    /// detail opens (and when the app returns to a series detail after playing in an external player).
+    /// Replaces only *this* show's keys, so it reflects un-watches made elsewhere without disturbing
+    /// other shows' cached state.
+    func loadEpisodeProgress(showIMDB: String) async {
+        guard isSignedIn, let token = await validAccessToken(),
+              let progress = try? await TraktClient.shared.showProgress(imdb: showIMDB, token: token)
+        else { return }
+
+        var keys = watchedEpisodeKeys.filter { !$0.hasPrefix("\(showIMDB):") }
+        var hasWatchedEpisode = false
+        for season in progress.seasons {
+            for episode in season.episodes where episode.completed {
+                keys.insert("\(showIMDB):\(season.number):\(episode.number)")
+                hasWatchedEpisode = true
+            }
+        }
+        watchedEpisodeKeys = keys
+        // Keep the show-level watched set consistent with the episode keys we just inserted, rather than
+        // the nullable `completed` aggregate — so a show still counts as watched even if Trakt reports a
+        // null total while its episodes carry `completed: true`. An un-watch elsewhere clears it.
+        if hasWatchedEpisode {
+            watchedShowIDs.insert(showIMDB)
+        } else {
+            watchedShowIDs.remove(showIMDB)
+        }
     }
 
     // MARK: - Queries (synchronous reads for views)

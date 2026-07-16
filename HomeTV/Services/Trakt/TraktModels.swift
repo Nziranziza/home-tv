@@ -66,18 +66,10 @@ struct TraktWatchedMovie: Codable, Sendable {
     let movie: TraktMovie
 }
 
+/// A watched show from `/sync/watched/shows`. Used only for the show-level watched set — the
+/// per-episode breakdown comes from `TraktShowProgress` (this endpoint omits it for many accounts).
 struct TraktWatchedShow: Codable, Sendable {
     let show: TraktShow
-    let seasons: [TraktWatchedSeason]?
-}
-
-struct TraktWatchedSeason: Codable, Sendable {
-    let number: Int
-    let episodes: [TraktWatchedEpisode]
-}
-
-struct TraktWatchedEpisode: Codable, Sendable {
-    let number: Int
 }
 
 struct TraktWatchlistMovie: Codable, Sendable {
@@ -86,6 +78,28 @@ struct TraktWatchlistMovie: Codable, Sendable {
 
 struct TraktWatchlistShow: Codable, Sendable {
     let show: TraktShow
+}
+
+// MARK: - Show progress (per-episode watched)
+
+/// Response of `GET /shows/{id}/progress/watched`. The only endpoint that reliably reports each
+/// episode's `completed` flag (the watched-shows sync omits the breakdown), so it backs the detail
+/// screen's episode checkmarks and hero up-next. Extra fields (`last_episode`, `next_episode`, stats)
+/// are ignored — we only need the season/episode completion grid.
+struct TraktShowProgress: Codable, Sendable {
+    let aired: Int?
+    let completed: Int?
+    let seasons: [TraktProgressSeason]
+}
+
+struct TraktProgressSeason: Codable, Sendable {
+    let number: Int
+    let episodes: [TraktProgressEpisode]
+}
+
+struct TraktProgressEpisode: Codable, Sendable {
+    let number: Int
+    let completed: Bool
 }
 
 /// One in-progress item from `/sync/playback`. `progress` is 0–100; `type` is "movie" or "episode"
