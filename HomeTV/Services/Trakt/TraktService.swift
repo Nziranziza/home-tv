@@ -259,9 +259,14 @@ final class TraktService {
         watchlistItems = listItems
         playbackProgress = progress
         continueWatchingItems = continueItems
-        // `watchedEpisodeKeys` is intentionally left untouched: it's an accumulating per-show cache
-        // populated by `loadEpisodeProgress`, and this endpoint can't supply it. A show whose episode
-        // state changed elsewhere is reconciled when its detail screen next loads.
+        // `watchedEpisodeKeys` is a per-show cache this endpoint can't populate (no episode breakdown),
+        // so it's left to `loadEpisodeProgress` — but prune keys for shows that just dropped out of
+        // `watchedShowIDs` (un-watched entirely elsewhere) so the two caches stay aligned. Shows still
+        // watched keep their keys and refresh the next time their detail screen opens.
+        watchedEpisodeKeys = watchedEpisodeKeys.filter { key in
+            guard let separator = key.firstIndex(of: ":") else { return false }
+            return watchedShowIDs.contains(String(key[..<separator]))
+        }
     }
 
     /// Load the per-episode watched state for a single show from the show progress endpoint and merge it
@@ -276,13 +281,22 @@ final class TraktService {
         else { return }
 
         var keys = watchedEpisodeKeys.filter { !$0.hasPrefix("\(showIMDB):") }
+        var hasWatchedEpisode = false
         for season in progress.seasons {
             for episode in season.episodes where episode.completed {
                 keys.insert("\(showIMDB):\(season.number):\(episode.number)")
+                hasWatchedEpisode = true
             }
         }
         watchedEpisodeKeys = keys
-        if (progress.completed ?? 0) > 0 { watchedShowIDs.insert(showIMDB) }
+        // Keep the show-level watched set consistent with the episode keys we just inserted, rather than
+        // the nullable `completed` aggregate — so a show still counts as watched even if Trakt reports a
+        // null total while its episodes carry `completed: true`. An un-watch elsewhere clears it.
+        if hasWatchedEpisode {
+            watchedShowIDs.insert(showIMDB)
+        } else {
+            watchedShowIDs.remove(showIMDB)
+        }
     }
 
     // MARK: - Queries (synchronous reads for views)
