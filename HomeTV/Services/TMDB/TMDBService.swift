@@ -1,32 +1,42 @@
 import Foundation
-import Observation
 
-/// App-facing TMDB enrichment source. Mirrors the `@Observable @MainActor` singleton shape used by
-/// `TraktService`/`AddonRegistry`. Resolves an addon `Meta` (by IMDB id) to a view-ready `Enrichment`,
-/// delegating all networking to the `TMDBClient` actor and caching results in memory.
+/// App-facing TMDB enrichment source. Resolves an addon `Meta` (by IMDB id) to a view-ready
+/// `Enrichment`, delegating all networking to the `TMDBClient` actor and caching results in memory.
+///
+/// An `actor` (not `@MainActor`): it publishes nothing observed — views only `await` its async methods —
+/// so its resolution/mapping work (credit sorts, provider grouping, filmography `Dictionary(grouping:)`,
+/// URL building) runs off the main actor instead of stalling the UI. Its return types are all `Sendable`.
 ///
 /// Enrichment is best-effort and additive: any failure returns whatever was gathered (or `nil`), and
 /// the view falls back to addon data. It is a no-op when `TMDBConfig.isConfigured == false`.
-@Observable
-@MainActor
-final class TMDBService {
+actor TMDBService {
     static let shared = TMDBService()
 
-    @ObservationIgnored private let client = TMDBClient.shared
+    private let client = TMDBClient.shared
 
     /// Full enrichment keyed by "{tmdbType}:{imdbID}".
-    @ObservationIgnored private var enrichmentCache: [String: Enrichment] = [:]
+    private var enrichmentCache: [String: Enrichment] = [:]
     /// IMDB id → resolved TMDB (id, mediaType), so season/discovery calls skip the find round-trip.
-    @ObservationIgnored private var resolutionCache: [String: TMDBResolution] = [:]
+    private var resolutionCache: [String: TMDBResolution] = [:]
     /// Per-season episode info + poster, keyed by "{tvID}:{season}".
-    @ObservationIgnored private var seasonCache: [String: SeasonEnrichment] = [:]
+    private var seasonCache: [String: SeasonEnrichment] = [:]
     /// Person bio + grouped filmography, keyed by TMDB person id (drives the cast/crew screen).
-    @ObservationIgnored private var personCache: [Int: PersonProfile] = [:]
+    private var personCache: [Int: PersonProfile] = [:]
+
+    // In-flight coalescing: the hero provider badge and the detail screen (and repeated `.task(id:)`
+    // fires) request the same enrichment concurrently — without this both miss the cache and each runs
+    // the full multi-request TMDB fetch + decode. These collapse simultaneous identical requests onto one.
+    private var enrichInFlight: [String: Task<Enrichment?, Never>] = [:]
+    private var resolveInFlight: [String: Task<TMDBResolution?, Never>] = [:]
+    private var seasonInFlight: [String: Task<SeasonEnrichment?, Never>] = [:]
+    private var personInFlight: [Int: Task<PersonProfile?, Never>] = [:]
 
     private struct TMDBResolution: Sendable { let id: Int; let mediaType: String }
     struct SeasonEnrichment: Sendable { var episodes: [String: EpisodeEnrichment]; var posterURL: URL? }
 
-    var isConfigured: Bool { TMDBConfig.isConfigured }
+    /// `nonisolated` — it only reads a static config flag (no actor state), so callers can check it
+    /// synchronously without hopping onto the actor.
+    nonisolated var isConfigured: Bool { TMDBConfig.isConfigured }
 
     // MARK: - Top-level enrichment
 
@@ -40,18 +50,25 @@ final class TMDBService {
 
         let cacheKey = "\(mediaType):\(imdbID)"
         if let cached = enrichmentCache[cacheKey] { return cached }
+        if let inFlight = enrichInFlight[cacheKey] { return await inFlight.value }
 
-        guard let resolution = await resolve(imdbID: imdbID, mediaType: mediaType) else { return nil }
+        let task = Task { () -> Enrichment? in
+            guard let resolution = await resolve(imdbID: imdbID, mediaType: mediaType) else { return nil }
 
-        let enrichment: Enrichment?
-        switch resolution.mediaType {
-        case "movie": enrichment = await enrichMovie(id: resolution.id)
-        case "tv": enrichment = await enrichTV(id: resolution.id)
-        default: enrichment = nil
+            let enrichment: Enrichment?
+            switch resolution.mediaType {
+            case "movie": enrichment = await enrichMovie(id: resolution.id)
+            case "tv": enrichment = await enrichTV(id: resolution.id)
+            default: enrichment = nil
+            }
+
+            if let enrichment { enrichmentCache[cacheKey] = enrichment }
+            return enrichment
         }
-
-        if let enrichment { enrichmentCache[cacheKey] = enrichment }
-        return enrichment
+        enrichInFlight[cacheKey] = task
+        let result = await task.value
+        enrichInFlight[cacheKey] = nil
+        return result
     }
 
     /// Per-season episode metadata + poster, fetched lazily for the selected season (Stage C wiring).
@@ -61,24 +78,31 @@ final class TMDBService {
 
         let key = "\(resolution.id):\(season)"
         if let cached = seasonCache[key] { return cached }
+        if let inFlight = seasonInFlight[key] { return await inFlight.value }
 
-        guard let detail = try? await client.season(tvID: resolution.id, season: season) else { return nil }
+        let task = Task { () -> SeasonEnrichment? in
+            guard let detail = try? await client.season(tvID: resolution.id, season: season) else { return nil }
 
-        var episodes: [String: EpisodeEnrichment] = [:]
-        for ep in detail.episodes {
-            guard let number = ep.episodeNumber else { continue }
-            episodes[Enrichment.episodeKey(season: season, episode: number)] = EpisodeEnrichment(
-                title: ep.name,
-                overview: ep.overview,
-                stillURL: TMDBConfig.imageURL(path: ep.stillPath, size: .w780),
-                runtimeMinutes: ep.runtime
+            var episodes: [String: EpisodeEnrichment] = [:]
+            for ep in detail.episodes {
+                guard let number = ep.episodeNumber else { continue }
+                episodes[Enrichment.episodeKey(season: season, episode: number)] = EpisodeEnrichment(
+                    title: ep.name,
+                    overview: ep.overview,
+                    stillURL: TMDBConfig.imageURL(path: ep.stillPath, size: .w780),
+                    runtimeMinutes: ep.runtime
+                )
+            }
+            let result = SeasonEnrichment(
+                episodes: episodes,
+                posterURL: TMDBConfig.imageURL(path: detail.posterPath, size: .w500)
             )
+            seasonCache[key] = result
+            return result
         }
-        let result = SeasonEnrichment(
-            episodes: episodes,
-            posterURL: TMDBConfig.imageURL(path: detail.posterPath, size: .w500)
-        )
-        seasonCache[key] = result
+        seasonInFlight[key] = task
+        let result = await task.value
+        seasonInFlight[key] = nil
         return result
     }
 
@@ -89,10 +113,18 @@ final class TMDBService {
     func personProfile(id: Int) async -> PersonProfile? {
         guard isConfigured else { return nil }
         if let cached = personCache[id] { return cached }
-        guard let detail = try? await client.person(id: id) else { return nil }
-        let profile = Self.makeProfile(from: detail)
-        personCache[id] = profile
-        return profile
+        if let inFlight = personInFlight[id] { return await inFlight.value }
+
+        let task = Task { () -> PersonProfile? in
+            guard let detail = try? await client.person(id: id) else { return nil }
+            let profile = Self.makeProfile(from: detail)
+            personCache[id] = profile
+            return profile
+        }
+        personInFlight[id] = task
+        let result = await task.value
+        personInFlight[id] = nil
+        return result
     }
 
     /// Map a raw person detail into the view-facing profile: the header fields plus the filmography
@@ -194,19 +226,27 @@ final class TMDBService {
         // results), so the cached entry must not be reused across types for the same id.
         let cacheKey = "\(imdbID)::\(mediaType)"
         if let cached = resolutionCache[cacheKey] { return cached }
-        guard let result = try? await client.find(imdbID: imdbID) else { return nil }
+        if let inFlight = resolveInFlight[cacheKey] { return await inFlight.value }
 
-        let id: Int?
-        switch mediaType {
-        case "movie": id = result.movieResults.first?.id
-        case "tv": id = result.tvResults.first?.id
-        default: id = result.movieResults.first?.id ?? result.tvResults.first?.id
+        let task = Task { () -> TMDBResolution? in
+            guard let result = try? await client.find(imdbID: imdbID) else { return nil }
+
+            let id: Int?
+            switch mediaType {
+            case "movie": id = result.movieResults.first?.id
+            case "tv": id = result.tvResults.first?.id
+            default: id = result.movieResults.first?.id ?? result.tvResults.first?.id
+            }
+            guard let id else { return nil }
+
+            let resolution = TMDBResolution(id: id, mediaType: mediaType)
+            resolutionCache[cacheKey] = resolution
+            return resolution
         }
-        guard let id else { return nil }
-
-        let resolution = TMDBResolution(id: id, mediaType: mediaType)
-        resolutionCache[cacheKey] = resolution
-        return resolution
+        resolveInFlight[cacheKey] = task
+        let result = await task.value
+        resolveInFlight[cacheKey] = nil
+        return result
     }
 
     // MARK: - Movie / TV mapping

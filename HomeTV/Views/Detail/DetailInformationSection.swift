@@ -34,20 +34,19 @@ struct DetailInformationSection: View {
 /// out toward the bottom back to the bare backdrop. Bleeds up into the gap above the headers.
 private struct FooterPanel: View {
     var body: some View {
-        Rectangle()
-            .fill(.black.opacity(0.42))
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .white, location: 0.0),
-                        .init(color: .white, location: 0.42),
-                        .init(color: .clear, location: 0.82)
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
-            .padding(.top, -DetailLayout.footerPanelTopBleed)
-            .allowsHitTesting(false)
+        // A gradient fill directly (black→clear), NOT a solid rect masked by a gradient — the mask forced
+        // an offscreen alpha pass over this large area every frame. Same pixels: the old white→clear mask
+        // multiplied the 0.42 black, which is exactly a black-0.42→clear gradient.
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.42), location: 0.0),
+                .init(color: .black.opacity(0.42), location: 0.42),
+                .init(color: .clear, location: 0.82)
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
+        .padding(.top, -DetailLayout.footerPanelTopBleed)
+        .allowsHitTesting(false)
     }
 }
 

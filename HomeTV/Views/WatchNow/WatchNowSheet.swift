@@ -14,7 +14,12 @@ struct WatchNowSheet<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.WatchNow.interRowSpacing) {
+        // `LazyVStack` (not `VStack`) so the catalog rows this carries are realized as they scroll into
+        // view rather than all at once. The sheet is a single child of the page's outer `LazyVStack`, and
+        // its top peeks on-screen at rest — so a plain `VStack` here would eagerly build every row (and
+        // fire every catalog `.task`) the moment the sheet appears, defeating the outer laziness. Layout,
+        // spacing, alignment and the surface background are unchanged; only realization is deferred.
+        LazyVStack(alignment: .leading, spacing: Theme.WatchNow.interRowSpacing) {
             content
         }
         .padding(.top, Theme.WatchNow.sheetTopPadding)

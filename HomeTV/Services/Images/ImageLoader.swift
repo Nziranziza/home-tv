@@ -69,7 +69,13 @@ actor ImageLoader {
             return try await existing.value
         }
 
-        let task = Task<UIImage, Error> { [session] in
+        // `Task.detached` (not `Task {}`) so the download and the CPU-heavy `downsample` run on the
+        // concurrent thread pool, NOT on this actor's serial executor. That lets multiple posters decode
+        // in parallel across cores, and keeps the actor free to serve cache hits while a decode is in
+        // flight — decoding on the actor would serialize every image and block those fast paths.
+        // `.userInitiated`: on-screen artwork is user-facing content, so it must not sit behind
+        // background-tier work — the earlier `.utility` here made visible posters appear late under load.
+        let task = Task.detached(priority: .userInitiated) { [session] in
             let (data, _) = try await session.data(from: url)
             try Task.checkCancellation()
             guard let image = Self.downsample(data: data, maxPixel: maxPixel) else {

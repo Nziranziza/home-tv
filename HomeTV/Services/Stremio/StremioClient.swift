@@ -32,6 +32,17 @@ actor StremioClient {
     private var catalogInFlight: [URL: Task<CatalogResponse, Error>] = [:]
     private let catalogTTL: TimeInterval = 300
 
+    /// Same short-lived cache + coalescing for `meta`, so re-entering a detail screen (or its `.task(id:)`
+    /// re-firing) doesn't re-fetch and re-decode the full title — which for a long series is a large
+    /// episode-list payload. Mirrors the catalog cache above.
+    private struct MetaCacheEntry {
+        let date: Date
+        let value: MetaResponse
+    }
+    private var metaCache: [URL: MetaCacheEntry] = [:]
+    private var metaInFlight: [URL: Task<MetaResponse, Error>] = [:]
+    private let metaTTL: TimeInterval = 300
+
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
@@ -74,7 +85,25 @@ actor StremioClient {
 
     func meta(baseURL: URL, type: String, id: String) async throws -> MetaResponse {
         let url = endpoint(base: baseURL, segments: ["meta", type, id])
-        return try await get(url: url, as: MetaResponse.self)
+
+        if let entry = metaCache[url], Date().timeIntervalSince(entry.date) < metaTTL {
+            return entry.value
+        }
+        if let existing = metaInFlight[url] {
+            return try await existing.value
+        }
+
+        let task = Task { try await get(url: url, as: MetaResponse.self) }
+        metaInFlight[url] = task
+        do {
+            let value = try await task.value
+            metaInFlight[url] = nil
+            metaCache[url] = MetaCacheEntry(date: Date(), value: value)
+            return value
+        } catch {
+            metaInFlight[url] = nil
+            throw error
+        }
     }
 
     func streams(baseURL: URL, type: String, id: String) async throws -> StreamResponse {
