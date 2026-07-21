@@ -84,6 +84,10 @@ struct DetailEpisodesSection: View {
         // Computed once per render (over the cached, already-sorted episode list) — not per card.
         let upNext = seriesUpNext
         let upNextID = upNext?.marksEpisode == true ? upNext?.video.id : nil
+        // The certification is show-level (identical for every episode), so read it once here rather than
+        // per card. The per-episode air-date / duration strings come from the model's cache (built off the
+        // scroll path) instead of parsing an ISO-8601 date + allocating a FormatStyle for each card.
+        let ratingText = vm.displayCertification
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: 28) {
                 ForEach(model.sortedEpisodes) { episode in
@@ -93,9 +97,9 @@ struct DetailEpisodesSection: View {
                         episodeNumber: episode.episode ?? 0,
                         title: info?.title ?? episode.title ?? "Episode \(episode.episode ?? 0)",
                         overview: info?.overview ?? episode.overview,
-                        dateText: vm.airDate(episode.released),
+                        dateText: model.episodeAirDateText[episode.id],
                         durationText: vm.episodeDurationText(episode, info: info),
-                        ratingText: vm.displayCertification,
+                        ratingText: ratingText,
                         progress: trakt.progress(forKey: vm.episodeKey(episode)),
                         watched: trakt.isWatched(type: model.typeID, imdb: model.metaID, season: episode.season, episode: episode.episode),
                         isUpNext: episode.id == upNextID,
@@ -199,7 +203,7 @@ private struct SeasonSelectorBar: View {
             .padding(.horizontal, Theme.Detail.leftInset)
             .padding(.vertical, 8)
         }
-        .detailRowScroll()
+        .detailRowScroll(clipsToBounds: false)   // season selector overflows its fixed-height slot upward
         .focusSection()
         // Up from the episode strip would otherwise pick a tab by geometry (the one above the focused
         // episode), not the selected season. The focus guide redirects entry to the selected season's

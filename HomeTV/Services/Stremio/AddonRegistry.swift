@@ -21,7 +21,14 @@ struct InstalledAddon: Codable, Identifiable, Hashable, Sendable {
 final class AddonRegistry {
     static let shared = AddonRegistry()
 
-    private(set) var addons: [InstalledAddon] = []
+    private(set) var addons: [InstalledAddon] = [] {
+        didSet { enabledAddons = addons.filter(\.enabled) }
+    }
+
+    /// Cached enabled subset. `enabledAddons` is read on many hot paths (Watch Now row specs, Search
+    /// catalogs, stream-picker load/status, detail load/related) — re-filtering `addons` on every access
+    /// was wasteful, so it's maintained here and only recomputed when `addons` changes.
+    private(set) var enabledAddons: [InstalledAddon] = []
 
     private let storageKey = "hometv.addons.v1"
     private let defaults: UserDefaults
@@ -29,6 +36,7 @@ final class AddonRegistry {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         load()
+        enabledAddons = addons.filter(\.enabled)   // didSet doesn't fire for assignments during init
         // Publish the current Trailerio base URL to the shared App Group so the Top Shelf extension can
         // resolve trailers. Done at launch too (not only on mutation) so an addon list already installed
         // before this feature shipped still reaches the extension without the user re-toggling anything.
@@ -36,10 +44,6 @@ final class AddonRegistry {
         if addons.isEmpty {
             Task { await seedDefaults() }
         }
-    }
-
-    var enabledAddons: [InstalledAddon] {
-        addons.filter(\.enabled)
     }
 
     func install(manifestURL: URL) async throws -> InstalledAddon {

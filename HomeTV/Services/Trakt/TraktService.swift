@@ -35,6 +35,14 @@ final class TraktService {
 
     @ObservationIgnored private var tokens: TraktTokens?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
+    /// In-flight library sync, so overlapping `refreshLibrary()` calls (scene foreground + Library
+    /// appear firing together) coalesce onto one fetch+rebuild instead of doing the work twice.
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// When the last library sync completed, for the min-interval throttle below.
+    @ObservationIgnored private var lastRefreshAt: Date?
+    /// Skip a (non-forced) re-sync that lands within this window of the previous one — every return from
+    /// an external player re-activates the scene, and back-to-back foregrounds don't need a full refetch.
+    private static let refreshMinInterval: TimeInterval = 30
 
     private let tokenAccount = "tokens"
     private let usernameKey = "hometv.trakt.username"
@@ -80,7 +88,7 @@ final class TraktService {
             authState = .signedIn(user)
             UserDefaults.standard.set(user.username, forKey: usernameKey)
         }
-        await refreshLibrary()
+        await refreshLibrary(force: true)
     }
 
     // MARK: - Device-code sign-in
@@ -127,7 +135,7 @@ final class TraktService {
         var interval = UInt64(max(code.interval, 1))
 
         while Date() < deadline {
-            try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+            try? await Task.sleep(for: .seconds(Int(interval)))
             if Task.isCancelled { return }
 
             do {
@@ -161,7 +169,7 @@ final class TraktService {
             UserDefaults.standard.set(fetched.username, forKey: usernameKey)
         }
         authState = .signedIn(user)
-        await refreshLibrary()
+        await refreshLibrary(force: true)
     }
 
     func signOut() {
@@ -181,7 +189,27 @@ final class TraktService {
 
     // MARK: - Library sync (reads)
 
-    func refreshLibrary() async {
+    /// Refresh the watched / watchlist / playback caches from Trakt. Coalesces overlapping calls onto a
+    /// single fetch+rebuild and, unless `force` is set, skips a re-sync that lands within
+    /// `refreshMinInterval` of the previous one. `force` is used for the authoritative syncs (launch
+    /// bootstrap, post-sign-in); the routine scene-foreground / Library-appear callers stay throttled.
+    func refreshLibrary(force: Bool = false) async {
+        // Already syncing → ride the in-flight task instead of starting a duplicate.
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+        if !force, let lastRefreshAt, Date().timeIntervalSince(lastRefreshAt) < Self.refreshMinInterval {
+            return
+        }
+        let task = Task { await self.performRefresh() }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+        lastRefreshAt = Date()
+    }
+
+    private func performRefresh() async {
         guard let token = await validAccessToken() else { return }
 
         async let watchedMoviesReq = TraktClient.shared.watchedMovies(token: token)
@@ -198,6 +226,54 @@ final class TraktService {
         let playbackMov = (try? await playbackMoviesReq) ?? []
         let playbackEp = (try? await playbackEpisodesReq) ?? []
 
+        // Build the whole snapshot off the main actor: the set-building, the `paused_at` sort, the
+        // continue-watching dedup and the episode-key prune are pure CPU over payloads that can be
+        // thousands of entries for heavy accounts — doing that on `@MainActor` stalls the UI on every
+        // sync. `Task.detached` runs it on the concurrent pool; only the final assignments hop back.
+        let currentEpisodeKeys = watchedEpisodeKeys
+        let snapshot = await Task.detached {
+            Self.buildLibrarySnapshot(
+                watchedMovies: watchedMovies,
+                watchedShows: watchedShows,
+                watchlistMov: watchlistMov,
+                watchlistSh: watchlistSh,
+                playbackMov: playbackMov,
+                playbackEp: playbackEp,
+                currentEpisodeKeys: currentEpisodeKeys
+            )
+        }.value
+
+        watchedMovieIDs = snapshot.watchedMovieIDs
+        watchedShowIDs = snapshot.watchedShowIDs
+        watchlistIDs = snapshot.watchlistIDs
+        watchlistItems = snapshot.watchlistItems
+        playbackProgress = snapshot.playbackProgress
+        continueWatchingItems = snapshot.continueWatchingItems
+        watchedEpisodeKeys = snapshot.watchedEpisodeKeys
+    }
+
+    /// The rebuilt caches, produced by the pure `buildLibrarySnapshot` off the main actor.
+    private struct LibrarySnapshot: Sendable {
+        let watchedMovieIDs: Set<String>
+        let watchedShowIDs: Set<String>
+        let watchlistIDs: Set<String>
+        let watchlistItems: [MetaPreview]
+        let playbackProgress: [String: Double]
+        let continueWatchingItems: [MetaPreview]
+        let watchedEpisodeKeys: Set<String>
+    }
+
+    /// Pure transform of the six Trakt sync payloads into the UI caches. `nonisolated static` so it runs
+    /// off the main actor (see `performRefresh`). Behaviour is identical to the old inline version.
+    nonisolated private static func buildLibrarySnapshot(
+        watchedMovies: [TraktWatchedMovie],
+        watchedShows: [TraktWatchedShow],
+        watchlistMov: [TraktWatchlistMovie],
+        watchlistSh: [TraktWatchlistShow],
+        playbackMov: [TraktPlaybackItem],
+        playbackEp: [TraktPlaybackItem],
+        currentEpisodeKeys: Set<String>
+    ) -> LibrarySnapshot {
         // Watched. `/sync/watched/shows` reliably reports which shows have any watched episode
         // (show-level), but for many accounts it omits the per-season/episode breakdown entirely — so we
         // derive only show-level watched here. Per-episode watched state is loaded on demand from the
@@ -253,20 +329,24 @@ final class TraktService {
             }
         }
 
-        watchedMovieIDs = movieIDs
-        watchedShowIDs = showIDs
-        watchlistIDs = listIDs
-        watchlistItems = listItems
-        playbackProgress = progress
-        continueWatchingItems = continueItems
         // `watchedEpisodeKeys` is a per-show cache this endpoint can't populate (no episode breakdown),
         // so it's left to `loadEpisodeProgress` — but prune keys for shows that just dropped out of
         // `watchedShowIDs` (un-watched entirely elsewhere) so the two caches stay aligned. Shows still
         // watched keep their keys and refresh the next time their detail screen opens.
-        watchedEpisodeKeys = watchedEpisodeKeys.filter { key in
+        let prunedEpisodeKeys = currentEpisodeKeys.filter { key in
             guard let separator = key.firstIndex(of: ":") else { return false }
-            return watchedShowIDs.contains(String(key[..<separator]))
+            return showIDs.contains(String(key[..<separator]))
         }
+
+        return LibrarySnapshot(
+            watchedMovieIDs: movieIDs,
+            watchedShowIDs: showIDs,
+            watchlistIDs: listIDs,
+            watchlistItems: listItems,
+            playbackProgress: progress,
+            continueWatchingItems: continueItems,
+            watchedEpisodeKeys: prunedEpisodeKeys
+        )
     }
 
     /// Load the per-episode watched state for a single show from the show progress endpoint and merge it
@@ -456,7 +536,7 @@ final class TraktService {
 
     /// Build a `MetaPreview` for a Trakt item using its IMDB id. Artwork comes from Metahub (the same
     /// CDN the rest of the app uses for poster/background/logo), so these slot into existing rows.
-    private func preview(imdb: String, type: String, name: String) -> MetaPreview {
+    nonisolated private static func preview(imdb: String, type: String, name: String) -> MetaPreview {
         MetaPreview(
             id: imdb,
             type: type,

@@ -17,8 +17,16 @@ extension View {
     /// and lay the row out to the physical screen edges so its `leftInset` is measured from the same edge
     /// as the hero. (A nested ScrollView otherwise re-introduces the horizontal safe-area inset, leaving
     /// the rows pushed in relative to the hero column.)
-    func detailRowScroll() -> some View {
-        scrollClipDisabled()
+    /// Standard treatment for a detail row's horizontal `ScrollView`.
+    ///
+    /// `clipsToBounds` (default `true`): clip the row to its bounds. Leaving the clip off (the old blanket
+    /// `scrollClipDisabled()`) let a shelf's cards draw into the neighbouring shelf's region, and the focus
+    /// engine then mis-resolved "next item down" during a fast flick — snapping focus back to the previous
+    /// shelf for a frame before advancing. Clipping removes that overlap; the focus lift stays visible
+    /// because each content row reserves enough vertical padding for it to grow into. Pass `false` for the
+    /// season selector, which must overflow its fixed-height header slot upward (see `detailRowHeader`).
+    func detailRowScroll(clipsToBounds: Bool = true) -> some View {
+        scrollClipDisabled(!clipsToBounds)
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .horizontal)
     }
