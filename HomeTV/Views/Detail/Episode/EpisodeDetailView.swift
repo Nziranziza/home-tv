@@ -79,7 +79,7 @@ private struct EpisodeDetailContent: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 EpisodeCenteredTitle(title: episodeTitle, scroll: scroll)
-                if !model.vm.watchOptions.isEmpty {
+                if !model.watchOptions.isEmpty {
                     // Top content row: its cards carry the content zone so Down from the hero collapses.
                     DetailHowToWatchSection(model: model, scroll: scroll, zone: zone)
                 }

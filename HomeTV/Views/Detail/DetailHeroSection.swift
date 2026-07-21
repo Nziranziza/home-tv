@@ -11,37 +11,48 @@ struct DetailHeroSection: View {
     var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
-        heroContent
-            .containerRelativeFrame(.vertical) { length, _ in length * DetailLayout.heroHeightFraction }
-            .ignoresSafeArea(edges: [.horizontal, .top])
-            .id("heroTop")
-            .offset(y: -max(scroll.offset, 0) * DetailLayout.heroParallax)   // render-only parallax drift
+        // The parallax offset is applied by a child view (`HeroCollapseParallax`) that reads the scroll
+        // clock, NOT here — so this body doesn't depend on `scroll.offset` and is not re-evaluated on
+        // every scroll tick. That keeps the per-tick rebuild (and the up-next episode scan it triggers,
+        // see `seriesUpNext`) off the collapse animation. Modifier order is unchanged: the offset is
+        // still applied outermost, over the frame/id below.
+        HeroCollapseParallax(scroll: scroll) {
+            heroContent
+                .containerRelativeFrame(.vertical) { length, _ in length * DetailLayout.heroHeightFraction }
+                .ignoresSafeArea(edges: [.horizontal, .top])
+                .id("heroTop")
+        }
     }
 
     /// State-A column bottom-anchored to the lower-left, with the cast/credits floated in the upper-right
     /// region (vertically independent of the column). The column fills the hero frame so the action row
     /// settles near the bottom safe area.
     private var heroContent: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Credits share the action row's bottom baseline (rule 4): bottom-trailing, right edge at the
-            // right-margin token (≈ x 1760; leftInset 86 + 74 trailing = 160 from the right). Grows up.
-            creditsColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.trailing, 0)
+        // The collapse fade is applied by a child view (`HeroCollapseFade`) that reads the scroll clock,
+        // NOT here — so this property doesn't depend on `scroll.heroOpacity` and isn't re-evaluated on
+        // every scroll tick (which would re-run the up-next episode scan). Order is unchanged: opacity is
+        // applied to the padded ZStack, inside `focusSection()`, exactly as before.
+        HeroCollapseFade(scroll: scroll) {
+            ZStack(alignment: .bottomLeading) {
+                // Credits share the action row's bottom baseline (rule 4): bottom-trailing, right edge at the
+                // right-margin token (≈ x 1760; leftInset 86 + 74 trailing = 160 from the right). Grows up.
+                creditsColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 0)
 
-            VStack(alignment: .leading, spacing: 16) {   // tighter rhythm pulls the upper stack down ~25 px
-                titleView
-                chipLine
-                if let description = model.vm.displayDescription, !description.isEmpty {
-                    HeroDescription(text: description)
+                VStack(alignment: .leading, spacing: 16) {   // tighter rhythm pulls the upper stack down ~25 px
+                    titleView
+                    chipLine
+                    if let description = model.vm.displayDescription, !description.isEmpty {
+                        HeroDescription(text: description)
+                    }
+                    metaLine
+                    actionButtons
                 }
-                metaLine
-                actionButtons
             }
+            .padding(.horizontal, Theme.Detail.leftInset)
+            .padding(.bottom, 40)   // sit the action row near the bottom safe area (≈ 88% down)
         }
-        .padding(.horizontal, Theme.Detail.leftInset)
-        .padding(.bottom, 40)   // sit the action row near the bottom safe area (≈ 88% down)
-        .opacity(scroll.heroOpacity)   // Group A fades as it translates up (the scroll provides the translation)
         .focusSection()
     }
 
@@ -205,5 +216,33 @@ struct DetailHeroSection: View {
         .font(.system(size: 24))
         .multilineTextAlignment(.leading)
         .lineLimit(2)
+    }
+}
+
+/// Applies the hero's upward parallax drift in isolation: it — not `DetailHeroSection.body` — is what
+/// reads the scroll clock each tick, so scrolling re-renders only this tiny wrapper and never rebuilds
+/// the hero content (which would re-run the up-next episode scan). The wrapped content is built once by
+/// the parent and only has a render-only `.offset` re-applied here. Mirrors Watch Now's
+/// `ParallaxHeroOverlay`.
+private struct HeroCollapseParallax<Content: View>: View {
+    let scroll: DetailScrollState
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .offset(y: -max(scroll.offset, 0) * DetailLayout.heroParallax)   // render-only parallax drift
+    }
+}
+
+/// Applies the State-A hero's collapse fade in isolation, for the same reason as `HeroCollapseParallax`:
+/// keep the `scroll.heroOpacity` read out of `heroContent` so a scroll tick re-renders only this wrapper
+/// rather than rebuilding the hero column. The wrapped content is built once; only `.opacity` re-applies.
+private struct HeroCollapseFade<Content: View>: View {
+    let scroll: DetailScrollState
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .opacity(scroll.heroOpacity)   // Group A fades as it translates up (the scroll provides the translation)
     }
 }

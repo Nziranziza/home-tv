@@ -33,7 +33,7 @@ struct DetailTrailersSection: View {
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
-                .padding(.vertical, 12)
+                .padding(.vertical, 18)   // room for the `.card` focus lift now that the row clips to bounds
             }
             .detailRowScroll()
             .focusSection()

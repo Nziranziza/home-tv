@@ -116,11 +116,23 @@ private struct HeroBackdropFilmstrip: View {
             x: drift ? -Theme.Hero.kenBurnsOffsetX : Theme.Hero.kenBurnsOffsetX,
             y: drift ? -Theme.Hero.kenBurnsOffsetY : Theme.Hero.kenBurnsOffsetY
         )
-        .animation(
-            .easeInOut(duration: Theme.Hero.kenBurnsDuration).repeatForever(autoreverses: true),
-            value: drift
-        )
-        .onAppear { drift = true }
+        .animation(kenBurnsAnimation, value: drift)
+        // Drive the pan off `isActive` rather than a one-time `onAppear`. When a detail/modal covers Watch
+        // Now (isActive == false) the animation below becomes non-repeating, so the `repeatForever` pan
+        // actually STOPS instead of compositing the full-screen backdrop forever underneath the covering
+        // screen. The settle-to-rest happens while the hero is hidden, so there's no visible change; the
+        // pan resumes when Watch Now is active again.
+        .onChange(of: model.isActive, initial: true) { _, active in
+            drift = active
+        }
+    }
+
+    /// Repeating Ken Burns pan while the hero is active; a one-shot (non-repeating) curve when it isn't,
+    /// so toggling `drift` off settles once and the animation stops rather than looping under a cover.
+    private var kenBurnsAnimation: Animation {
+        model.isActive
+            ? .easeInOut(duration: Theme.Hero.kenBurnsDuration).repeatForever(autoreverses: true)
+            : .easeInOut(duration: Theme.Hero.kenBurnsDuration)
     }
 }
 

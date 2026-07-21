@@ -199,10 +199,10 @@ private struct DetailContent: View {
                 DetailRelatedSection(model: model, scroll: scroll, relatedSelection: $relatedSelection)
                     .id("related")
             }
-            if !model.vm.watchOptions.isEmpty {
+            if !model.watchOptions.isEmpty {
                 DetailHowToWatchSection(model: model, scroll: scroll)
             }
-            if !model.vm.creditEntries.isEmpty {
+            if !model.creditEntries.isEmpty {
                 DetailCastSection(model: model, scroll: scroll, castSelection: $castSelection)
             }
             DetailAboutSection(model: model, scroll: scroll).id("about")

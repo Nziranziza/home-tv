@@ -68,8 +68,7 @@ private struct DetailBackdropBlurredLayer: View {
     let url: URL?
 
     var body: some View {
-        DetailBackdropImage(url: url)
-            .blur(radius: 175)                                // very heavy wash — figures fully indistinct
+        DetailBackdropBlurredImage(url: url)              // low-res decode + small blur, upscaled (see below)
             .saturation(1.05)                                 // keep/boost the warm tint (don't go neutral grey)
             .overlay(Color.black.opacity(0.16))               // ~lum 125 warm (reference target)
             .overlay(
@@ -79,6 +78,42 @@ private struct DetailBackdropBlurredLayer: View {
                 )
                 .allowsHitTesting(false)
             )
+    }
+}
+
+/// The heavily-blurred backdrop wash, produced cheaply. A live `.blur(radius: 175)` over the full-screen
+/// image is one of the most expensive GPU passes on tvOS (cost scales with displayed pixels × radius) and
+/// hitches every time a detail screen is pushed. Because a Gaussian that heavy obliterates all detail, the
+/// source resolution is irrelevant to the result — so we decode + blur at 1/`downscale` size and scale the
+/// small blurred raster up to fill. The blur then runs on ~1/64th the pixels with a proportionally smaller
+/// radius (visually identical wash), and the decode is a tiny thumbnail instead of a ~33 MB 4K image. The
+/// `saturation`/overlays and the fill + 1.05 overscale geometry are unchanged from the old full-res layer.
+private struct DetailBackdropBlurredImage: View {
+    let url: URL?
+
+    /// Render the wash at 1/8 linear scale (1920→240 pt). The `.blur` radius is divided by the same factor
+    /// so the upscaled result matches a full-res `.blur(radius: 175)`.
+    private static let downscale: CGFloat = 8
+
+    var body: some View {
+        GeometryReader { geo in
+            let smallSize = CGSize(width: geo.size.width / Self.downscale,
+                                   height: geo.size.height / Self.downscale)
+            RemoteImage(
+                url: url,
+                targetSize: smallSize,
+                contentMode: .fill
+            ) {
+                Color(white: 0.05)
+            }
+            .scaledToFill()
+            .frame(width: smallSize.width, height: smallSize.height)
+            .blur(radius: 175 / Self.downscale)              // ≈ 22 on the small raster ≈ 175 once upscaled
+            .scaleEffect(Self.downscale * 1.05)              // upscale to fill + the same 1.05 overscale as the sharp layer
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
     }
 }
 

@@ -23,11 +23,12 @@ final class MetaDetailModel {
     /// Preview/sample injection only (see `#Preview`); nil in the app, where `load()` fetches from addons.
     private let previewMeta: Meta?
 
-    /// Base meta from the addon. Recomputes the cached episode derivations when it changes.
-    var meta: Meta? { didSet { recomputeEpisodes() } }
+    /// Base meta from the addon. Recomputes the cached episode + credit/watch derivations when it changes.
+    var meta: Meta? { didSet { recomputeEpisodes(); recomputeDerived() } }
     /// TMDB enrichment sidecar, populated after the base meta loads. nil until then (or when TMDB
     /// isn't configured / the id isn't an IMDB id) — every consumer falls back to addon `meta`.
-    var enrichment: Enrichment?
+    /// Recomputes the credit/watch derivations when it arrives, since they prefer TMDB data.
+    var enrichment: Enrichment? { didSet { recomputeDerived() } }
     var related: [MetaPreview] = []
     /// In-app-playable trailers from the Trailerio addon (empty unless it's installed and has the
     /// title). Drives the hero's inline autoplay and the in-app Trailers row. Loaded after the base
@@ -36,6 +37,10 @@ final class MetaDetailModel {
     /// Per-episode TMDB info (runtime/still/overview/title), keyed by "season:episode". Filled lazily
     /// for the season currently in view (see `loadSeasonEnrichment`), merged over addon `Video` data.
     var episodeInfo: [String: EpisodeEnrichment] = [:]
+    /// Seasons whose TMDB enrichment has already been merged, so revisiting a season (its `.task(id:)`
+    /// re-firing as you scroll across it) doesn't re-merge identical data and needlessly re-render the
+    /// whole episode strip.
+    private var loadedSeasons: Set<Int> = []
     var seasonPosters: [Int: URL] = [:]
     private(set) var status: LoadStatus = .loading
 
@@ -47,6 +52,20 @@ final class MetaDetailModel {
     private(set) var seasons: [Int] = []
     /// First episode id of each season, for the season selector's "jump to" scroll.
     private(set) var seasonFirstEpisodeID: [Int: String] = [:]
+
+    /// Cast & Crew row entries and the How-to-Watch provider cards. Each is read twice per detail render
+    /// (an `.isEmpty` guard in the parent + the `ForEach` in the section) and rebuilds a fresh array of
+    /// structs each time via `vm`, so they're cached here and recomputed only when `meta`/`enrichment`
+    /// change — the same treatment as the episode derivations above.
+    private(set) var creditEntries: [CreditEntry] = []
+    private(set) var watchOptions: [WatchOption] = []
+
+    /// Per-episode air-date display string, keyed by episode id. Cached because `airDate` parses an
+    /// ISO-8601 date (allocating two `Date.ISO8601FormatStyle`s) — costly to run per card on every scroll.
+    /// It depends only on the (static) episode list, so it's computed once when `meta` changes. Duration
+    /// text is NOT cached here: it depends on the lazily-merged `episodeInfo`, and recomputing all episodes
+    /// on each season merge is worse than formatting the ~6 visible cards on demand.
+    private(set) var episodeAirDateText: [String: String] = [:]
 
     init(typeID: String, metaID: String, fallbackTitle: String, previewMeta: Meta? = nil) {
         self.typeID = typeID
@@ -76,6 +95,20 @@ final class MetaDetailModel {
             firsts[season] = ep.id
         }
         seasonFirstEpisodeID = firsts
+
+        // Air-date strings are a pure function of the (static) episode list, so parse them once here on
+        // `meta` change rather than per card during scroll.
+        var dates: [String: String] = [:]
+        for episode in eps {
+            if let date = snapshot.airDate(episode.released) { dates[episode.id] = date }
+        }
+        episodeAirDateText = dates
+    }
+
+    private func recomputeDerived() {
+        let snapshot = vm
+        creditEntries = snapshot.creditEntries
+        watchOptions = snapshot.watchOptions
     }
 
     /// The hero's up-next episode (resume / next-to-watch). Pure algorithm in `MetaDetailViewModel`,
@@ -98,6 +131,7 @@ final class MetaDetailModel {
         // episode data while the new title loads.
         enrichment = nil
         episodeInfo = [:]
+        loadedSeasons = []
         seasonPosters = [:]
         trailerCandidates = []
         if let previewMeta {                       // sample/preview path — no networking
@@ -160,9 +194,14 @@ final class MetaDetailModel {
     /// Fetch and merge TMDB per-episode info + the season poster for one season. No-op when TMDB
     /// isn't configured or the season is nil / not yet known.
     func loadSeasonEnrichment(_ season: Int?) async {
-        guard let season, TMDBService.shared.isConfigured else { return }
+        guard let season, !loadedSeasons.contains(season), TMDBService.shared.isConfigured else { return }
         guard let result = await TMDBService.shared.seasonEnrichment(imdbID: metaID, season: season) else { return }
-        episodeInfo.merge(result.episodes) { _, new in new }
+        // Mark loaded even if empty, so scrolling back across this season doesn't re-fetch/re-merge and
+        // re-render the whole strip. Only assign the observed dictionaries when there's something to add.
+        loadedSeasons.insert(season)
+        if !result.episodes.isEmpty {
+            episodeInfo.merge(result.episodes) { _, new in new }
+        }
         if let poster = result.posterURL { seasonPosters[season] = poster }
     }
 

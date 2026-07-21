@@ -18,7 +18,7 @@ struct DetailRelatedSection: View {
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
-                .padding(.vertical, 16)
+                .padding(.vertical, 24)   // room for the `.card` focus lift now that the row clips to bounds
             }
             .detailRowScroll()
             .focusSection()
