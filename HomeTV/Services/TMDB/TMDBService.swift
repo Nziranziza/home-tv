@@ -413,13 +413,28 @@ actor TMDBService {
 
     private func trailers(from videos: TMDBVideoList?) -> [Trailer] {
         guard let results = videos?.results else { return [] }
+        // Rank, then TMDB's own order as the tie-break. Swift's sort isn't stable, so equal-rank videos
+        // are ordered by their original index rather than left to the sort's discretion.
         return results
             .filter { $0.site == "YouTube" && ($0.type == "Trailer" || $0.type == "Teaser") }
-            .sorted { ($0.official ?? false) && !($1.official ?? false) }
-            .compactMap { video in
+            .enumerated()
+            .sorted { lhs, rhs in
+                let left = Self.trailerRank(lhs.element)
+                let right = Self.trailerRank(rhs.element)
+                return left == right ? lhs.offset < rhs.offset : left < right
+            }
+            .compactMap { _, video in
                 guard let key = video.key, !key.isEmpty else { return nil }
                 return Trailer(id: key, title: video.name ?? "Trailer")
             }
+    }
+
+    /// Sort key for a trailer video — lower comes first. Official beats unofficial (the primary axis, so
+    /// the studio cut leads the row), and within each of those a full Trailer beats a Teaser.
+    private static func trailerRank(_ video: TMDBVideo) -> Int {
+        let officialRank = (video.official ?? false) ? 0 : 2
+        let typeRank = video.type == "Teaser" ? 1 : 0
+        return officialRank + typeRank
     }
 
     // MARK: - Discovery ("More Like This")

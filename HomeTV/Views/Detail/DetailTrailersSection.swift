@@ -7,6 +7,9 @@ import SwiftUI
 struct DetailTrailersSection: View {
     let model: MetaDetailModel
     let scroll: DetailScrollState
+    /// The inline hero player. Read only for the loaded trailer's real runtime — it plays the same
+    /// source the card presents, so its duration is the card's duration, for free.
+    let trailer: TrailerPlaybackController
     /// Set to present the full-screen in-app trailer player (Trailerio path).
     @Binding var trailerRequest: TrailerPlaybackRequest?
     var zone: FocusState<DetailZone?>.Binding
@@ -20,7 +23,7 @@ struct DetailTrailersSection: View {
                     if !model.trailerCandidates.isEmpty {
                         // Trailerio: one in-app-playable card (the title's trailer). Movies have no
                         // episodes, so Trailers is the top content row.
-                        TrailerPlaceholderCard(model: model) { playInApp() }
+                        TrailerPlaceholderCard(model: model, duration: trailer.duration) { playInApp() }
                             .contentZone(model.seasons.isEmpty, zone)
                     } else if let trailers = model.enrichment?.trailers, !trailers.isEmpty {
                         ForEach(trailers) { trailer in
@@ -40,11 +43,14 @@ struct DetailTrailersSection: View {
         }
     }
 
-    /// Play the title's trailer in-app, full-screen (Trailerio sources).
+    /// Play the title's trailer in-app, full-screen (Trailerio sources). Starts from the source the hero
+    /// is playing, so the full-screen clip is the one the card previewed (and whose duration it shows);
+    /// falls back to the title's full list when the hero has nothing loaded.
     private func playInApp() {
+        let order = trailer.playbackOrder
         trailerRequest = TrailerPlaybackRequest(
             title: model.meta?.name ?? model.fallbackTitle,
-            candidates: model.trailerCandidates
+            candidates: order.isEmpty ? model.trailerCandidates : order
         )
     }
 
@@ -63,9 +69,13 @@ struct DetailTrailersSection: View {
 ///
 /// One full-bleed 426×270 thumbnail (matches the reference's ~452×287 once the .card focus lift scales
 /// it). A bottom-anchored dark gradient gives the overlaid text legibility while the image stays
-/// faintly visible behind it — NOT an opaque caption bar. Title + "▶ 1m" sit low over the gradient.
+/// faintly visible behind it — NOT an opaque caption bar. Title + "▶ 2m 31s" sit low over the gradient.
 private struct TrailerPlaceholderCard: View {
     let model: MetaDetailModel
+    /// Real runtime of the trailer this card plays, once the player knows it. The play glyph stands
+    /// alone until then (and for the pure placeholder, which has nothing to play), so the label never
+    /// shifts the layout as it arrives.
+    var duration: Duration?
     /// Selecting the card. Empty for the pure placeholder; plays the in-app trailer for Trailerio.
     var action: () -> Void = {}
 
@@ -99,8 +109,10 @@ private struct TrailerPlaceholderCard: View {
                     HStack(spacing: 7) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("1m")   // PLACEHOLDER duration
-                            .font(.system(size: 19))
+                        if let duration {
+                            Text(duration, format: .units(allowed: [.minutes, .seconds], width: .narrow))
+                                .font(.system(size: 19))
+                        }
                     }
                     .foregroundStyle(Color(white: 0.67))   // neutral light grey (~RGB 170), not image-tinted
                 }

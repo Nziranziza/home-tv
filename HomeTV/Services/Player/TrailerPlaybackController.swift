@@ -17,6 +17,10 @@ final class TrailerPlaybackController {
     /// Flips true once playback actually produces frames — the hero crossfades the video in only then,
     /// so a failed/stalled source never replaces the still backdrop.
     private(set) var isReady = false
+    /// Runtime of the loaded trailer, known once the source is ready to play (nil for a source that
+    /// reports an indefinite duration). The Trailers row labels its card with this, so the duration
+    /// shown is the real length of the clip the card will play.
+    private(set) var duration: Duration?
     /// Loop the trailer (the detail hero). The Watch Now carousel sets this false and uses
     /// `onPlaybackEnded` to page to the next featured title instead of replaying.
     var loops = true
@@ -42,6 +46,16 @@ final class TrailerPlaybackController {
     private var notificationTokens: [any NSObjectProtocol] = []
     private var fallbackTask: Task<Void, Never>?
     private var autoplayTask: Task<Void, Never>?
+
+    /// The sources still worth trying, starting with the one currently loaded. The full-screen player
+    /// opens with this rather than the title's full list, so it plays the same clip the hero settled on
+    /// — the card's duration then always describes what selecting it plays — and skips sources this
+    /// controller has already seen fail. Empty when nothing is loaded (all sources exhausted, or torn
+    /// down), in which case the caller falls back to the full list.
+    var playbackOrder: [TrailerCandidate] {
+        guard candidates.indices.contains(candidateIndex) else { return [] }
+        return Array(candidates[candidateIndex...])
+    }
 
     // MARK: - Loading
 
@@ -122,14 +136,28 @@ final class TrailerPlaybackController {
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             let status = item.status   // Sendable enum read synchronously off the KVO thread
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                // The hop to the main actor means a callback can land after we've already fallen through
+                // to another source (or torn down). Acting on a stale item would skip a good candidate on
+                // .failed, or label the card with the previous clip's runtime on .readyToPlay.
+                guard let self, item === self.player?.currentItem else { return }
                 switch status {
                 case .failed: self.advanceToNextCandidate()
-                case .readyToPlay: if self.wantsPlayback { self.player?.play() }
+                case .readyToPlay:
+                    self.readDuration(of: item)
+                    if self.wantsPlayback { self.player?.play() }
                 default: break
                 }
             }
         }
+    }
+
+    /// Record the source's runtime once it's ready. A stream can report an indefinite or not-yet-known
+    /// duration (`.indefinite`, `.invalid`), in which case we simply leave it unknown and the card drops
+    /// the label rather than showing a made-up number.
+    private func readDuration(of item: AVPlayerItem) {
+        let time = item.duration
+        guard time.isNumeric, time.seconds > 0 else { return }
+        duration = .seconds(time.seconds)
     }
 
     /// The first frame with a positive time means the video is actually on screen — the moment to
@@ -217,6 +245,7 @@ final class TrailerPlaybackController {
         player?.pause()
         player = nil
         isReady = false
+        duration = nil
     }
 
     private static var audioConfigured = false
