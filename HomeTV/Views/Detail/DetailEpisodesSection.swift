@@ -134,7 +134,7 @@ struct DetailEpisodesSection: View {
                 }
             }
             .padding(.horizontal, Theme.Detail.leftInset)
-            .padding(.vertical, 24)
+            .detailRowContentPadding(24)
         }
         .detailRowScroll()
         .focusSection()

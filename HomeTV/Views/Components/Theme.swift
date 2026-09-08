@@ -199,6 +199,18 @@ enum Theme {
         static let heroColumnSpacing: CGFloat = 16
         /// Bottom inset on the hero column, which puts the action row near the bottom safe area (88% down).
         static let heroColumnBottomPadding: CGFloat = 40
+        // Vertical room a clipped content row draws into *outside* the height it occupies in the
+        // layout, so a focused card's lift and the whole of its drop shadow are drawn instead of being
+        // cut off at the clip edge. `detailRowContentPadding` adds it inside the scroll content and
+        // `detailRowScroll` cancels it again outside, so the row's laid-out height is unchanged — only
+        // the clip rect grows. Asymmetric because the shadow falls downward: measured against a focused
+        // poster card, its shadow decays to nothing ~66 pt below the row's own bottom padding while the
+        // lift's glow clears ~32 pt above the top. Both stay inside the ~110 pt that separates one
+        // shelf's cards from the next, so no two shelves' cards can overlap (the overlap is what made
+        // the focus engine bounce during a fast flick — see `detailRowScroll`).
+        static let rowFocusOverflowTop: CGFloat = 36
+        static let rowFocusOverflowBottom: CGFloat = 72
+
         /// Gap between the hero's action buttons.
         static let heroActionRowSpacing: CGFloat = 18
         /// Lift between the facts line and the action row.
