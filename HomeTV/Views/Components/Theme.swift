@@ -199,6 +199,15 @@ enum Theme {
         static let heroColumnSpacing: CGFloat = 16
         /// Bottom inset on the hero column, which puts the action row near the bottom safe area (88% down).
         static let heroColumnBottomPadding: CGFloat = 40
+        // MARK: Content row breathing room
+        // Vertical padding each content row gives its cards, tuned to the card type it holds (mirrors
+        // `Theme.Row`'s per-shape paddings on Watch Now). `detailRowContentPadding` adds the shared focus
+        // overflow below on top of these.
+        static let castRowPadding: CGFloat = 16
+        static let trailerRowPadding: CGFloat = 18
+        static let posterRowPadding: CGFloat = 24
+        static let episodeRowPadding: CGFloat = 24
+
         // Vertical room a clipped content row draws into *outside* the height it occupies in the
         // layout, so a focused card's lift and the whole of its drop shadow are drawn instead of being
         // cut off at the clip edge. `detailRowContentPadding` adds it inside the scroll content and

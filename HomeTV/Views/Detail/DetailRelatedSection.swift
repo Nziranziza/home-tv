@@ -18,7 +18,7 @@ struct DetailRelatedSection: View {
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
-                .detailRowContentPadding(24)
+                .detailRowContentPadding(Theme.Detail.posterRowPadding)
             }
             .detailRowScroll()
             .focusSection()

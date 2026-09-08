@@ -36,7 +36,7 @@ struct DetailTrailersSection: View {
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
-                .detailRowContentPadding(18)
+                .detailRowContentPadding(Theme.Detail.trailerRowPadding)
             }
             .detailRowScroll()
             .focusSection()
