@@ -14,7 +14,7 @@ struct DetailHeroColumn<Content: View, Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        // The collapse fade is applied by the private `HeroCollapseFade` child, which is what reads
+        // The collapse fade is applied by the `HeroCollapseFade` child, which is what reads
         // `scroll.heroOpacity` — so a scroll tick re-renders only that wrapper rather than rebuilding the
         // column. Modifier order is the same as when each hero applied the opacity itself: on the padded
         // stack, inside `focusSection()`.
@@ -41,18 +41,5 @@ extension DetailHeroColumn where Trailing == EmptyView {
     /// A column with no trailing block — the episode hero, which carries no credits.
     init(scroll: DetailScrollState, @ViewBuilder content: @escaping () -> Content) {
         self.init(scroll: scroll, content: content, trailing: { EmptyView() })
-    }
-}
-
-/// Applies the State-A hero's collapse fade in isolation, for the same reason as the stage's parallax
-/// wrapper: keep the `scroll.heroOpacity` read out of the column so a scroll tick re-applies only an
-/// `.opacity` rather than rebuilding the hero content.
-private struct HeroCollapseFade<Content: View>: View {
-    let scroll: DetailScrollState
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .opacity(scroll.heroOpacity)   // Group A fades as it translates up (the scroll provides the translation)
     }
 }
