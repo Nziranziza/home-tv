@@ -27,7 +27,7 @@ struct DetailCastSection: View {
                     }
                 }
                 .padding(.horizontal, Theme.Detail.leftInset)
-                .padding(.vertical, 16)
+                .detailRowContentPadding(Theme.Detail.castRowPadding)
             }
             .detailRowScroll()
             .focusSection()

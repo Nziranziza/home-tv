@@ -2,10 +2,11 @@ import SwiftUI
 
 /// State-A hero for a single episode: the show name, episode title, chips, `S·E`-prefixed synopsis,
 /// facts, and action row bottom-anchored to the lower-left over the episode still. The episode analogue
-/// of `DetailHeroSection` — reuses the same shared hero building blocks and the same collapse-clock
-/// fade/parallax — but with a text title (episodes have no logo) and no credits column. Its rows are
-/// standalone `View` structs (`EpisodeHeroTitle`, `EpisodeHeroDescription`, `EpisodeHeroMetaLine`,
-/// `EpisodeHeroActionButtons`) so SwiftUI can diff and re-render them independently.
+/// of `DetailHeroSection` — it stages (`DetailHeroStage`) and lays out (`DetailHeroColumn`) through the
+/// same shared containers, so the two heroes share one rhythm, gutter, and collapse clock — but with a
+/// text title (episodes have no logo) and no credits column. Its rows are standalone `View` structs
+/// (`EpisodeHeroTitle`, `EpisodeHeroDescription`, `HeroFactsLine`, `EpisodeHeroActionButtons`) so SwiftUI
+/// can diff and re-render them independently.
 struct EpisodeHeroSection: View {
     let model: MetaDetailModel
     let episode: Video
@@ -16,17 +17,15 @@ struct EpisodeHeroSection: View {
     var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
-        heroContent
-            .containerRelativeFrame(.vertical) { length, _ in length * DetailLayout.heroHeightFraction }
-            .ignoresSafeArea(edges: [.horizontal, .top])
-            .id("heroTop")
-            .offset(y: -max(scroll.offset, 0) * DetailLayout.heroParallax)   // render-only parallax drift
+        // Like the title hero, the collapse clock is read inside `DetailHeroStage` / `DetailHeroColumn`,
+        // not here — so a scroll tick re-applies an offset and an opacity instead of rebuilding this column.
+        DetailHeroStage(scroll: scroll) {
+            heroContent
+        }
     }
 
-    /// The State-A column, bottom-anchored to the lower-left and filling the hero frame so the action row
-    /// settles near the bottom safe area. Fades as it translates up on the collapse clock.
     private var heroContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        DetailHeroColumn(scroll: scroll) {
             EpisodeHeroTitle(showName: model.meta?.name ?? model.fallbackTitle, episodeTitle: episodeTitle)
             // genre · genre + content-rating box, with a leading streaming-provider badge (Apple TV+ style
             // — no badge when the title isn't on a known provider). The episode chips drop the type label
@@ -39,16 +38,11 @@ struct EpisodeHeroSection: View {
             if let overview = episodeOverview, !overview.isEmpty {
                 EpisodeHeroDescription(label: model.vm.seasonEpisodeLabel(episode), overview: overview)
             }
-            EpisodeHeroMetaLine(factsLine: factsLine)
+            HeroFactsLine(text: factsLine)
             EpisodeHeroActionButtons(
                 model: model, episode: episode, trakt: trakt, streamRequest: $streamRequest, zone: zone
             )
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .padding(.horizontal, Theme.Detail.leftInset)
-        .padding(.bottom, 40)   // sit the action row near the bottom safe area (≈ 88% down)
-        .opacity(scroll.heroOpacity)
-        .focusSection()
     }
 
     // MARK: - Derived values
@@ -61,7 +55,7 @@ struct EpisodeHeroSection: View {
         info?.overview ?? episode.overview
     }
 
-    /// air date · runtime, joined for the meta line.
+    /// air date · runtime, joined for the facts line.
     private var factsLine: String {
         [model.vm.airDate(episode.released),
          model.vm.episodeDurationText(episode, info: info, width: .abbreviated)]

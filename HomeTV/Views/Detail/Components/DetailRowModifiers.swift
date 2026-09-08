@@ -29,6 +29,20 @@ extension View {
         scrollClipDisabled(!clipsToBounds)
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .horizontal)
+            // Cancel the overflow `detailRowContentPadding` added inside, so the enlarged clip rect
+            // costs the layout nothing (see `Theme.Detail.rowFocusOverflowTop` / `…Bottom`).
+            .padding(.top, clipsToBounds ? -Theme.Detail.rowFocusOverflowTop : 0)
+            .padding(.bottom, clipsToBounds ? -Theme.Detail.rowFocusOverflowBottom : 0)
+    }
+
+    /// Vertical padding for a clipped row's scroll content: the row's own breathing room plus the shared
+    /// focus overflow. Clipping the row to its bounds cut a focused card's drop shadow off flat at the
+    /// bottom edge — the lift fitted, the shadow beneath it didn't. Padding the content here and
+    /// un-padding the scroll view in `detailRowScroll` grows the clip rect around the cards without
+    /// moving them or changing the height the row occupies.
+    func detailRowContentPadding(_ base: CGFloat) -> some View {
+        padding(.top, base + Theme.Detail.rowFocusOverflowTop)
+            .padding(.bottom, base + Theme.Detail.rowFocusOverflowBottom)
     }
 
     /// Places a content row's header (a section label or the season selector) into a fixed-height slot,
