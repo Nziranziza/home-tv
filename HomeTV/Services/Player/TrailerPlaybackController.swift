@@ -47,6 +47,16 @@ final class TrailerPlaybackController {
     private var fallbackTask: Task<Void, Never>?
     private var autoplayTask: Task<Void, Never>?
 
+    /// The sources still worth trying, starting with the one currently loaded. The full-screen player
+    /// opens with this rather than the title's full list, so it plays the same clip the hero settled on
+    /// — the card's duration then always describes what selecting it plays — and skips sources this
+    /// controller has already seen fail. Empty when nothing is loaded (all sources exhausted, or torn
+    /// down), in which case the caller falls back to the full list.
+    var playbackOrder: [TrailerCandidate] {
+        guard candidates.indices.contains(candidateIndex) else { return [] }
+        return Array(candidates[candidateIndex...])
+    }
+
     // MARK: - Loading
 
     /// Point the controller at a title's ordered trailer sources. No-op if the same list is already
@@ -126,7 +136,10 @@ final class TrailerPlaybackController {
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             let status = item.status   // Sendable enum read synchronously off the KVO thread
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                // The hop to the main actor means a callback can land after we've already fallen through
+                // to another source (or torn down). Acting on a stale item would skip a good candidate on
+                // .failed, or label the card with the previous clip's runtime on .readyToPlay.
+                guard let self, item === self.player?.currentItem else { return }
                 switch status {
                 case .failed: self.advanceToNextCandidate()
                 case .readyToPlay:

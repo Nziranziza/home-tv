@@ -43,11 +43,14 @@ struct DetailTrailersSection: View {
         }
     }
 
-    /// Play the title's trailer in-app, full-screen (Trailerio sources).
+    /// Play the title's trailer in-app, full-screen (Trailerio sources). Starts from the source the hero
+    /// is playing, so the full-screen clip is the one the card previewed (and whose duration it shows);
+    /// falls back to the title's full list when the hero has nothing loaded.
     private func playInApp() {
+        let order = trailer.playbackOrder
         trailerRequest = TrailerPlaybackRequest(
             title: model.meta?.name ?? model.fallbackTitle,
-            candidates: model.trailerCandidates
+            candidates: order.isEmpty ? model.trailerCandidates : order
         )
     }
 
