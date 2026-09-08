@@ -9,6 +9,10 @@ struct WatchHistoryItem: Codable, Identifiable, Hashable, Sendable {
     let background: String?
     let logo: String?
     let viewedAt: Date
+    /// When the title was *finished*, if ever known. Optional so history saved before this existed
+    /// still decodes; see `WatchHistory.finishedItems` for how it's derived when nothing reports
+    /// completion.
+    var finishedAt: Date? = nil
 
     var id: String { "\(typeID):\(metaID)" }
 
@@ -41,7 +45,8 @@ extension WatchHistoryItem {
             poster: preview.poster,
             background: preview.background,
             logo: preview.logo,
-            viewedAt: viewedAt
+            viewedAt: viewedAt,
+            finishedAt: nil
         )
     }
 }
@@ -57,6 +62,15 @@ final class WatchHistory {
     private let defaults: UserDefaults
     private let limit: Int = 24
 
+    /// How long after a title was played it is treated as finished, when nothing tells us otherwise.
+    ///
+    /// HomeTV hands playback to external players (Infuse/VLC), which never report completion back, so
+    /// locally there is no real "finished" event to record — `markFinished(id:)` exists for when one
+    /// is available, but signed out nothing calls it. Ageing items out of Continue Watching after a
+    /// day is the honest local approximation: a title you played yesterday and haven't returned to is
+    /// far more likely finished than still in progress. Trakt supersedes all of this when signed in.
+    static let finishedAfter: TimeInterval = 60 * 60 * 24
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let env = ProcessInfo.processInfo.environment
@@ -68,6 +82,32 @@ final class WatchHistory {
             items = WatchHistory.sampleItems()
             save()
         }
+    }
+
+    /// Locally in-progress titles — the Continue Watching source when not signed in to Trakt.
+    var inProgressItems: [WatchHistoryItem] {
+        items.filter { !isFinished($0) }
+    }
+
+    /// Locally finished titles, most recently finished first — the Recently Watched source when not
+    /// signed in to Trakt. Disjoint from `inProgressItems`, so the two rows never show the same title.
+    var finishedItems: [WatchHistoryItem] {
+        items.filter(isFinished).sorted { ($0.finishedAt ?? $0.viewedAt) > ($1.finishedAt ?? $1.viewedAt) }
+    }
+
+    /// Record that a title was watched to the end. Nothing in the app can currently detect this (see
+    /// `finishedAfter`); it's the seam for when a source of truth exists.
+    func markFinished(id: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].finishedAt == nil else {
+            return
+        }
+        items[index].finishedAt = Date()
+        save()
+    }
+
+    private func isFinished(_ item: WatchHistoryItem) -> Bool {
+        if item.finishedAt != nil { return true }
+        return Date().timeIntervalSince(item.viewedAt) >= Self.finishedAfter
     }
 
     private static func sampleItems() -> [WatchHistoryItem] {
@@ -82,6 +122,12 @@ final class WatchHistory {
         let now = Date()
         return samples.enumerated().map { idx, entry in
             let (type, id, name) = entry
+            // The back half of the sample set is seeded as *finished* (played days ago), so
+            // SEED_HISTORY populates the Recently Watched row as well as Continue Watching.
+            let isFinished = idx >= samples.count / 2
+            let viewedAt = isFinished
+                ? now.addingTimeInterval(-Double(idx) * 86_400)
+                : now.addingTimeInterval(-Double(idx) * 3600)
             return WatchHistoryItem(
                 typeID: type,
                 metaID: id,
@@ -89,7 +135,8 @@ final class WatchHistory {
                 poster: "https://images.metahub.space/poster/medium/\(id)/img",
                 background: "https://images.metahub.space/background/medium/\(id)/img",
                 logo: "https://images.metahub.space/logo/medium/\(id)/img",
-                viewedAt: now.addingTimeInterval(-Double(idx) * 3600)
+                viewedAt: viewedAt,
+                finishedAt: isFinished ? viewedAt : nil
             )
         }
     }

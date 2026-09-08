@@ -138,6 +138,12 @@ actor TraktClient {
         try decode(try await perform(request("sync/playback/episodes", token: token)))
     }
 
+    /// Finished watches, newest first — the Recently Watched source. `extended=full` so each movie /
+    /// episode carries its `runtime` for the card's metadata line.
+    func history(limit: Int, token: String) async throws -> [TraktHistoryItem] {
+        try decode(try await perform(request("sync/history?extended=full&limit=\(limit)", token: token)))
+    }
+
     // MARK: - Plumbing
 
     private func request(_ path: String, method: String = "GET", body: Data? = nil, token: String? = nil) -> URLRequest {
