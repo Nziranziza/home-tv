@@ -17,9 +17,10 @@ final class EpisodeStillStore {
     /// it's bookkeeping, not something a view reads.
     @ObservationIgnored private var requestedShows: Set<String> = []
 
-    /// Shows resolved per pass. The row shows ~20 cards over a handful of distinct shows; this caps the
-    /// burst of meta requests a first render can fire.
-    private static let maxShowsPerPass = 8
+    /// How many meta fetches are in flight at once. A cap on *concurrency*, not on how many shows get
+    /// loaded: every pending show is fetched, in batches, so a row spanning more shows than this still
+    /// ends up fully resolved — it just doesn't fire the whole burst on the first render.
+    private static let maxConcurrentShows = 8
 
     /// Load stills for any show in `items` we haven't fetched yet. Cheap and idempotent — safe to call
     /// from a `.task(id:)` that re-fires as the row's items change.
@@ -28,17 +29,21 @@ final class EpisodeStillStore {
         for item in items where item.episodeKey != nil {
             guard !requestedShows.contains(item.metaID), !pending.contains(item.metaID) else { continue }
             pending.append(item.metaID)
-            if pending.count == Self.maxShowsPerPass { break }
         }
         guard !pending.isEmpty else { return }
         requestedShows.formUnion(pending)
 
-        // Concurrently — these are independent network fetches, and doing them in series would trickle
-        // the stills in one show at a time.
-        await withTaskGroup(of: Void.self) { group in
-            for show in pending {
-                group.addTask { await self.loadShow(show) }
+        // Each batch runs concurrently — these are independent network fetches, and doing them all in
+        // series would trickle the stills in one show at a time.
+        var start = pending.startIndex
+        while start < pending.endIndex {
+            let end = min(start + Self.maxConcurrentShows, pending.endIndex)
+            await withTaskGroup(of: Void.self) { group in
+                for show in pending[start..<end] {
+                    group.addTask { await self.loadShow(show) }
+                }
             }
+            start = end
         }
     }
 
@@ -57,7 +62,9 @@ final class EpisodeStillStore {
                       let thumbnail = video.thumbnail else { continue }
                 found["\(imdb):\(season):\(episode)"] = thumbnail
             }
-            guard !found.isEmpty else { return }
+            // Meta without usable thumbnails is no answer at all — keep asking the remaining addons
+            // rather than settling for the show backdrop.
+            guard !found.isEmpty else { continue }
             stills.merge(found) { _, new in new }
             return
         }

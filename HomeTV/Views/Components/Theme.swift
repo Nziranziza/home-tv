@@ -264,6 +264,20 @@ enum Theme {
 
         static let captionSpacing: CGFloat = 12
 
+        // Overlay caption on the 320x230 landscape cards (Continue Watching / Recently Watched): the
+        // title, the leading glyph and the metadata line, plus the inset they sit at. One source of
+        // truth so the two rows stay identical.
+        //
+        // Fixed sizes rather than semantic styles, deliberately: tvOS's semantic scale starts around
+        // 29pt (`.body`), which overflows a caption this size — these are 10-foot *card overlay*
+        // metrics matched to Apple TV's own, not body copy.
+        static let overlayTitleFont: Font = .system(size: 22, weight: .bold)
+        static let overlayGlyphFont: Font = .system(size: 16, weight: .bold)
+        static let overlayMetadataFont: Font = .system(size: 18, weight: .semibold)
+        static let overlayLineSpacing: CGFloat = 8
+        static let overlayControlSpacing: CGFloat = 10
+        static let overlayInsets = EdgeInsets(top: 0, leading: 16, bottom: 14, trailing: 16)
+
         static let focusScale: CGFloat = 1.04
         static let focusShadowRadius: CGFloat = 22
         static let focusShadowYOffset: CGFloat = 14

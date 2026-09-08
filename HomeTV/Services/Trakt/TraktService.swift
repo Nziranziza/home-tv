@@ -251,7 +251,10 @@ final class TraktService {
         let watchlistSh = (try? await watchlistShowsReq) ?? []
         let playbackMov = (try? await playbackMoviesReq) ?? []
         let playbackEp = (try? await playbackEpisodesReq) ?? []
-        let history = (try? await historyReq) ?? []
+        // Unlike the payloads above, a *failed* history fetch is kept distinct from an empty one: an
+        // empty snapshot would clear the Recently Watched row on any transient error, so nil means
+        // "leave the existing cards alone" (see the guarded assignment below).
+        let history = try? await historyReq
 
         // Build the whole snapshot off the main actor: the set-building, the `paused_at` sort, the
         // continue-watching dedup and the episode-key prune are pure CPU over payloads that can be
@@ -266,7 +269,7 @@ final class TraktService {
                 watchlistSh: watchlistSh,
                 playbackMov: playbackMov,
                 playbackEp: playbackEp,
-                history: history,
+                history: history ?? [],
                 currentEpisodeKeys: currentEpisodeKeys
             )
         }.value
@@ -282,7 +285,10 @@ final class TraktService {
         watchlistItems = snapshot.watchlistItems
         playbackProgress = snapshot.playbackProgress
         continueWatchingItems = snapshot.continueWatchingItems
-        recentlyWatchedItems = snapshot.recentlyWatchedItems
+        // Only when the fetch actually came back — a network blip shouldn't empty the row.
+        if history != nil {
+            recentlyWatchedItems = snapshot.recentlyWatchedItems
+        }
         watchedEpisodeKeys = snapshot.watchedEpisodeKeys
     }
 

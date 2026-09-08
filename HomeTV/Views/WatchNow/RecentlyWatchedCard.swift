@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// A finished title in the Recently Watched row: landscape episode still with the title over a bottom
-/// scrim, and a replay glyph beside the season/episode + runtime.
+/// scrim, and a replay glyph beside the season/episode + runtime (see `RecentlyWatchedCaption`).
 ///
 /// Deliberately close to `ContinueWatchingCard` — same geometry, same corner radius, same scrim — so
 /// the two rows read as siblings, with two differences that say "this one is done": a replay glyph
-/// instead of a play glyph, and **no progress bar** (there is no progress left to show).
+/// instead of a play glyph, and no progress bar.
 struct RecentlyWatchedCard: View {
     let item: RecentlyWatchedItem
     var action: () -> Void = {}
@@ -30,43 +30,13 @@ struct RecentlyWatchedCard: View {
                     startPoint: .top, endPoint: .bottom
                 )
 
-                bottomContent
+                RecentlyWatchedCaption(item: item)
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .clipShape(.rect(cornerRadius: Theme.Radius.card, style: .continuous))
         }
         .buttonStyle(.card)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var bottomContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Plain text, not the title logo the Continue Watching card overlays: a card here is one
-            // *episode*, and a show logo tells you nothing about which.
-            Text(item.name)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            metadataRow
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
-    }
-
-    private var metadataRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.trianglehead.counterclockwise")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-
-            Text(item.metadataText)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
     }
 
     private var accessibilityLabel: String {
