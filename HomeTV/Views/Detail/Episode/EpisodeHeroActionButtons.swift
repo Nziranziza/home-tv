@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The episode hero's action row: Play/Resume/Rewatch for this specific episode, plus watchlist,
-/// watched-eye, and share. Reuses the shared hero buttons. Every button reports `zone == .hero` while
+/// watched-eye, and share. Reuses the shared hero buttons, including the watchlist and share controls
+/// it shares with the title detail hero. Every button reports `zone == .hero` while
 /// focused; moving focus down to the content flips the zone and drives the full-viewport collapse scroll.
 struct EpisodeHeroActionButtons: View {
     let model: MetaDetailModel
@@ -11,18 +12,12 @@ struct EpisodeHeroActionButtons: View {
     var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: Theme.Detail.heroActionRowSpacing) {
             HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }
                 .focused(zone, equals: .hero)
-            if trakt.isSignedIn {
-                let inWatchlist = trakt.isInWatchlist(imdb: model.metaID)
-                HeroCircleButton(
-                    icon: inWatchlist ? "checkmark" : "plus",
-                    accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"
-                ) {
-                    trakt.toggleWatchlist(type: model.typeID, imdb: model.metaID)
-                }
+            HeroWatchlistButton(trakt: trakt, type: model.typeID, imdb: model.metaID)
                 .focused(zone, equals: .hero)
+            if trakt.isSignedIn {
                 HeroCircleButton(
                     icon: watched ? "eye.slash" : "eye",
                     accessibilityLabel: watched
@@ -35,14 +30,11 @@ struct EpisodeHeroActionButtons: View {
                     trakt.toggleEpisodeWatched(showIMDB: model.metaID, season: season, episode: episodeNumber)
                 }
                 .focused(zone, equals: .hero)
-            } else {
-                HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
-                    .focused(zone, equals: .hero)
             }
-            HeroCircleButton(icon: "square.and.arrow.up", accessibilityLabel: "Share") { }
+            HeroShareButton()
                 .focused(zone, equals: .hero)
         }
-        .padding(.top, 6)
+        .padding(.top, Theme.Detail.heroActionRowTopPadding)
     }
 
     private var watched: Bool {

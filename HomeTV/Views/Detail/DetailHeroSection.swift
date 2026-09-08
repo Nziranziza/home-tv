@@ -11,49 +11,30 @@ struct DetailHeroSection: View {
     var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
-        // The parallax offset is applied by a child view (`HeroCollapseParallax`) that reads the scroll
-        // clock, NOT here — so this body doesn't depend on `scroll.offset` and is not re-evaluated on
+        // The hero is framed and parallaxed by `DetailHeroStage`, which reads the scroll clock in a child
+        // view rather than here — so this body doesn't depend on `scroll.offset` and is not re-evaluated on
         // every scroll tick. That keeps the per-tick rebuild (and the up-next episode scan it triggers,
-        // see `seriesUpNext`) off the collapse animation. Modifier order is unchanged: the offset is
-        // still applied outermost, over the frame/id below.
-        HeroCollapseParallax(scroll: scroll) {
+        // see `seriesUpNext`) off the collapse animation.
+        DetailHeroStage(scroll: scroll) {
             heroContent
-                .containerRelativeFrame(.vertical) { length, _ in length * DetailLayout.heroHeightFraction }
-                .ignoresSafeArea(edges: [.horizontal, .top])
-                .id("heroTop")
         }
     }
 
-    /// State-A column bottom-anchored to the lower-left, with the cast/credits floated in the upper-right
-    /// region (vertically independent of the column). The column fills the hero frame so the action row
-    /// settles near the bottom safe area.
+    /// State-A column bottom-anchored to the lower-left, with the cast/credits floated in the
+    /// bottom-trailing region. Container (rhythm, gutter, bottom inset, collapse fade, focus section) is
+    /// the shared `DetailHeroColumn`, so this hero and the episode hero stay in step.
     private var heroContent: some View {
-        // The collapse fade is applied by a child view (`HeroCollapseFade`) that reads the scroll clock,
-        // NOT here — so this property doesn't depend on `scroll.heroOpacity` and isn't re-evaluated on
-        // every scroll tick (which would re-run the up-next episode scan). Order is unchanged: opacity is
-        // applied to the padded ZStack, inside `focusSection()`, exactly as before.
-        HeroCollapseFade(scroll: scroll) {
-            ZStack(alignment: .bottomLeading) {
-                // Credits share the action row's bottom baseline (rule 4): bottom-trailing, right edge at the
-                // right-margin token (≈ x 1760; leftInset 86 + 74 trailing = 160 from the right). Grows up.
-                creditsColumn
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(.trailing, 0)
-
-                VStack(alignment: .leading, spacing: 16) {   // tighter rhythm pulls the upper stack down ~25 px
-                    titleView
-                    chipLine
-                    if let description = model.vm.displayDescription, !description.isEmpty {
-                        HeroDescription(text: description)
-                    }
-                    metaLine
-                    actionButtons
-                }
+        DetailHeroColumn(scroll: scroll) {
+            titleView
+            chipLine
+            if let description = model.vm.displayDescription, !description.isEmpty {
+                HeroDescription(text: description)
             }
-            .padding(.horizontal, Theme.Detail.leftInset)
-            .padding(.bottom, 40)   // sit the action row near the bottom safe area (≈ 88% down)
+            HeroFactsLine(text: model.vm.factsLine)
+            actionButtons
+        } trailing: {
+            creditsColumn
         }
-        .focusSection()
     }
 
     // Per-title logo art, scaled to the reference (block ≈ 278 × 119, wordmark ≈ 14% of width). No
@@ -84,16 +65,6 @@ struct DetailHeroSection: View {
     private var chipLine: some View {
         MetaChipRow(parts: model.vm.typeAndGenreParts, trailingBadge: model.vm.displayCertification,
                     leading: .provider(model.enrichment?.providerBadgeURL))
-    }
-
-    // year · runtime · ★ imdb  +  quality badges (PLACEHOLDER until addons provide them)
-    private var metaLine: some View {
-        HStack(spacing: 14) {
-            Text(model.vm.factsLine)
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(Theme.Color.primaryText)
-            QualityBadges()
-        }
     }
 
     /// The show hero's up-next episode (resume / next-to-watch). Pure algorithm in the model over the
@@ -137,24 +108,19 @@ struct DetailHeroSection: View {
         }
     }
 
-    // Reuses the shared hero buttons (HeroPlayButton / HeroCircleButton) from the home hero. Every button
-    // reports `zone == .hero` while focused; moving focus down to the content flips the zone and drives
-    // the full-viewport scroll. (Applying `.focused` externally works here as in HeroOverlay's HeroActionRow.)
+    // Reuses the shared hero buttons (HeroPlayButton / HeroCircleButton) from the home hero, and the
+    // watchlist/share controls it shares with the episode hero. Every button reports `zone == .hero` while
+    // focused; moving focus down to the content flips the zone and drives the full-viewport scroll.
+    // (Applying `.focused` externally works here as in HeroOverlay's HeroActionRow.)
     private var actionButtons: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: Theme.Detail.heroActionRowSpacing) {
             HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }
                 .focused(zone, equals: .hero)
-            if trakt.isSignedIn {
-                let inWatchlist = trakt.isInWatchlist(imdb: model.metaID)
-                HeroCircleButton(
-                    icon: inWatchlist ? "checkmark" : "plus",
-                    accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"
-                ) {
-                    trakt.toggleWatchlist(type: model.typeID, imdb: model.metaID)
-                }
+            HeroWatchlistButton(trakt: trakt, type: model.typeID, imdb: model.metaID)
                 .focused(zone, equals: .hero)
-                // Watched eye. For a show it marks the episode the Play pill resumes; for a movie it
-                // marks the movie. No eye on a plain "Play" show (no specific episode to mark).
+            // Watched eye, signed in only. For a show it marks the episode the Play pill resumes; for a
+            // movie it marks the movie. No eye on a plain "Play" show (no specific episode to mark).
+            if trakt.isSignedIn {
                 if let upNext = seriesUpNext, upNext.marksEpisode {
                     let s = upNext.video.season ?? 0
                     let e = upNext.video.episode ?? 0
@@ -178,14 +144,11 @@ struct DetailHeroSection: View {
                     }
                     .focused(zone, equals: .hero)
                 }
-            } else {
-                HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
-                    .focused(zone, equals: .hero)
             }
-            HeroCircleButton(icon: "square.and.arrow.up", accessibilityLabel: "Share") { }
+            HeroShareButton()
                 .focused(zone, equals: .hero)
         }
-        .padding(.top, 6)
+        .padding(.top, Theme.Detail.heroActionRowTopPadding)
     }
 
     @ViewBuilder
@@ -216,33 +179,5 @@ struct DetailHeroSection: View {
         .font(.system(size: 24))
         .multilineTextAlignment(.leading)
         .lineLimit(2)
-    }
-}
-
-/// Applies the hero's upward parallax drift in isolation: it — not `DetailHeroSection.body` — is what
-/// reads the scroll clock each tick, so scrolling re-renders only this tiny wrapper and never rebuilds
-/// the hero content (which would re-run the up-next episode scan). The wrapped content is built once by
-/// the parent and only has a render-only `.offset` re-applied here. Mirrors Watch Now's
-/// `ParallaxHeroOverlay`.
-private struct HeroCollapseParallax<Content: View>: View {
-    let scroll: DetailScrollState
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .offset(y: -max(scroll.offset, 0) * DetailLayout.heroParallax)   // render-only parallax drift
-    }
-}
-
-/// Applies the State-A hero's collapse fade in isolation, for the same reason as `HeroCollapseParallax`:
-/// keep the `scroll.heroOpacity` read out of `heroContent` so a scroll tick re-renders only this wrapper
-/// rather than rebuilding the hero column. The wrapped content is built once; only `.opacity` re-applies.
-private struct HeroCollapseFade<Content: View>: View {
-    let scroll: DetailScrollState
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .opacity(scroll.heroOpacity)   // Group A fades as it translates up (the scroll provides the translation)
     }
 }

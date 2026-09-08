@@ -191,6 +191,19 @@ enum Theme {
     enum Detail {
         static let leftInset: CGFloat = 86
 
+        // MARK: State-A hero column
+        // The title hero and the episode hero share one container (`DetailHeroColumn`), so these move
+        // both at once.
+        /// Vertical rhythm between the hero's rows (title, chips, synopsis, facts, actions). Tight, so
+        /// the upper stack sits low in the frame.
+        static let heroColumnSpacing: CGFloat = 16
+        /// Bottom inset on the hero column, which puts the action row near the bottom safe area (88% down).
+        static let heroColumnBottomPadding: CGFloat = 40
+        /// Gap between the hero's action buttons.
+        static let heroActionRowSpacing: CGFloat = 18
+        /// Lift between the facts line and the action row.
+        static let heroActionRowTopPadding: CGFloat = 6
+
         /// Uniform height of a content row's header slot (the band that holds a section label or the
         /// season selector, directly above the row's cards). Fixing it — and bottom-anchoring taller
         /// content so it overflows upward — keeps the hero peek below the row identical regardless of
