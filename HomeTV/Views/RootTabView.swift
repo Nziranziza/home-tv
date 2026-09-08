@@ -11,7 +11,11 @@ struct RootTabView: View {
             }
 
             Tab("Watch Now", systemImage: "play.circle", value: 0) {
-                WatchNowView()
+                // `.sidebarAdaptable` keeps every tab mounted, so Watch Now keeps living while you're on
+                // another tab. Pass whether it's the selected tab so its hero can stand its trailer player,
+                // Ken Burns pan and auto-advance timer DOWN when it's off-screen — otherwise a live video
+                // decodes behind every other screen (the app-wide heaviness).
+                WatchNowView(isSelectedTab: selection == 0)
             }
 
             Tab("Library", systemImage: "books.vertical", value: 1) {

@@ -120,16 +120,21 @@ struct StreamPickerView: View {
     /// in `ImageLoader`'s cache from the hero/detail screen.
     private var backdrop: some View {
         GeometryReader { geo in
+            // Decode + blur at 1/8 scale, then upscale — a 60pt blur over a full-screen image is an
+            // expensive GPU pass that hitches when the picker appears. The heavy blur destroys detail, so
+            // the small-raster result is visually identical (same trick as `DetailBackdropBlurredImage`).
+            let downscale: CGFloat = 8
             RemoteImage(
                 url: backgroundURL.flatMap(URL.init(string:)),
-                targetSize: Theme.Hero.backdropTargetSize,
+                targetSize: CGSize(width: geo.size.width / downscale, height: geo.size.height / downscale),
                 contentMode: .fill
             ) {
                 Color(white: 0.05)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .scaleEffect(1.5)
-            .blur(radius: 60)
+            .frame(width: geo.size.width / downscale, height: geo.size.height / downscale)
+            .blur(radius: 60 / downscale)
+            .scaleEffect(downscale * 1.5)                                    // upscale to fill + the original 1.5 overscale
+            .frame(width: geo.size.width, height: geo.size.height)          // reset layout size so the scrim/clip cover the screen
             .overlay(backdropScrim)
             .clipped()
         }
@@ -300,17 +305,20 @@ struct StreamPickerView: View {
     }
 
     private var streamList: some View {
-        ScrollViewReader { proxy in
+        // Build the filter/group model ONCE for the whole list, then read its stored fields — instead of
+        // each row rebuilding it via `firstStreamID` (which was O(n²) across the list on every focus move).
+        let model = self.model
+        return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                if filteredStreams.isEmpty {
+                if model.filteredStreams.isEmpty {
                     inlineEmpty("No streams at this quality.")
                 } else {
                     LazyVStack(alignment: .leading, spacing: 22) {
-                        ForEach(qualitySections, id: \.quality) { section in
+                        ForEach(model.qualitySections, id: \.quality) { section in
                             VStack(alignment: .leading, spacing: 10) {
                                 sectionHeader(section.quality, count: section.items.count)
                                 ForEach(section.items) { item in
-                                    streamRowButton(item)
+                                    streamRowButton(item, firstStreamID: model.firstStreamID)
                                 }
                             }
                         }
@@ -336,7 +344,7 @@ struct StreamPickerView: View {
         .focusSection()
     }
 
-    private func streamRowButton(_ item: LabeledStream) -> some View {
+    private func streamRowButton(_ item: LabeledStream, firstStreamID: String?) -> some View {
         Button {
             Task { await play(item.stream) }
         } label: {

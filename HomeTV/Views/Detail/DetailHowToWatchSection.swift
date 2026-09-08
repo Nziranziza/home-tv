@@ -21,7 +21,7 @@ struct DetailHowToWatchSection: View {
         VStack(alignment: .leading, spacing: 18) {
             DetailSectionHeader(title: "How to Watch", scroll: scroll)
             LazyVGrid(columns: howToWatchColumns, spacing: 30) {
-                ForEach(model.vm.watchOptions) { option in
+                ForEach(model.watchOptions) { option in
                     let card = WatchProviderCard(provider: option.provider, availability: option.availability) {
                         if let link = model.enrichment?.watchLink { openURL(link) }
                     }

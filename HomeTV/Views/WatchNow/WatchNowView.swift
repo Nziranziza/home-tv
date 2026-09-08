@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct WatchNowView: View {
+    /// Whether the Watch Now tab is the one currently on screen. `.sidebarAdaptable` keeps sibling tabs
+    /// mounted, so this view keeps running off-tab; this flag lets the hero stand down when it isn't visible.
+    var isSelectedTab: Bool = true
+
     @State private var model = WatchNowViewModel()
     @State private var history = WatchHistory.shared
     @State private var trakt = TraktService.shared
@@ -16,7 +20,7 @@ struct WatchNowView: View {
 
     /// Inactive while a detail is pushed or the stream picker modal is up, so the hero trailer isn't
     /// left decoding underneath either.
-    private var isHeroActive: Bool { path.isEmpty && streamRequest == nil }
+    private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -58,8 +62,11 @@ struct WatchNowView: View {
                         // just below the hero's dots so the first row peeks at rest. Transparent at rest
                         // (rows on the dark hero); its light surface fades in only as you scroll.
                         WatchNowSheet(scrollState: scrollState) {
-                            if !continueWatchingItems.isEmpty {
-                                ContinueWatchingRow(items: continueWatchingItems) { item in
+                            // Compute once — reading `continueWatchingItems` twice (guard + row) re-maps
+                            // Trakt's list into fresh `WatchHistoryItem`s each time.
+                            let continueItems = continueWatchingItems
+                            if !continueItems.isEmpty {
+                                ContinueWatchingRow(items: continueItems) { item in
                                     path.append(item.preview)
                                 }
                             }

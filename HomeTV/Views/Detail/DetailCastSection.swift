@@ -15,7 +15,7 @@ struct DetailCastSection: View {
                 // Top-aligned (like the episodes row) so a focused chip's widened gap pushes its
                 // name+role straight down, instead of a centered row re-centering and eating the push.
                 LazyHStack(alignment: .top, spacing: 48) {
-                    ForEach(model.vm.creditEntries) { entry in
+                    ForEach(model.creditEntries) { entry in
                         CastChip(name: entry.name, role: entry.role, imageURL: entry.imageURL) {
                             // Only TMDB cast (with a person id) navigate into the cast screen;
                             // name-only crew entries are inert.
