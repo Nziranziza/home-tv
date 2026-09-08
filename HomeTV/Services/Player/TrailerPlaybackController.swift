@@ -17,6 +17,10 @@ final class TrailerPlaybackController {
     /// Flips true once playback actually produces frames — the hero crossfades the video in only then,
     /// so a failed/stalled source never replaces the still backdrop.
     private(set) var isReady = false
+    /// Runtime of the loaded trailer, known once the source is ready to play (nil for a source that
+    /// reports an indefinite duration). The Trailers row labels its card with this, so the duration
+    /// shown is the real length of the clip the card will play.
+    private(set) var duration: Duration?
     /// Loop the trailer (the detail hero). The Watch Now carousel sets this false and uses
     /// `onPlaybackEnded` to page to the next featured title instead of replaying.
     var loops = true
@@ -125,11 +129,22 @@ final class TrailerPlaybackController {
                 guard let self else { return }
                 switch status {
                 case .failed: self.advanceToNextCandidate()
-                case .readyToPlay: if self.wantsPlayback { self.player?.play() }
+                case .readyToPlay:
+                    self.readDuration(of: item)
+                    if self.wantsPlayback { self.player?.play() }
                 default: break
                 }
             }
         }
+    }
+
+    /// Record the source's runtime once it's ready. A stream can report an indefinite or not-yet-known
+    /// duration (`.indefinite`, `.invalid`), in which case we simply leave it unknown and the card drops
+    /// the label rather than showing a made-up number.
+    private func readDuration(of item: AVPlayerItem) {
+        let time = item.duration
+        guard time.isNumeric, time.seconds > 0 else { return }
+        duration = .seconds(time.seconds)
     }
 
     /// The first frame with a positive time means the video is actually on screen — the moment to
@@ -217,6 +232,7 @@ final class TrailerPlaybackController {
         player?.pause()
         player = nil
         isReady = false
+        duration = nil
     }
 
     private static var audioConfigured = false

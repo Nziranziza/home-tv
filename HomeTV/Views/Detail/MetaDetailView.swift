@@ -70,7 +70,7 @@ struct MetaDetailView: View {
                 model: model, scroll: scroll, trakt: trakt,
                 streamRequest: $streamRequest, relatedSelection: $relatedSelection,
                 castSelection: $castSelection, episodeSelection: $episodeSelection,
-                trailerRequest: $trailerRequest, zone: $zone
+                trailerRequest: $trailerRequest, trailer: trailerController, zone: $zone
             )
             .onChange(of: model.related.count) { _, newCount in
                 if newCount > 0,
@@ -157,6 +157,9 @@ private struct DetailContent: View {
     @Binding var castSelection: CastPerson?
     @Binding var episodeSelection: Video?
     @Binding var trailerRequest: TrailerPlaybackRequest?
+    /// The inline hero player, passed through only so the Trailers row can label its card with the
+    /// loaded trailer's real runtime.
+    let trailer: TrailerPlaybackController
     var zone: FocusState<DetailZone?>.Binding
 
     var body: some View {
@@ -184,14 +187,16 @@ private struct DetailContent: View {
                 }
                 .id("contentTop")
                 DetailTrailersSection(
-                    model: model, scroll: scroll, trailerRequest: $trailerRequest, zone: zone
+                    model: model, scroll: scroll, trailer: trailer,
+                    trailerRequest: $trailerRequest, zone: zone
                 )
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     DetailCenteredLogo(model: model, scroll: scroll)
                     DetailTrailersSection(
-                    model: model, scroll: scroll, trailerRequest: $trailerRequest, zone: zone
-                )
+                        model: model, scroll: scroll, trailer: trailer,
+                        trailerRequest: $trailerRequest, zone: zone
+                    )
                 }
                 .id("contentTop")
             }
