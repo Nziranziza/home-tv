@@ -26,7 +26,7 @@ final class GenreBrowseModel {
         guard status == .idle else { return }
         status = .loading
 
-        let sources = GenreDirectory.catalogSources(in: registry.enabledAddons)
+        let sources = GenreDirectory.catalogSources(in: registry.enabledAddons, for: genre)
         guard !sources.isEmpty else {
             status = .empty
             return

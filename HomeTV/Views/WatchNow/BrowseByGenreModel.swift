@@ -36,18 +36,25 @@ final class BrowseByGenreModel {
     func artworkURL(for genre: Genre) -> URL? { artwork[genre.id.lowercased()] }
 
     func loadArtwork() async {
+        let requestKey = artworkRequestKey
         let genres = self.genres
         let sources = GenreDirectory.catalogSources(in: registry.enabledAddons)
         guard !genres.isEmpty, !sources.isEmpty else { return }
 
         let pages = await unfilteredPages(sources: sources)
         var resolved = Self.assignPosters(genres: genres, pages: pages)
-        artwork = resolved
+        guard publish(resolved, for: requestKey) else { return }
 
         let missing = genres.filter { resolved[$0.id.lowercased()] == nil }
         guard !missing.isEmpty else { return }
 
-        let candidates = await Self.posterCandidates(for: missing, sources: sources, client: client)
+        // Sources per genre, resolved here on the main actor: only the catalogs that advertise a genre
+        // are asked for it.
+        let requests = missing.map { genre in
+            (genre, GenreDirectory.catalogSources(in: registry.enabledAddons, for: genre))
+        }
+        let candidates = await Self.posterCandidates(for: requests, client: client)
+
         var used = Set(resolved.values)
         for genre in missing {
             let key = genre.id.lowercased()
@@ -55,7 +62,16 @@ final class BrowseByGenreModel {
             resolved[key] = poster
             used.insert(poster)
         }
+        _ = publish(resolved, for: requestKey)
+    }
+
+    /// Publishes a result only if it is still the one being asked for. A `.task(id:)` restart cancels
+    /// the previous load, but a cancelled task still runs to its next suspension — so without this an
+    /// in-flight load could finish after its replacement and overwrite it with the old addons' posters.
+    private func publish(_ resolved: [String: URL], for requestKey: String) -> Bool {
+        guard !Task.isCancelled, requestKey == artworkRequestKey else { return false }
         artwork = resolved
+        return true
     }
 
     private func unfilteredPages(sources: [GenreCatalogSource]) async -> [[MetaPreview]] {
@@ -99,13 +115,13 @@ final class BrowseByGenreModel {
     /// Genre-filtered fetches for what phase 1 missed. Returns several candidates per genre so the
     /// caller can skip one already claimed. `nonisolated` so the fetches run off the main actor.
     private nonisolated static func posterCandidates(
-        for genres: [Genre],
-        sources: [GenreCatalogSource],
+        for requests: [(genre: Genre, sources: [GenreCatalogSource])],
         client: StremioClient
     ) async -> [String: [URL]] {
-        let fetch: @Sendable (Genre) async -> (String, [URL]) = { genre in
+        let fetch: @Sendable ((genre: Genre, sources: [GenreCatalogSource])) async -> (String, [URL]) = { request in
+            let genre = request.genre
             var candidates: [URL] = []
-            for source in sources {
+            for source in request.sources {
                 guard let response = try? await client.catalog(
                     baseURL: source.addon.baseURL,
                     type: source.catalog.type,
@@ -121,18 +137,18 @@ final class BrowseByGenreModel {
         }
 
         return await withTaskGroup(of: (String, [URL]).self) { group in
-            var next = min(artworkFetchConcurrency, genres.count)
-            for genre in genres.prefix(next) {
-                group.addTask { await fetch(genre) }
+            var next = min(artworkFetchConcurrency, requests.count)
+            for request in requests.prefix(next) {
+                group.addTask { await fetch(request) }
             }
 
             var resolved: [String: [URL]] = [:]
             while let (key, candidates) = await group.next() {
                 resolved[key] = candidates
-                if next < genres.count {
-                    let genre = genres[next]
+                if next < requests.count {
+                    let request = requests[next]
                     next += 1
-                    group.addTask { await fetch(genre) }
+                    group.addTask { await fetch(request) }
                 }
             }
             return resolved

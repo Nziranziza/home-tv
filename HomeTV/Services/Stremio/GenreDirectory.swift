@@ -2,6 +2,11 @@ import Foundation
 
 /// Derives the browsable genre list from the enabled addons' manifests, plus the naming and ordering
 /// it's presented in. Addon names win over any baked-in list; `curatedOrder` only decides which lead.
+///
+/// Strictly advertised: a genre is offered only if some catalog says it accepts it, and is only ever
+/// queried against the catalogs that said so. A curated stand-in list was tried and removed — an addon
+/// that quietly ignores an undeclared `genre` extra returns the same unfiltered page for every tile,
+/// which is worse than not offering the row.
 enum GenreDirectory {
     private static let extraName = "genre"
 
@@ -12,10 +17,6 @@ enum GenreDirectory {
         "Sci-Fi", "Adventure", "Thriller", "Crime", "Romance", "Documentary",
         "Mystery", "Fantasy"
     ]
-
-    /// Stand-in for a stale cached manifest that advertises no `genre` extra, since Cinemeta-shaped
-    /// catalogs accept the extra regardless. Cinemeta's own names, so they work against it unchanged.
-    static let fallback = curatedOrder.map { Genre(id: $0) }
 
     /// An explicit list rather than a hyphen-stripping rule, which would also mangle `Sci-Fi`.
     private static let displayOverrides = [
@@ -28,12 +29,8 @@ enum GenreDirectory {
         displayOverrides[id] ?? id
     }
 
-    static func advertisesGenres(_ catalog: CatalogDescriptor) -> Bool {
-        genreOptions(in: catalog) != nil
-    }
-
     /// Every distinct `genre` option the addons advertise, deduplicated case-insensitively and
-    /// ordered. Empty — which hides the row — when no enabled addon exposes a catalog at all.
+    /// ordered. Empty — which hides the row — when nothing advertises the extra.
     static func genres(advertisedBy addons: [InstalledAddon]) -> [Genre] {
         var seen = Set<String>()
         var found: [Genre] = []
@@ -48,18 +45,27 @@ enum GenreDirectory {
             }
         }
 
-        guard found.isEmpty else { return ordered(found) }
-        // A stream-only addon list leaves the row hidden rather than offering dead tiles.
-        let hasCatalogs = addons.contains { !($0.manifest.catalogs ?? []).isEmpty }
-        return hasCatalogs ? fallback : []
+        return ordered(found)
     }
 
-    /// The catalogs to query for a genre, one per addon and content type. Falls back to the first
-    /// catalog of each type when nothing advertises the extra, matching `fallback`.
+    /// The catalogs to query for one genre: the first per addon and content type that advertises it.
+    ///
+    /// Per genre, not per addon — `genres(advertisedBy:)` unions the options across every catalog, so a
+    /// genre only some of them accept (Cinemeta advertises Reality-TV on series but not on movies) would
+    /// otherwise be sent to a catalog that never claimed to support it, or be dropped when the catalog
+    /// that does support it isn't the first of its type.
+    static func catalogSources(in addons: [InstalledAddon], for genre: Genre) -> [GenreCatalogSource] {
+        sources(in: addons) { catalog in
+            genreOptions(in: catalog)?.contains {
+                $0.caseInsensitiveCompare(genre.id) == .orderedSame
+            } == true
+        }
+    }
+
+    /// The genre-capable catalogs, one per addon and content type, for reading *unfiltered* pages —
+    /// which is all the Browse by Genre row needs to pick tile artwork out of them.
     static func catalogSources(in addons: [InstalledAddon]) -> [GenreCatalogSource] {
-        let advertised = sources(in: addons) { advertisesGenres($0) }
-        guard advertised.isEmpty else { return advertised }
-        return sources(in: addons) { _ in true }
+        sources(in: addons) { genreOptions(in: $0) != nil }
     }
 
     private static func sources(

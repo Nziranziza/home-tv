@@ -26,8 +26,7 @@ struct PosterGrid: View {
                 switch titleStyle {
                 case .sectionLabel:
                     Text(title)
-                        .font(.callout)
-                        .fontWeight(.semibold)
+                        .font(.callout.weight(.semibold))
                         .foregroundStyle(theme.rowHeader)
                 case .screen:
                     ScreenTitle(title: title)
