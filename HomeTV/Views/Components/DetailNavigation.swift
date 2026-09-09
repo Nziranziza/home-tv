@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// The detail screen as a navigation destination, wrapping the `.id(meta.id)` every entry point needs
+/// — see `metaDetailDestination()` for why.
+struct MetaDetailDestination: View {
+    let meta: MetaPreview
+
+    var body: some View {
+        MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
+            .id(meta.id)
+    }
+}
+
 extension View {
     /// Pushes a `MetaPreview` value (from a `NavigationLink(value:)` or a path append) onto the stack
     /// as a `MetaDetailView`. The building block both detail-navigation entry points resolve to.
@@ -10,8 +21,7 @@ extension View {
     /// id forces a fresh view (and a fresh load) for a different title.
     func metaDetailDestination() -> some View {
         navigationDestination(for: MetaPreview.self) { meta in
-            MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-                .id(meta.id)
+            MetaDetailDestination(meta: meta)
         }
     }
 
@@ -19,8 +29,7 @@ extension View {
     /// selected item or by a `MetaPreview` pushed onto the stack. Both resolve to `MetaDetailView`.
     func metaDetailDestinations(selection: Binding<MetaPreview?>) -> some View {
         navigationDestination(item: selection) { meta in
-            MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
-                .id(meta.id)
+            MetaDetailDestination(meta: meta)
         }
         .metaDetailDestination()
     }

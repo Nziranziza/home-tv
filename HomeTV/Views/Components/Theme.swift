@@ -278,6 +278,10 @@ enum Theme {
         static let overlayControlSpacing: CGFloat = 10
         static let overlayInsets = EdgeInsets(top: 0, leading: 16, bottom: 14, trailing: 16)
 
+        /// Genre tile label, bottom-left at `overlayInsets`. Fixed for the same reason as the overlay
+        /// fonts above; measured from the reference frame at 28 pt on the 1920-pt canvas.
+        static let genreLabelFont: Font = .system(size: 28, weight: .bold)
+
         static let focusScale: CGFloat = 1.04
         static let focusShadowRadius: CGFloat = 22
         static let focusShadowYOffset: CGFloat = 14
