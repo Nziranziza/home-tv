@@ -54,6 +54,13 @@ final class EpisodeStillStore {
     private func loadShow(_ imdb: String) async {
         guard requestedShows.insert(imdb).inserted else { return }
         for addon in AddonRegistry.shared.enabledAddons {
+            // A cancelled fetch surfaces as a nil result below, which would otherwise fall through to
+            // the next addon and fire another doomed request. Stop at the first sign of cancellation
+            // and release the claim so the replacement task can pick this show up.
+            if Task.isCancelled {
+                requestedShows.remove(imdb)
+                return
+            }
             guard let response = try? await StremioClient.shared.meta(
                 baseURL: addon.baseURL,
                 type: "series",

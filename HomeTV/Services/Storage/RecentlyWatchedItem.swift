@@ -83,20 +83,22 @@ extension RecentlyWatchedItem {
     /// `WatchHistory.finishedItems`), used when not signed in to Trakt.
     ///
     /// Local history is title-level: HomeTV hands playback to Infuse/VLC, which report neither the
-    /// episode watched nor the runtime. So the season/episode and runtime here are derived
-    /// deterministically from the item id — stable across launches — purely so the card carries the
-    /// same metadata line as the signed-in one. This mirrors what the sibling `ContinueWatchingCard`
-    /// already does for its resume text.
+    /// episode watched nor the runtime.
+    ///
+    /// So `season`/`episode` stay nil — a *guessed* episode number would not just mislabel the card,
+    /// it would resolve a real still (via `episodeKey` → `EpisodeStillStore`) for an episode the user
+    /// may never have watched. The card renders a bare runtime instead, keeping its one-line caption.
+    /// The runtime itself is derived deterministically from the item id — stable across launches — so
+    /// the caption isn't empty, mirroring what the sibling `ContinueWatchingCard` does for its resume
+    /// text. A duration is a far softer approximation than an episode identity.
     init(finished item: WatchHistoryItem) {
-        let hash = Self.stableHash(item.metaID)
-        let isSeries = item.typeID == "series"
         self.init(
             typeID: item.typeID,
             metaID: item.metaID,
             name: item.name,
-            season: isSeries ? 1 + (hash / 7) % 4 : nil,
-            episode: isSeries ? 1 + (hash / 3) % 9 : nil,
-            runtimeMinutes: 42 + hash % 48,                  // 42–89 min
+            season: nil,
+            episode: nil,
+            runtimeMinutes: 42 + Self.stableHash(item.metaID) % 48,   // 42–89 min
             watchedAt: item.finishedAt ?? item.viewedAt,
             poster: item.poster,
             background: item.background,
