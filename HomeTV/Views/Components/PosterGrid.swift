@@ -22,7 +22,7 @@ struct PosterGrid: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: Theme.Search.titleSpacing) {
                 switch titleStyle {
                 case .sectionLabel:
                     Text(title)

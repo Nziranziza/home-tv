@@ -17,24 +17,31 @@ struct GenreBrowseView: View {
     var body: some View {
         ZStack {
             theme.background.ignoresSafeArea()
-            content
+            GenreBrowseContent(genre: genre, status: model.status, items: model.items, onSelect: onSelect)
         }
         .task { await model.load() }
     }
+}
 
-    @ViewBuilder
-    private var content: some View {
-        switch model.status {
+/// The genre screen's body for one load state.
+private struct GenreBrowseContent: View {
+    let genre: Genre
+    let status: GenreBrowseModel.Status
+    let items: [MetaPreview]
+    let onSelect: (MetaPreview) -> Void
+
+    var body: some View {
+        switch status {
         case .idle, .loading:
             ProgressView().controlSize(.large)
         case .loaded:
             PosterGrid(
                 title: genre.displayName,
                 titleStyle: .screen,
-                items: model.items,
+                items: items,
                 onSelect: onSelect
             )
-            .padding(.vertical, 40)
+            .padding(.vertical, Theme.Spacing.section)
         case .empty:
             ContentUnavailableView(
                 genre.displayName,

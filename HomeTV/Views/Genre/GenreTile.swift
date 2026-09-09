@@ -13,24 +13,28 @@ struct GenreTile: View {
         Button(action: action) {
             GenreTileArtwork(duotone: GenrePalette.duotone(for: genre), artworkURL: artworkURL, size: size)
                 .frame(width: size.width, height: size.height)
-                .overlay(alignment: .bottomLeading) { label }
+                .overlay(alignment: .bottomLeading) { GenreTileLabel(text: genre.displayName) }
                 .clipShape(.rect(cornerRadius: Theme.Radius.card, style: .continuous))
         }
         .buttonStyle(.card)
         .frame(width: size.width, height: size.height)
         .accessibilityLabel("Browse \(genre.displayName)")
     }
+}
 
-    /// Genre name over a soft scrim, so it stays legible on the light end of the duotone too.
-    private var label: some View {
-        Text(genre.displayName)
+/// Genre name over a soft scrim, so it stays legible on the light end of the duotone too.
+private struct GenreTileLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
             .font(Theme.Card.genreLabelFont)
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 40)
+            .padding(.top, Theme.Card.overlayScrimHeight)
             .padding(Theme.Card.overlayInsets)
             .background {
                 LinearGradient(

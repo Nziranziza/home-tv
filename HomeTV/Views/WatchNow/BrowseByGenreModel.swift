@@ -30,8 +30,9 @@ final class BrowseByGenreModel {
     /// Computed, like `WatchNowViewModel.rowSpecs`, so toggling an addon updates the row.
     var genres: [Genre] { GenreDirectory.genres(advertisedBy: registry.enabledAddons) }
 
-    /// Re-fires artwork resolution only when the genres actually change.
-    var artworkRequestKey: String { genres.map(\.id).joined(separator: ",") }
+    /// Re-fires artwork resolution only when the genres actually change. The id array itself, not a
+    /// joined string, so no separator can collide with an id that contains one.
+    var artworkRequestKey: [String] { genres.map(\.id) }
 
     func artworkURL(for genre: Genre) -> URL? { artwork[genre.id.lowercased()] }
 
@@ -68,7 +69,7 @@ final class BrowseByGenreModel {
     /// Publishes a result only if it is still the one being asked for. A `.task(id:)` restart cancels
     /// the previous load, but a cancelled task still runs to its next suspension — so without this an
     /// in-flight load could finish after its replacement and overwrite it with the old addons' posters.
-    private func publish(_ resolved: [String: URL], for requestKey: String) -> Bool {
+    private func publish(_ resolved: [String: URL], for requestKey: [String]) -> Bool {
         guard !Task.isCancelled, requestKey == artworkRequestKey else { return false }
         artwork = resolved
         return true
