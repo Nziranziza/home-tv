@@ -5,7 +5,7 @@ import Observation
 ///
 /// Trakt tells us *which* episode was finished but carries no artwork, and Metahub only has show-level
 /// backdrops — so every episode of a show would otherwise look identical. The addon's own episode list
-/// does have per-episode thumbnails, so this fetches each show's meta once (the `StremioClient` caches
+/// does have per-episode thumbnails, so this fetches each show's meta (the `StremioClient` caches
 /// and coalesces, so a show already opened on a detail screen costs nothing) and indexes its
 /// thumbnails. Until a show resolves, its cards fall back to the show backdrop.
 @Observable
@@ -13,8 +13,10 @@ import Observation
 final class EpisodeStillStore {
     private(set) var stills: [String: String] = [:]
 
-    /// Shows already fetched (successfully or not), so a re-render never refetches. Observation-ignored:
-    /// it's bookkeeping, not something a view reads.
+    /// Shows whose fetch has been *claimed*, so concurrent passes don't refetch the same show. Claimed
+    /// in `loadShow` as the fetch begins and released again if it resolves nothing — a show is only
+    /// held for good once its stills are in `stills`. Observation-ignored: bookkeeping, not something a
+    /// view reads.
     @ObservationIgnored private var requestedShows: Set<String> = []
 
     /// How many meta fetches are in flight at once. A cap on *concurrency*, not on how many shows get
@@ -31,12 +33,14 @@ final class EpisodeStillStore {
             pending.append(item.metaID)
         }
         guard !pending.isEmpty else { return }
-        requestedShows.formUnion(pending)
 
         // Each batch runs concurrently — these are independent network fetches, and doing them all in
-        // series would trickle the stills in one show at a time.
+        // series would trickle the stills in one show at a time. Shows are claimed per fetch (in
+        // `loadShow`) rather than all up front, so cancelling this task — which `.task(id:)` does the
+        // moment the row's shows change — leaves the batches that never ran free for its replacement.
         var start = pending.startIndex
         while start < pending.endIndex {
+            if Task.isCancelled { return }
             let end = min(start + Self.maxConcurrentShows, pending.endIndex)
             await withTaskGroup(of: Void.self) { group in
                 for show in pending[start..<end] {
@@ -48,6 +52,7 @@ final class EpisodeStillStore {
     }
 
     private func loadShow(_ imdb: String) async {
+        guard requestedShows.insert(imdb).inserted else { return }
         for addon in AddonRegistry.shared.enabledAddons {
             guard let response = try? await StremioClient.shared.meta(
                 baseURL: addon.baseURL,
@@ -68,5 +73,9 @@ final class EpisodeStillStore {
             stills.merge(found) { _, new in new }
             return
         }
+        // Resolved nothing — cancelled mid-flight, every addon failed, or none had thumbnails. Release
+        // the claim either way: these cards are sitting on the show backdrop, so the next pass (a rare
+        // event — only a change to the row's shows re-fires it) should be free to try again.
+        requestedShows.remove(imdb)
     }
 }
