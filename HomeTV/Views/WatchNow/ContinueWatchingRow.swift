@@ -76,12 +76,11 @@ private struct ContinueWatchingCard: View {
     }
 
     private var bottomContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.Card.overlayLineSpacing) {
             titleArt
             controlsRow
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+        .padding(Theme.Card.overlayInsets)
     }
 
     // The show's title logo (Apple-style), falling back to the name when no logo is available.
@@ -100,22 +99,22 @@ private struct ContinueWatchingCard: View {
 
     private var titleText: some View {
         Text(item.name)
-            .font(.system(size: 22, weight: .bold))
+            .font(Theme.Card.overlayTitleFont)
             .foregroundStyle(.white)
             .lineLimit(1)
     }
 
     private var controlsRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Card.overlayControlSpacing) {
             Image(systemName: "play.fill")
-                .font(.system(size: 16, weight: .bold))
+                .font(Theme.Card.overlayGlyphFont)
                 .foregroundStyle(.white)
 
             ProgressBar(progress: traktProgress ?? placeholderProgress)
                 .frame(width: 56, height: 4)
 
             Text(timeText)
-                .font(.system(size: 18, weight: .semibold))
+                .font(Theme.Card.overlayMetadataFont)
                 .foregroundStyle(.white)
                 .lineLimit(1)
 

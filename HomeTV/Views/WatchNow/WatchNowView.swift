@@ -76,6 +76,15 @@ struct WatchNowView: View {
                                     path.append(meta)
                                 }
                             }
+
+                            // Last row on the screen: what you've finished. Computed once for the same
+                            // reason as `continueItems` above.
+                            let recentItems = recentlyWatchedItems
+                            if !recentItems.isEmpty {
+                                RecentlyWatchedRow(items: recentItems) { item in
+                                    path.append(item.preview)
+                                }
+                            }
                         }
                     }
                 }
@@ -116,7 +125,16 @@ struct WatchNowView: View {
         if trakt.isSignedIn {
             return trakt.continueWatchingItems.map { WatchHistoryItem(preview: $0) }
         }
-        return history.items
+        return history.inProgressItems
+    }
+
+    /// Recently Watched source, mirroring Continue Watching above: Trakt's finished history when signed
+    /// in (episode-level, with real runtimes), otherwise the local history's finished items.
+    private var recentlyWatchedItems: [RecentlyWatchedItem] {
+        if trakt.isSignedIn {
+            return trakt.recentlyWatchedItems
+        }
+        return history.finishedItems.map(RecentlyWatchedItem.init(finished:))
     }
 
     /// Hero Play: record the title in history and open the stream picker directly (same flow as the

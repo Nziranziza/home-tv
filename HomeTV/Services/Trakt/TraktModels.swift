@@ -45,6 +45,8 @@ struct TraktMovie: Codable, Sendable, Hashable {
     let title: String?
     let year: Int?
     let ids: TraktIDs
+    /// Minutes. Only present on `extended=full` responses (see `TraktClient.history`).
+    let runtime: Int?
 }
 
 struct TraktShow: Codable, Sendable, Hashable {
@@ -58,6 +60,8 @@ struct TraktEpisode: Codable, Sendable, Hashable {
     let number: Int?
     let title: String?
     let ids: TraktIDs?
+    /// Minutes. Only present on `extended=full` responses (see `TraktClient.history`).
+    let runtime: Int?
 }
 
 // MARK: - Sync responses
@@ -107,6 +111,19 @@ struct TraktProgressEpisode: Codable, Sendable {
 struct TraktPlaybackItem: Codable, Sendable {
     let progress: Double
     let pausedAt: String?     // Trakt `paused_at`, ISO-8601 — used to order Continue Watching
+    let type: String
+    let movie: TraktMovie?
+    let episode: TraktEpisode?
+    let show: TraktShow?
+}
+
+/// One entry from `/sync/history` — a *finished* watch, newest first, with the moment it was watched.
+/// `type` is "movie" or "episode" and the matching object is populated; for an episode the parent
+/// `show` carries the IMDB id. Requested with `extended=full` so `runtime` comes along for the
+/// Recently Watched card's metadata line.
+struct TraktHistoryItem: Codable, Sendable {
+    let id: Int
+    let watchedAt: String?    // Trakt `watched_at`, ISO-8601
     let type: String
     let movie: TraktMovie?
     let episode: TraktEpisode?

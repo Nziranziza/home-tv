@@ -32,6 +32,9 @@ final class TraktService {
     private(set) var playbackProgress: [String: Double] = [:]  // key → 0...1
     private(set) var watchlistItems: [MetaPreview] = []
     private(set) var continueWatchingItems: [MetaPreview] = []
+    /// Finished movies/episodes, newest first — the Recently Watched row. Episode-level, so a show
+    /// contributes one entry per episode you finished.
+    private(set) var recentlyWatchedItems: [RecentlyWatchedItem] = []
 
     @ObservationIgnored private var tokens: TraktTokens?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -48,6 +51,11 @@ final class TraktService {
     /// Skip a (non-forced) re-sync that lands within this window of the previous one — every return from
     /// an external player re-activates the scene, and back-to-back foregrounds don't need a full refetch.
     private static let refreshMinInterval: TimeInterval = 30
+    /// History entries fetched per sync, and how many survive as Recently Watched cards. The fetch is
+    /// the wider window because a binge (or anything already in Continue Watching) collapses on the
+    /// way in — see `buildLibrarySnapshot`.
+    nonisolated private static let historyFetchLimit = 60
+    nonisolated private static let recentlyWatchedLimit = 20
 
     private let tokenAccount = "tokens"
     private let usernameKey = "hometv.trakt.username"
@@ -195,6 +203,7 @@ final class TraktService {
         playbackProgress = [:]
         watchlistItems = []
         continueWatchingItems = []
+        recentlyWatchedItems = []
     }
 
     // MARK: - Library sync (reads)
@@ -234,6 +243,7 @@ final class TraktService {
         async let watchlistShowsReq = TraktClient.shared.watchlistShows(token: token)
         async let playbackMoviesReq = TraktClient.shared.playbackMovies(token: token)
         async let playbackEpisodesReq = TraktClient.shared.playbackEpisodes(token: token)
+        async let historyReq = TraktClient.shared.history(limit: Self.historyFetchLimit, token: token)
 
         let watchedMovies = (try? await watchedMoviesReq) ?? []
         let watchedShows = (try? await watchedShowsReq) ?? []
@@ -241,6 +251,10 @@ final class TraktService {
         let watchlistSh = (try? await watchlistShowsReq) ?? []
         let playbackMov = (try? await playbackMoviesReq) ?? []
         let playbackEp = (try? await playbackEpisodesReq) ?? []
+        // Unlike the payloads above, a *failed* history fetch is kept distinct from an empty one: an
+        // empty snapshot would clear the Recently Watched row on any transient error, so nil means
+        // "leave the existing cards alone" (see the guarded assignment below).
+        let history = try? await historyReq
 
         // Build the whole snapshot off the main actor: the set-building, the `paused_at` sort, the
         // continue-watching dedup and the episode-key prune are pure CPU over payloads that can be
@@ -255,6 +269,7 @@ final class TraktService {
                 watchlistSh: watchlistSh,
                 playbackMov: playbackMov,
                 playbackEp: playbackEp,
+                history: history ?? [],
                 currentEpisodeKeys: currentEpisodeKeys
             )
         }.value
@@ -270,6 +285,10 @@ final class TraktService {
         watchlistItems = snapshot.watchlistItems
         playbackProgress = snapshot.playbackProgress
         continueWatchingItems = snapshot.continueWatchingItems
+        // Only when the fetch actually came back — a network blip shouldn't empty the row.
+        if history != nil {
+            recentlyWatchedItems = snapshot.recentlyWatchedItems
+        }
         watchedEpisodeKeys = snapshot.watchedEpisodeKeys
     }
 
@@ -281,6 +300,7 @@ final class TraktService {
         let watchlistItems: [MetaPreview]
         let playbackProgress: [String: Double]
         let continueWatchingItems: [MetaPreview]
+        let recentlyWatchedItems: [RecentlyWatchedItem]
         let watchedEpisodeKeys: Set<String>
     }
 
@@ -293,6 +313,7 @@ final class TraktService {
         watchlistSh: [TraktWatchlistShow],
         playbackMov: [TraktPlaybackItem],
         playbackEp: [TraktPlaybackItem],
+        history: [TraktHistoryItem],
         currentEpisodeKeys: Set<String>
     ) -> LibrarySnapshot {
         // Watched. `/sync/watched/shows` reliably reports which shows have any watched episode
@@ -350,6 +371,21 @@ final class TraktService {
             }
         }
 
+        // Recently watched (finished). `/sync/history` already comes back newest-first, so we just
+        // keep the first entry per movie/episode — a re-watch collapses onto one card — and skip
+        // anything Continue Watching is already showing (same `progress` key), which is what keeps the
+        // two rows from carrying the same title twice. The skip is per *episode*, not per show, so the
+        // episodes you finished still appear while the next one is in progress.
+        var recentItems: [RecentlyWatchedItem] = []
+        var watchedSeen = Set<String>()
+        for entry in history {
+            guard recentItems.count < recentlyWatchedLimit else { break }
+            guard let item = recentlyWatchedItem(from: entry),
+                  progress[item.progressKey] == nil,
+                  watchedSeen.insert(item.id).inserted else { continue }
+            recentItems.append(item)
+        }
+
         // `watchedEpisodeKeys` is a per-show cache this endpoint can't populate (no episode breakdown),
         // so it's left to `loadEpisodeProgress` — but prune keys for shows that just dropped out of
         // `watchedShowIDs` (un-watched entirely elsewhere) so the two caches stay aligned. Shows still
@@ -366,6 +402,7 @@ final class TraktService {
             watchlistItems: listItems,
             playbackProgress: progress,
             continueWatchingItems: continueItems,
+            recentlyWatchedItems: recentItems,
             watchedEpisodeKeys: prunedEpisodeKeys
         )
     }
@@ -553,6 +590,64 @@ final class TraktService {
         } else {
             Keychain.delete(account: tokenAccount)
         }
+    }
+
+    /// Adapt one `/sync/history` entry into a Recently Watched card. Movies are keyed by their own
+    /// IMDB id; an episode is keyed by its *show*'s, since that's what the detail screen opens and
+    /// what Metahub has artwork for. Entries without an IMDB id (or an unknown `type`) are dropped —
+    /// nothing downstream can resolve them.
+    nonisolated private static func recentlyWatchedItem(from entry: TraktHistoryItem) -> RecentlyWatchedItem? {
+        let watchedAt = date(fromISO8601: entry.watchedAt) ?? .distantPast
+        switch entry.type {
+        case "movie":
+            guard let movie = entry.movie, let imdb = movie.ids.imdb else { return nil }
+            return recentlyWatched(imdb: imdb, type: "movie", name: movie.title ?? "",
+                        season: nil, episode: nil, runtimeMinutes: movie.runtime, watchedAt: watchedAt)
+        case "episode":
+            guard let show = entry.show, let imdb = show.ids.imdb else { return nil }
+            return recentlyWatched(imdb: imdb, type: "series", name: show.title ?? "",
+                        season: entry.episode?.season, episode: entry.episode?.number,
+                        runtimeMinutes: entry.episode?.runtime, watchedAt: watchedAt)
+        default:
+            return nil
+        }
+    }
+
+    /// Shared tail of `recentlyWatchedItem`: wraps the Metahub artwork the rest of the app uses around
+    /// the entry's own metadata.
+    nonisolated private static func recentlyWatched(
+        imdb: String,
+        type: String,
+        name: String,
+        season: Int?,
+        episode: Int?,
+        runtimeMinutes: Int?,
+        watchedAt: Date
+    ) -> RecentlyWatchedItem {
+        let art = preview(imdb: imdb, type: type, name: name)
+        return RecentlyWatchedItem(
+            typeID: type,
+            metaID: imdb,
+            name: name,
+            season: season,
+            episode: episode,
+            runtimeMinutes: runtimeMinutes,
+            watchedAt: watchedAt,
+            poster: art.poster,
+            background: art.background,
+            logo: art.logo,
+            still: nil
+        )
+    }
+
+    /// Trakt timestamps are ISO-8601, sometimes with fractional seconds ("…T12:00:00.000Z") and
+    /// sometimes without, and `ISO8601FormatStyle` is strict about which — so try both.
+    nonisolated private static func date(fromISO8601 raw: String?) -> Date? {
+        guard let raw else { return nil }
+        if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(raw) {
+            return date
+        }
+        return try? Date.ISO8601FormatStyle().parse(raw)
     }
 
     /// Build a `MetaPreview` for a Trakt item using its IMDB id. Artwork comes from Metahub (the same
