@@ -183,6 +183,8 @@ enum Theme {
         static let posterGutter: CGFloat = 40
         static let posterRowGap: CGFloat = 58
         static let posterColumns: Int = 6
+        /// Title → first grid row.
+        static let titleSpacing: CGFloat = 18
     }
 
     /// Detail screen (Apple TV+ style hero ↔ browse). One left alignment guide for ALL left-aligned
@@ -277,6 +279,13 @@ enum Theme {
         static let overlayLineSpacing: CGFloat = 8
         static let overlayControlSpacing: CGFloat = 10
         static let overlayInsets = EdgeInsets(top: 0, leading: 16, bottom: 14, trailing: 16)
+
+        /// Height the bottom scrim behind a card-overlay label fades over.
+        static let overlayScrimHeight: CGFloat = 40
+
+        /// Genre tile label, bottom-left at `overlayInsets`. Fixed for the same reason as the overlay
+        /// fonts above; measured from the reference frame at 28 pt on the 1920-pt canvas.
+        static let genreLabelFont: Font = .system(size: 28, weight: .bold)
 
         static let focusScale: CGFloat = 1.04
         static let focusShadowRadius: CGFloat = 22

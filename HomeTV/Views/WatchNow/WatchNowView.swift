@@ -8,7 +8,7 @@ struct WatchNowView: View {
     @State private var model = WatchNowViewModel()
     @State private var history = WatchHistory.shared
     @State private var trakt = TraktService.shared
-    @State private var path: [MetaPreview] = WatchNowView.initialPath()
+    @State private var path: [WatchNowRoute] = WatchNowView.initialPath()
     @State private var streamRequest: StreamRequest?
     @State private var router = DeepLinkRouter.shared
     /// Shared hero carousel state, read by the pinned backdrop and the scrolling overlay alike.
@@ -47,7 +47,7 @@ struct WatchNowView: View {
                                 trakt: trakt,
                                 defaultFocusNamespace: contentFocus,
                                 onPlay: { meta in play(meta) },
-                                onInfo: { meta in path.append(meta) }
+                                onInfo: { meta in path.append(.detail(meta)) }
                             )
                             // Sized to the viewport minus the sheet's peek strip, so the sheet's top sits
                             // on-screen at rest (the first row peeks) and the LazyVStack renders it.
@@ -67,14 +67,19 @@ struct WatchNowView: View {
                             let continueItems = continueWatchingItems
                             if !continueItems.isEmpty {
                                 ContinueWatchingRow(items: continueItems) { item in
-                                    path.append(item.preview)
+                                    path.append(.detail(item.preview))
                                 }
                             }
 
                             ForEach(model.rowSpecs) { spec in
                                 ContentRow(spec: spec) { meta in
-                                    path.append(meta)
+                                    path.append(.detail(meta))
                                 }
+                            }
+
+                            // The only row whose cards push a destination rather than a title.
+                            BrowseByGenreRow { genre in
+                                path.append(.genre(genre))
                             }
 
                             // Last row on the screen: what you've finished. Computed once for the same
@@ -82,7 +87,7 @@ struct WatchNowView: View {
                             let recentItems = recentlyWatchedItems
                             if !recentItems.isEmpty {
                                 RecentlyWatchedRow(items: recentItems) { item in
-                                    path.append(item.preview)
+                                    path.append(.detail(item.preview))
                                 }
                             }
                         }
@@ -114,7 +119,7 @@ struct WatchNowView: View {
             .task { consumePendingDetail() }
             // Warm path: a poster tapped while the app is running flips pendingDetail.
             .onChange(of: router.pendingDetail) { _, _ in consumePendingDetail() }
-            .metaDetailDestination()
+            .watchNowDestinations(path: $path)
             .streamPickerCover(request: $streamRequest)
         }
     }
@@ -165,7 +170,7 @@ struct WatchNowView: View {
     private func consumePendingDetail() {
         guard let pending = router.pendingDetail else { return }
         router.pendingDetail = nil
-        path = [pending]
+        path = [.detail(pending)]
     }
 
     private var emptyState: some View {
@@ -179,11 +184,11 @@ struct WatchNowView: View {
         }
     }
 
-    private static func initialPath() -> [MetaPreview] {
+    private static func initialPath() -> [WatchNowRoute] {
         guard let raw = ProcessInfo.processInfo.environment["INITIAL_DETAIL"] else { return [] }
         let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return [] }
-        return [.placeholder(type: parts[0], id: parts[1])]
+        return [.detail(.placeholder(type: parts[0], id: parts[1]))]
     }
 
     /// Scroll geometry sampled each tick to drive the backdrop fade. Equatable so the action fires only

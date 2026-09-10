@@ -37,52 +37,13 @@ struct SearchView: View {
                     description: Text("Add a catalog addon in Settings to browse and search.")
                 )
             } else {
-                SearchBrowseGrid(
+                PosterGrid(
                     title: viewModel.status == .results ? "Results" : "Browse",
                     items: viewModel.displayedItems,
                     onSelect: { selection = $0 }
                 )
             }
         }
-    }
-}
-
-/// The poster grid beneath the keyboard. Reuses `ContentCard` for the cards and the shared focus
-/// treatment; geometry (260×391 posters, 40pt gutters, 80pt margins) matches the reference frame.
-private struct SearchBrowseGrid: View {
-    let title: String
-    let items: [MetaPreview]
-    var onSelect: (MetaPreview) -> Void
-    @Environment(\.theme) private var theme
-
-    private var columns: [GridItem] {
-        Array(
-            repeating: GridItem(.fixed(Theme.Search.posterSize.width), spacing: Theme.Search.posterGutter),
-            count: Theme.Search.posterColumns
-        )
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(title)
-                    .font(.callout)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(theme.rowHeader)
-
-                LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Search.posterRowGap) {
-                    ForEach(items) { meta in
-                        ContentCard(meta: meta, sizeOverride: Theme.Search.posterSize) {
-                            onSelect(meta)
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.Layout.horizontalMargin)
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
     }
 }
 
