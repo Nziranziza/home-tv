@@ -7,24 +7,28 @@ import XCTest
 /// `Page <n> of <count>`, which is what these tests read to tell which featured title is showing.
 ///
 /// Auto-advance stands down while a hero control holds focus, so the page only moves when the test
-/// moves it.
+/// moves it. The hero itself is a fixture of `heroTitleCount` titles injected with MOCK_HERO, so these
+/// tests neither depend on a live catalog nor quietly skip when one is unavailable.
 final class HeroPagingUITests: XCTestCase {
     private var app: XCUIApplication!
+
+    /// Featured titles the fixture injects. Three is the minimum that exercises paging back twice.
+    private let heroTitleCount = 3
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchEnvironment["MOCK_HERO"] = String(heroTitleCount)
         app.launch()
     }
 
     /// Left on any page but the first pages back to the previous featured title and keeps focus in the
     /// hero — it must not escape to the sidebar.
-    func testLeftPagesBackToThePreviousTitle() throws {
-        try XCTSkipUnless(waitForHero(), "Hero never loaded featured titles")
-        try XCTSkipUnless(pageCount() > 1, "Only one featured title; nothing to page")
+    func testLeftPagesBackToThePreviousTitle() {
+        assertHeroFixtureLoaded()
 
-        try pageForwardToSecondTitle()
+        pageForwardToSecondTitle()
         XCTAssertEqual(currentPage(), 2, "Setup should have paged the hero forward")
 
         focusPlay()
@@ -37,12 +41,11 @@ final class HeroPagingUITests: XCTestCase {
 
     /// Repeated Left presses keep paging back, one title per press — the alternation bug (page, then
     /// sidebar, then page) showed up only from the second press onward.
-    func testRepeatedLeftPressesKeepPaging() throws {
-        try XCTSkipUnless(waitForHero(), "Hero never loaded featured titles")
-        try XCTSkipUnless(pageCount() > 2, "Need at least three featured titles")
+    func testRepeatedLeftPressesKeepPaging() {
+        assertHeroFixtureLoaded()
 
-        try pageForwardToSecondTitle()
-        try pageForwardToSecondTitle()
+        pageForwardToSecondTitle()
+        pageForwardToSecondTitle()
         XCTAssertEqual(currentPage(), 3, "Setup should have paged the hero forward twice")
 
         focusPlay()
@@ -60,8 +63,8 @@ final class HeroPagingUITests: XCTestCase {
 
     /// On the first featured title there is nothing to page back to, so Left is a genuine edge and the
     /// sidebar opens — the Apple TV behaviour the fix must preserve.
-    func testLeftOnFirstTitleOpensTheSidebar() throws {
-        try XCTSkipUnless(waitForHero(), "Hero never loaded featured titles")
+    func testLeftOnFirstTitleOpensTheSidebar() {
+        assertHeroFixtureLoaded()
 
         focusPlay()
         XCTAssertEqual(currentPage(), 1, "Test should start on the first featured title")
@@ -80,8 +83,15 @@ final class HeroPagingUITests: XCTestCase {
             .firstMatch
     }
 
-    private func waitForHero() -> Bool {
-        pageIndicator.waitForExistence(timeout: 30) && app.buttons["Play"].waitForExistence(timeout: 10)
+    /// Fails the test rather than skipping it: the fixture is injected at launch, so a hero that is
+    /// missing or the wrong length means something is broken, not merely unavailable.
+    private func assertHeroFixtureLoaded(_ file: StaticString = #filePath, _ line: UInt = #line) {
+        XCTAssertTrue(pageIndicator.waitForExistence(timeout: 30),
+                      "Hero page dots never appeared", file: file, line: line)
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10),
+                      "Hero Play button never appeared", file: file, line: line)
+        XCTAssertEqual(pageCount(), heroTitleCount,
+                       "Hero should show the injected MOCK_HERO fixture", file: file, line: line)
     }
 
     /// Parses `Page 2 of 6` into `2`.
@@ -125,7 +135,7 @@ final class HeroPagingUITests: XCTestCase {
     }
 
     /// Walks focus right to the Next chevron and pages forward one title with Select.
-    private func pageForwardToSecondTitle() throws {
+    private func pageForwardToSecondTitle() {
         let startPage = currentPage()
         focusPlay()
         // Right through the row (Info, then the Next chevron; the Watchlist button only exists when
@@ -133,9 +143,10 @@ final class HeroPagingUITests: XCTestCase {
         for _ in 0..<3 where !app.buttons["Next"].hasFocus {
             XCUIRemote.shared.press(.right)
         }
-        try XCTSkipUnless(app.buttons["Next"].hasFocus, "Could not focus the Next chevron")
+        XCTAssertTrue(app.buttons["Next"].hasFocus, "Could not focus the Next chevron")
         XCUIRemote.shared.press(.select)
-        _ = waitForPage(startPage % pageCount() + 1)
+        let target = startPage % pageCount() + 1
+        XCTAssertTrue(waitForPage(target), "Next should have paged the hero forward to page \(target)")
         // The indicator flips mid-slide, so the carousel is still animating and would discard a second
         // page press. Callers page twice in a row, so settle before handing back.
         waitForPagingToSettle()
