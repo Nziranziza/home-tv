@@ -69,6 +69,10 @@ targets:
     # Embeds the dynamic Top Shelf extension into the app bundle.
     dependencies:
       - target: HomeTVTopShelf
+    # Scheme carries the UI tests so `xcodebuild test -scheme HomeTV` runs them.
+    scheme:
+      testTargets:
+        - HomeTVUITests
 
   # TV Top Shelf extension: supplies the popular-content carousel shown behind the app
   # icon in the Home screen's top row. Reuses the app's Stremio client + models to fetch
@@ -112,3 +116,24 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.hometv.HomeTVs
+
+  # UI tests. Reserved for behaviour unit tests cannot reach — above all the tvOS focus engine,
+  # whose directional moves only exist in a running app driven by XCUIRemote.
+  HomeTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: HomeTVUITests
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV.UITests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
+        SUPPORTS_MACCATALYST: NO
+        TEST_TARGET_NAME: HomeTV
+    dependencies:
+      - target: HomeTV

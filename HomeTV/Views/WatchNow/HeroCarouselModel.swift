@@ -46,6 +46,11 @@ final class HeroCarouselModel {
 
     var canPage: Bool { items.count > 1 }
 
+    /// Whether there is a previous featured title to page back to. Left paging does not wrap: page 0 is
+    /// a real leading edge, so a Left press there escapes the hero and opens the sidebar — Apple TV
+    /// behaviour, where the sidebar is revealed only with nothing left to navigate to.
+    var canPagePrevious: Bool { canPage && index > 0 }
+
     /// The item at a window slot offset (`-1` previous / `0` current / `+1` next) from the current index,
     /// wrapped. This is the 3-slot window both hero layers render so a page-slide always has the
     /// neighbour it's gliding toward already on-screen and cached.
@@ -79,6 +84,13 @@ final class HeroCarouselModel {
         slide = 0
         isPaging = false
         prefetchNeighbors()
+    }
+
+    /// Page back one title, if there is one. Separate from `advance(by:)` because the backward
+    /// direction is bounded: see `canPagePrevious`.
+    func pagePrevious() {
+        guard canPagePrevious else { return }
+        advance(by: -1)
     }
 
     /// Single place that moves the carousel, with wraparound. Used by both manual edge-button paging

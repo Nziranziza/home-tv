@@ -80,6 +80,10 @@ enum Theme {
         static let contentSpacing: CGFloat = 22
         static let actionRowSpacing: CGFloat = 22
         static let actionRowTopPadding: CGFloat = 6
+        // Width of the hero's leading focus barrier. It must occupy real space inside the action row's
+        // own bounds to be a focus candidate at all, so the row is inset by it and the column's gutter is
+        // reduced by the same amount — net layout is unchanged.
+        static let focusBarrierWidth: CGFloat = 12
         static let metaChipsSpacing: CGFloat = 14
         // Page dots sit just above the sheet's top edge (the overlay's bottom). Together with the
         // sheet's small top padding this keeps the dots close to the Continue Watching header — the
