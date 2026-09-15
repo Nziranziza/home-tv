@@ -136,6 +136,9 @@ final class HeroPagingUITests: XCTestCase {
         try XCTSkipUnless(app.buttons["Next"].hasFocus, "Could not focus the Next chevron")
         XCUIRemote.shared.press(.select)
         _ = waitForPage(startPage % pageCount() + 1)
+        // The indicator flips mid-slide, so the carousel is still animating and would discard a second
+        // page press. Callers page twice in a row, so settle before handing back.
+        waitForPagingToSettle()
     }
 
     /// Returns focus to Play by stepping left through the row — without ever pressing Left *on* Play,
