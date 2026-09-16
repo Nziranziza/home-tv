@@ -73,6 +73,7 @@ private struct HeroContentColumn: View {
                 HeroActionRow(
                     focus: focus,
                     canPage: model.canPage,
+                    canPagePrevious: model.canPagePrevious,
                     defaultFocusNamespace: defaultFocusNamespace,
                     // Ignore a Select that lands mid-slide: `meta` is the outgoing title until the page
                     // settles, so these fire only for the item that has come to rest (page nav is separate
@@ -82,13 +83,14 @@ private struct HeroContentColumn: View {
                     inWatchlist: trakt.isInWatchlist(imdb: meta.id),
                     onWatchlist: { if !model.isPaging { trakt.toggleWatchlist(type: meta.type, imdb: meta.id) } },
                     onInfo: { if !model.isPaging { onInfo(meta) } },
-                    onPagePrevious: { model.advance(by: -1) },
+                    onPagePrevious: { model.pagePrevious() },
                     onPageNext: { model.advance(by: 1) }
                 )
                 // The gutter that used to wrap the whole column now lives on the sliding text's content
                 // (per slot) and here, so the action row keeps its position while the text can span — and
-                // therefore slide — the full viewport width.
-                .padding(.leading, Theme.Hero.horizontalPadding)
+                // therefore slide — the full viewport width. The row insets itself by the focus barrier's
+                // width, so shed that here and the buttons land on exactly the same pixels as before.
+                .padding(.leading, Theme.Hero.horizontalPadding - Theme.Hero.focusBarrierWidth)
             }
         }
         .padding(.bottom, Theme.Hero.bottomPadding)
@@ -224,6 +226,8 @@ private struct HeroMetaChips: View {
 private struct HeroActionRow: View {
     var focus: FocusState<HeroOverlay.HeroControl?>.Binding
     let canPage: Bool
+    /// Whether a Left press should page back rather than leave the hero (false on the first title).
+    let canPagePrevious: Bool
     var defaultFocusNamespace: Namespace.ID?
     let onPlay: () -> Void
     /// Watchlist toggle: shown only when signed in to Trakt; `inWatchlist` drives the plus/checkmark.
@@ -241,8 +245,6 @@ private struct HeroActionRow: View {
                 // Make Play the focus the engine lands on when entering Watch Now from the tab bar,
                 // instead of the centered Continue Watching row below.
                 .prefersHeroDefaultFocus(in: defaultFocusNamespace)
-                // First button: a left press has no focus target, so it pages to the previous title.
-                .onMoveCommand { if canPage, $0 == .left { onPagePrevious() } }
 
             // Watchlist toggle (plus → checkmark), wired to Trakt exactly like the detail hero. Shown
             // only when signed in — there's no watchlist to toggle when signed out (no dead control).
@@ -266,6 +268,26 @@ private struct HeroActionRow: View {
                     .focused(focus, equals: .next)
                     .onMoveCommand { if $0 == .right { onPageNext() } }
             }
+        }
+        // Play is the leftmost focusable element on the screen, so Left would otherwise be resolved to
+        // the sidebar — `onMoveCommand` observes the press without consuming it. This invisible strip
+        // just left of Play is a real target for the move: it catches Left, hands focus straight back to
+        // Play and pages the carousel. Only live while a hero control is focused (so entry from the
+        // sidebar is unaffected) and while there is a previous title — on the first one Left is a true
+        // edge and the sidebar should open.
+        .focusBarrier(
+            .leading,
+            // Live only while the hero row holds focus, so entering from the sidebar doesn't land on the
+            // barrier and page backwards. Taking focus clears that, which is what bounces focus onward to
+            // Play instead of leaving it stranded on the strip.
+            isActive: canPagePrevious && focus.wrappedValue != nil,
+            gap: Theme.Hero.focusBarrierWidth
+        ) {
+            onPagePrevious()
+            // Deferred by one turn: assigning focus *during* the strip's own focus-change callback is
+            // swallowed, leaving the engine free to rehome the move on the sidebar. Setting it after the
+            // change settles is what actually lands focus back on Play.
+            Task { focus.wrappedValue = .play }
         }
         .padding(.top, Theme.Hero.actionRowTopPadding)
     }
