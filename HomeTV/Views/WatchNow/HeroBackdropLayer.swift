@@ -9,22 +9,19 @@ import SwiftUI
 /// the shared `HeroCarouselModel`; the focusable logo/buttons live in the sibling `HeroOverlay`.
 struct HeroBackdropLayer: View {
     let model: HeroCarouselModel
-    /// The hero's own **full-bleed** width — the width the backdrop actually renders at after it expands
-    /// past the safe area, NOT the safe-area-inset width the parent proposes. One page spans this, so the
-    /// filmstrip translates by `slot * width - slide * width` and a neighbour sits exactly one viewport off
-    /// each edge. Critically the measurement is taken *inside* `.ignoresSafeArea()` (below): read outside
-    /// it, `proxy.size.width` is the inset width (~overscan margins narrower), so the +1 neighbour would be
-    /// positioned short of the true right edge and a sliver of the next still would peek — the reported bug.
-    @State private var width: CGFloat = 0
-
     var body: some View {
-        ZStack {
-            HeroBackdropContent(model: model, width: width)
-            HeroScrim()
+        // Full-bleed width for the filmstrip: one page spans it, so a neighbour sits exactly one viewport
+        // off each edge. Taken from the proposal, NOT measured back into `@State` — the slots size
+        // themselves from this width, so measuring the content back in is a layout feedback loop. It spun
+        // the main thread whenever the hero's width changed while mounted under a pushed screen, which is
+        // what opening a title does (the detail hides the tab bar).
+        GeometryReader { proxy in
+            ZStack {
+                HeroBackdropContent(model: model, width: proxy.size.width)
+                HeroScrim()
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        // Measure BEFORE `.ignoresSafeArea()` so the proxy reports the expanded full-bleed size the ZStack
-        // is proposed, not the inset size. Getting this wrong is what left the neighbour peeking at the edge.
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .clipped()
         .ignoresSafeArea()
         // Item-reset: when the feed changes, jump back to the first title and warm its neighbours.
