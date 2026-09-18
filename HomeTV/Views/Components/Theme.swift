@@ -189,6 +189,35 @@ enum Theme {
         static let posterColumns: Int = 6
         /// Title → first grid row.
         static let titleSpacing: CGFloat = 18
+
+        /// Gap between the screen's sections (Top Results, TV Shows, Movies, Cast & Crew). Matches the
+        /// inter-row rhythm of Watch Now so the two screens scroll alike.
+        static let sectionSpacing: CGFloat = 48
+
+        // MARK: Suggestion chips
+        static let chipSpacing: CGFloat = 18
+        static let chipGlyphSpacing: CGFloat = 14
+        static let chipHorizontalPadding: CGFloat = 30
+        static let chipVerticalPadding: CGFloat = 16
+        /// Vertical room the chip row reserves for its focus lift, so a focused chip isn't clipped.
+        static let chipRowPadding: CGFloat = 14
+
+        // MARK: Top Results
+        // A wide card — small poster, title, "TV Show · Sci-Fi" / "Movie · Drama · 2012" subtitle —
+        // laid out two rows deep and scrolling horizontally. Measured from `ignore/search/2.png`.
+        static let topResultSize = CGSize(width: 588, height: 172)
+        static let topResultPosterSize = CGSize(width: 74, height: 111)
+        static let topResultRows: Int = 2
+        static let topResultSpacing: CGFloat = 30
+        static let topResultRowSpacing: CGFloat = 42
+        static let topResultTextSpacing: CGFloat = 6
+        static let topResultContentSpacing: CGFloat = 26
+        static let topResultPadding: CGFloat = 18
+
+        /// Headshot diameter in the Cast & Crew row, and the room its label needs beneath it.
+        static let castAvatarSize: CGFloat = 250
+        static let castSpacing: CGFloat = 48
+        static let castRowPadding: CGFloat = 16
     }
 
     /// Detail screen (Apple TV+ style hero ↔ browse). One left alignment guide for ALL left-aligned

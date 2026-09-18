@@ -72,6 +72,11 @@ actor TMDBClient {
         ])
     }
 
+    /// People matching a free-text query — the Cast & Crew section of the Search screen.
+    func searchPeople(query: String) async throws -> TMDBPersonSearchResponse {
+        try await get(["search", "person"], extra: ["query": query, "include_adult": "false"])
+    }
+
     /// Per-season episode metadata (runtime/stills/overviews) and the season poster.
     func season(tvID: Int, season: Int) async throws -> TMDBSeasonDetail {
         try await get(["tv", String(tvID), "season", String(season)])

@@ -22,6 +22,12 @@ actor TMDBService {
     private var seasonCache: [String: SeasonEnrichment] = [:]
     /// Person bio + grouped filmography, keyed by TMDB person id (drives the cast/crew screen).
     private var personCache: [Int: PersonProfile] = [:]
+    /// People matching a search term, keyed by the lowercased query (drives Search's Cast & Crew row).
+    private var personSearchCache: [String: [CastPerson]] = [:]
+
+    /// How many people the Cast & Crew row holds — enough to scroll, not enough to pull a long tail of
+    /// near-irrelevant matches.
+    private static let personSearchLimit = 20
 
     // In-flight coalescing: the hero provider badge and the detail screen (and repeated `.task(id:)`
     // fires) request the same enrichment concurrently — without this both miss the cache and each runs
@@ -30,6 +36,7 @@ actor TMDBService {
     private var resolveInFlight: [String: Task<TMDBResolution?, Never>] = [:]
     private var seasonInFlight: [String: Task<SeasonEnrichment?, Never>] = [:]
     private var personInFlight: [Int: Task<PersonProfile?, Never>] = [:]
+    private var personSearchInFlight: [String: Task<[CastPerson], Never>] = [:]
 
     private struct TMDBResolution: Sendable { let id: Int; let mediaType: String }
     struct SeasonEnrichment: Sendable { var episodes: [String: EpisodeEnrichment]; var posterURL: URL? }
@@ -125,6 +132,47 @@ actor TMDBService {
         let result = await task.value
         personInFlight[id] = nil
         return result
+    }
+
+    /// People matching a free-text query, as `CastPerson` values ready for the Cast & Crew row on the
+    /// Search screen. Cached (and coalesced) per lowercased query, so retyping a term costs nothing.
+    /// Returns an empty list when TMDB isn't configured or the request fails, so Search degrades to its
+    /// catalog sections rather than erroring.
+    func searchPeople(query: String) async -> [CastPerson] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard isConfigured, trimmed.count >= 2 else { return [] }
+
+        let key = trimmed.lowercased()
+        if let cached = personSearchCache[key] { return cached }
+        if let inFlight = personSearchInFlight[key] { return await inFlight.value }
+
+        let task = Task { () -> [CastPerson] in
+            guard let response = try? await client.searchPeople(query: trimmed) else { return [] }
+            let people = Self.makePeople(from: response.results)
+            personSearchCache[key] = people
+            return people
+        }
+        personSearchInFlight[key] = task
+        let result = await task.value
+        personSearchInFlight[key] = nil
+        return result
+    }
+
+    /// Drop unnamed entries, order by TMDB popularity, and cap the row.
+    private static func makePeople(from results: [TMDBPersonSearchResult]) -> [CastPerson] {
+        results
+            .compactMap { result -> (person: CastPerson, popularity: Double)? in
+                guard let name = result.name, !name.isEmpty else { return nil }
+                let person = CastPerson(
+                    id: result.id,
+                    name: name,
+                    profileURL: TMDBConfig.imageURL(path: result.profilePath, size: .w500)
+                )
+                return (person, result.popularity ?? 0)
+            }
+            .sorted { $0.popularity > $1.popularity }
+            .prefix(personSearchLimit)
+            .map(\.person)
     }
 
     /// Map a raw person detail into the view-facing profile: the header fields plus the filmography
