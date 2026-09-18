@@ -71,35 +71,32 @@ struct LibraryView: View {
         .focusSection()
     }
 
+    /// Signed in, nothing saved yet — points back at Watch Now to go find something.
+    ///
+    /// The action is not decoration: a tvOS screen with nothing focusable is a dead end — focus has
+    /// nowhere to land, so the screen swallows every press and Left never reaches the sidebar.
     private var emptyLibrary: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 80))
-                .foregroundStyle(theme.tertiaryText)
-            Text("Your Library is empty")
-                .font(.system(size: 48, weight: .bold))
-                .foregroundStyle(theme.primaryText)
+        ContentUnavailableView {
+            Label("Your Library is empty", systemImage: "books.vertical")
+        } description: {
             Text("Add titles to your Trakt watchlist, or resume something you've started elsewhere.")
-                .font(.title3)
-                .foregroundStyle(theme.secondaryText)
-                .multilineTextAlignment(.center)
+        } actions: {
+            Button("Browse Watch Now", systemImage: "play.circle") {
+                DeepLinkRouter.shared.requestedTab = 0
+            }
         }
-        .padding(40)
     }
 
+    /// Signed out — the only useful next step is connecting Trakt in Settings.
     private var placeholder: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 80))
-                .foregroundStyle(theme.tertiaryText)
-            Text("Library")
-                .font(.system(size: 56, weight: .bold))
-                .foregroundStyle(theme.primaryText)
+        ContentUnavailableView {
+            Label("Library", systemImage: "books.vertical")
+        } description: {
             Text("Connect Trakt in Settings to see your watchlist and continue watching here.")
-                .font(.title3)
-                .foregroundStyle(theme.secondaryText)
-                .multilineTextAlignment(.center)
+        } actions: {
+            Button("Open Settings", systemImage: "gearshape") {
+                DeepLinkRouter.shared.requestedTab = 3
+            }
         }
-        .padding(40)
     }
 }
