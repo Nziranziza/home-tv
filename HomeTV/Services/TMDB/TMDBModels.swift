@@ -304,3 +304,18 @@ struct TMDBEpisode: Codable, Sendable {
     let airDate: String?
 }
 
+
+// MARK: - Person search
+
+/// `/search/person` response. Only the fields the Cast & Crew search row needs are decoded.
+struct TMDBPersonSearchResponse: Codable, Sendable {
+    let results: [TMDBPersonSearchResult]
+}
+
+struct TMDBPersonSearchResult: Codable, Sendable {
+    let id: Int
+    let name: String?
+    let profilePath: String?
+    let popularity: Double?
+    let knownForDepartment: String?
+}

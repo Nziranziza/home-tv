@@ -72,6 +72,7 @@ targets:
     # Scheme carries the UI tests so `xcodebuild test -scheme HomeTV` runs them.
     scheme:
       testTargets:
+        - HomeTVTests
         - HomeTVUITests
 
   # TV Top Shelf extension: supplies the popular-content carousel shown behind the app
@@ -116,6 +117,28 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.hometv.HomeTVs
+
+  # Unit tests for the app's view-free logic — ranking, suggestion building and the like, which are
+  # deliberately written as plain types so they can be exercised without a view or a network.
+  HomeTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: HomeTVTests
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hometv.HomeTV.Tests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
+        SUPPORTS_MACCATALYST: NO
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HomeTV.app/HomeTV"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: HomeTV
 
   # UI tests. Reserved for behaviour unit tests cannot reach — above all the tvOS focus engine,
   # whose directional moves only exist in a running app driven by XCUIRemote.

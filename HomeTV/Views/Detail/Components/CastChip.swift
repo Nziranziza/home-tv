@@ -21,20 +21,31 @@ struct CastChip: View {
     var role: String? = nil
     /// TMDB headshot. When nil (or while loading), an initials avatar is shown instead.
     var imageURL: URL? = nil
+    /// Diameter of the circular headshot. The default fits six avatars (plus a sliver of the seventh)
+    /// across the detail row.
+    var avatarSize: CGFloat = 250
+    /// Show the name/role block only while focused — the Search screen's Cast & Crew row, which labels
+    /// just the focused headshot. The block keeps its space either way, so the row never jumps.
+    var labelsOnFocusOnly: Bool = false
+    /// Which surface the chip sits on, which is what its label and initials-avatar colours follow.
+    var surface: Surface = .immersive
     var action: () -> Void = {}
 
+    /// The detail screen renders over full-bleed dark artwork and fixes its text white; Search is
+    /// themed chrome, so its chips resolve colours from `\.theme` instead.
+    enum Surface { case immersive, themed }
+
     @FocusState private var focused: Bool
+    @Environment(\.theme) private var theme
     /// Drives the slide only, so the gap animates while the label colours snap instantly. (A moving
     /// avatar plus a fading colour at the same time reads as two separate animations.)
     @State private var lifted = false
-
-    /// Diameter sized so six avatars (plus a sliver of the seventh) fit the detail row.
-    private let avatarSize: CGFloat = 250
 
     var body: some View {
         VStack(spacing: lifted ? 38 : 14) {
             avatarButton
             labelBlock
+                .opacity(labelsOnFocusOnly && !focused ? 0 : 1)
         }
         .frame(width: avatarSize)
         .onChange(of: focused) { _, isFocused in
@@ -62,12 +73,12 @@ struct CastChip: View {
         VStack(spacing: 2) {
             Text(name)
                 .font(.subheadline)
-                .foregroundStyle(focused ? .white : Theme.Color.primaryText.opacity(0.9))
+                .foregroundStyle(focused ? focusedTextColor : restTextColor)
                 .lineLimit(1)
             if let role {
                 Text(role)
                     .font(.caption2)
-                    .foregroundStyle(focused ? .white : Theme.Color.secondaryText)
+                    .foregroundStyle(focused ? focusedTextColor : secondaryTextColor)
                     .lineLimit(1)
             }
         }
@@ -88,12 +99,26 @@ struct CastChip: View {
 
     private var initialsAvatar: some View {
         Circle()
-            .fill(Theme.Color.cardRest)
+            .fill(surface == .immersive ? Theme.Color.cardRest : theme.cardRest)
             .overlay {
                 Text(initials)
                     .font(.title.weight(.bold))
-                    .foregroundStyle(Theme.Color.primaryText.opacity(0.7))
+                    .foregroundStyle(restTextColor.opacity(0.8))
             }
+    }
+
+    // MARK: - Surface colours
+
+    private var focusedTextColor: Color {
+        surface == .immersive ? .white : theme.primaryText
+    }
+
+    private var restTextColor: Color {
+        surface == .immersive ? Theme.Color.primaryText.opacity(0.9) : theme.secondaryText
+    }
+
+    private var secondaryTextColor: Color {
+        surface == .immersive ? Theme.Color.secondaryText : theme.tertiaryText
     }
 
     private var initials: String {
