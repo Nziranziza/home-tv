@@ -56,7 +56,12 @@ enum SearchRanker {
             return .exact
         }
         if hasPrefix(title, query) { return .prefix }
-        if title.split(separator: " ").dropFirst().contains(where: { hasPrefix(String($0), query) }) {
+        // Split on word boundaries, not just spaces: the matching word of a punctuated title
+        // (Spider-Man, Marvel's, Mission: Impossible) starts after a hyphen, apostrophe or colon,
+        // and would otherwise be demoted to a substring match. No `dropFirst` — a title-leading
+        // match already returned `.prefix` above, so anything left is a genuine later-word hit.
+        if title.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .contains(where: { hasPrefix(String($0), query) }) {
             return .wordPrefix
         }
         if title.localizedStandardContains(query) { return .substring }

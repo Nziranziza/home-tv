@@ -41,6 +41,21 @@ struct SearchRankerTests {
         #expect(SearchRanker.tier(title: "Ted Lasso", query: "si") == .unmatched)
     }
 
+    @Test func aWordAfterPunctuationStillCountsAsAWordPrefix() {
+        #expect(SearchRanker.tier(title: "Spider-Man", query: "man") == .wordPrefix)
+        #expect(SearchRanker.tier(title: "Mission: Impossible", query: "imp") == .wordPrefix)
+        #expect(SearchRanker.tier(title: "Marvel's Runaways", query: "run") == .wordPrefix)
+    }
+
+    @Test func aPunctuatedTitleOutranksATrueSubstringMatch() {
+        let ranked = SearchRanker.rank(
+            [Fixture.meta("Batman Begins"), Fixture.meta("Spider-Man")],
+            query: "man"
+        )
+        // Spider-Man's second word starts with the query; Batman only contains it mid-word.
+        #expect(ranked.map(\.name) == ["Spider-Man", "Batman Begins"])
+    }
+
     @Test func unmatchedHitsAreKeptButSortLast() {
         let ranked = SearchRanker.rank([Fixture.meta("Ted Lasso"), Fixture.meta("Silo")], query: "silo")
         #expect(ranked.map(\.name) == ["Silo", "Ted Lasso"])
