@@ -45,7 +45,7 @@ struct SearchView: View {
         } else {
             switch viewModel.status {
             case .browsing:
-                resultsScroll { SearchBrowseSection(items: viewModel.browseItems) { selection = $0 } }
+                SearchPageScroll { SearchBrowseSection(items: viewModel.browseItems) { selection = $0 } }
             case .empty:
                 ContentUnavailableView.search(text: viewModel.query)
             case .searching where !viewModel.hasResults:
@@ -53,7 +53,7 @@ struct SearchView: View {
                 // up while a longer query runs, so growing the query refreshes the rows in place.
                 ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .searching, .results:
-                resultsScroll {
+                SearchPageScroll {
                     VStack(alignment: .leading, spacing: Theme.Search.sectionSpacing) {
                         // The chips lead the scroll content rather than being pinned under the
                         // keyboard: the native `.searchable` header scrolls away as focus moves down,
@@ -70,19 +70,6 @@ struct SearchView: View {
                 }
             }
         }
-    }
-
-    /// The shared page scroll: edge-to-edge horizontally (each section applies its own `contentInset`,
-    /// matching Watch Now) with the vertical safe area kept so content clears the tab bar. Deliberately
-    /// left clipping — each row disables its own clip for the focus lift, and letting the page scroll
-    /// draw outside its bounds is what put the content over the search header.
-    private func resultsScroll<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        ScrollView {
-            content()
-                .padding(.bottom, Theme.WatchNow.bottomPadding)
-        }
-        .scrollIndicators(.hidden)
-        .pageHorizontalInsets()
     }
 }
 
