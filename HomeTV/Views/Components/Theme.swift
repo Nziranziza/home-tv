@@ -194,6 +194,12 @@ enum Theme {
         /// inter-row rhythm of Watch Now so the two screens scroll alike.
         static let sectionSpacing: CGFloat = 48
 
+        /// Room below the last section at the end of the scroll — enough for a focused card's lift and
+        /// the Cast & Crew name that drops beneath its avatar to clear the overscan edge. Deliberately
+        /// small: there is no bottom tab bar to clear (the tab bar is a left sidebar), so anything more
+        /// reads as a dead band under the last row.
+        static let pageBottomInset: CGFloat = 40
+
         // MARK: Suggestion chips
         static let chipSpacing: CGFloat = 18
         static let chipGlyphSpacing: CGFloat = 14

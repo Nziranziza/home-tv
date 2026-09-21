@@ -30,7 +30,9 @@ struct SearchView: View {
                 .navigationDestination(item: $castSelection) { person in
                     CastView(person: person)
                 }
-                .padding(.vertical, 40)
+                // Top only — a bottom inset here sits outside the scroll, so it reads as dead space
+                // under the last row rather than breathing room.
+                .padding(.top, 40)
         }
     }
 
