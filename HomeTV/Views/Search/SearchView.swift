@@ -24,7 +24,7 @@ struct SearchView: View {
         NavigationStack {
             content
                 .searchable(text: $viewModel.query, prompt: "Movies, series…")
-                .task(id: viewModel.addonCount) { await viewModel.loadBrowse() }
+                .task(id: viewModel.addonSignature) { await viewModel.loadBrowse() }
                 .task(id: viewModel.searchInputs) { await viewModel.runSearch() }
                 .metaDetailDestinations(selection: $selection)
                 .navigationDestination(item: $castSelection) { person in

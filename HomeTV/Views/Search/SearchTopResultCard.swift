@@ -13,7 +13,7 @@ struct SearchTopResultCard: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.Search.topResultContentSpacing) {
-                poster
+                SearchTopResultPoster(posterPath: meta.poster)
                 VStack(alignment: .leading, spacing: Theme.Search.topResultTextSpacing) {
                     Text(meta.name)
                         .font(.title3.weight(.semibold))
@@ -41,16 +41,5 @@ struct SearchTopResultCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(meta.name), \(SearchResultSubtitle.text(for: meta))")
         .accessibilityAddTraits(.isButton)
-    }
-
-    private var poster: some View {
-        RemoteImage(url: meta.poster.flatMap(URL.init(string:)),
-                    targetSize: Theme.Search.topResultPosterSize, contentMode: .fill) {
-            RoundedRectangle(cornerRadius: Theme.Radius.badge, style: .continuous)
-                .fill(theme.cardRest)
-        }
-        .frame(width: Theme.Search.topResultPosterSize.width,
-               height: Theme.Search.topResultPosterSize.height)
-        .clipShape(.rect(cornerRadius: Theme.Radius.badge))
     }
 }

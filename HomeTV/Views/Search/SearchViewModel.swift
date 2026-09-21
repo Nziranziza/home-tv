@@ -47,11 +47,19 @@ final class SearchViewModel {
     /// empty result set with nothing to retry it. Views drive their `.task(id:)` off this.
     struct Inputs: Hashable {
         let query: String
-        let addonCount: Int
+        let addons: String
     }
 
-    var searchInputs: Inputs { Inputs(query: query, addonCount: addonCount) }
-    var addonCount: Int { registry.enabledAddons.count }
+    var searchInputs: Inputs { Inputs(query: query, addons: addonSignature) }
+
+    /// Identity of the enabled addon set — each addon's id and manifest version, in order. A bare
+    /// count would miss one addon being swapped for another, or an addon being updated in place,
+    /// both of which change what a search returns.
+    var addonSignature: String {
+        registry.enabledAddons
+            .map { "\($0.id)@\($0.manifest.version ?? "")" }
+            .joined(separator: ",")
+    }
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
@@ -61,12 +69,20 @@ final class SearchViewModel {
         self.tmdb = tmdb
     }
 
-    /// Loads the Browse set from the first few default catalogs across enabled addons. Cheap to call
-    /// repeatedly — the client caches each fetch — and re-run when the addon set changes, since the
-    /// first call can land before any addon has been installed.
+    /// Loads the Browse set from the first few default catalogs across enabled addons. Driven by a
+    /// `.task(id: addonSignature)`, so it runs once per addon set and reloads whenever that set
+    /// changes — the first call can land before any addon has been installed, and the catalogs
+    /// behind Browse are different ones after an addon is added, removed or updated.
     func loadBrowse() async {
-        guard browseItems.isEmpty, !hasNoAddons else { return }
+        let addons = addonSignature
+        guard !hasNoAddons else {
+            browseItems = []
+            return
+        }
         let collected = await fetch(catalogs: Array(defaultCatalogs.prefix(4)), extra: [:])
+        // The addon set can change while the catalogs are in flight; a late reply from the previous
+        // set must not overwrite what the current one loaded.
+        guard addons == addonSignature else { return }
         browseItems = deduped(collected)
     }
 
@@ -77,6 +93,7 @@ final class SearchViewModel {
     /// refreshes the rows in place instead of flashing through an empty screen.
     func runSearch() async {
         let trimmed = trimmedQuery
+        let addons = addonSignature
         guard trimmed.count >= 2 else {
             clearResults()
             status = .browsing
@@ -91,7 +108,9 @@ final class SearchViewModel {
         async let catalogHits = fetch(catalogs: searchableCatalogs, extra: ["search": trimmed])
         async let peopleHits = tmdb.searchPeople(query: trimmed)
         let (metas, cast) = await (catalogHits, peopleHits)
-        if Task.isCancelled || trimmed != trimmedQuery { return }
+        // Drop a reply that outlived its query *or* its addon set — publishing hits gathered from
+        // addons the user has since changed would show results the current set cannot explain.
+        if Task.isCancelled || trimmed != trimmedQuery || addons != addonSignature { return }
 
         results = SearchRanker.rank(deduped(metas), query: trimmed)
         people = cast
