@@ -205,6 +205,23 @@ final class MetaDetailModel {
         if let poster = result.posterURL { seasonPosters[season] = poster }
     }
 
+    /// A list-card view of this title, for the stores that keep rows rather than ids (the watchlist).
+    var preview: MetaPreview {
+        MetaPreview(
+            id: metaID,
+            type: typeID,
+            name: meta?.name ?? fallbackTitle,
+            poster: meta?.poster,
+            posterShape: nil,
+            background: meta?.background,
+            logo: meta?.logo,
+            description: nil,
+            releaseInfo: nil,
+            imdbRating: nil,
+            genres: nil
+        )
+    }
+
     func recordHistory() {
         WatchHistory.shared.record(
             typeID: typeID,

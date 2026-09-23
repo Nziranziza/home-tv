@@ -44,7 +44,6 @@ struct WatchNowView: View {
                         ParallaxHeroOverlay(scrollState: scrollState) {
                             HeroOverlay(
                                 model: heroModel,
-                                trakt: trakt,
                                 defaultFocusNamespace: contentFocus,
                                 onPlay: { meta in play(meta) },
                                 onInfo: { meta in path.append(.detail(meta)) }

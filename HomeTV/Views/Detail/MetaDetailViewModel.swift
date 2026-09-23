@@ -106,7 +106,7 @@ struct MetaDetailViewModel {
         let s = episode.season ?? 0
         let e = episode.episode ?? 0
         let prefix = "S\(s)·E\(e)"
-        if let title = episode.title, !title.isEmpty {
+        if let title = episode.episodeTitle {
             return "\(prefix) — \(title)"
         }
         return prefix

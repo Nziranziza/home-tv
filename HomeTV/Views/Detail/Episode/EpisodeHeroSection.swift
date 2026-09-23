@@ -40,7 +40,7 @@ struct EpisodeHeroSection: View {
             }
             HeroFactsLine(text: factsLine)
             EpisodeHeroActionButtons(
-                model: model, episode: episode, trakt: trakt, streamRequest: $streamRequest, zone: zone
+                model: model, episode: episode, streamRequest: $streamRequest, zone: zone
             )
         }
     }
@@ -48,7 +48,7 @@ struct EpisodeHeroSection: View {
     // MARK: - Derived values
 
     private var episodeTitle: String {
-        info?.title ?? episode.title ?? "Episode \(episode.episode ?? 0)"
+        info?.title ?? episode.episodeTitle ?? "Episode \(episode.episode ?? 0)"
     }
 
     private var episodeOverview: String? {

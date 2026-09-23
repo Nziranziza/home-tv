@@ -40,9 +40,9 @@ private struct ContinueWatchingCard: View {
 
     private var size: CGSize { Theme.Card.continueWatchingSize }
 
-    /// Real Trakt playback progress (0–1) for this title when signed in and available, otherwise the
-    /// placeholder below so the card always matches Apple's layout.
-    private var traktProgress: Double? { trakt.progress(forKey: item.metaID) }
+    /// Real playback progress (0–1) for this title when it is known, otherwise the placeholder below
+    /// so the card always matches Apple's layout.
+    private var storedProgress: Double? { UserLibrary.progress(forKey: item.metaID) }
 
     var body: some View {
         Button(action: action) {
@@ -110,7 +110,7 @@ private struct ContinueWatchingCard: View {
                 .font(Theme.Card.overlayGlyphFont)
                 .foregroundStyle(.white)
 
-            ProgressBar(progress: traktProgress ?? placeholderProgress)
+            ProgressBar(progress: storedProgress ?? placeholderProgress)
                 .frame(width: 56, height: 4)
 
             Text(timeText)
@@ -128,7 +128,7 @@ private struct ContinueWatchingCard: View {
     /// Real progress text when Trakt has playback for this title, else the placeholder. When real,
     /// we only know the percentage (no runtime), so we show that rather than a fabricated time.
     private var timeText: String {
-        if let p = traktProgress {
+        if let p = storedProgress {
             return "\(Int((p * 100).rounded()))% watched"
         }
         return placeholderTimeText

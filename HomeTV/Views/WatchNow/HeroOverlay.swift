@@ -9,9 +9,6 @@ import SwiftUI
 /// the model's auto-advance pauses while a control is aimed.
 struct HeroOverlay: View {
     let model: HeroCarouselModel
-    /// Trakt, read for the watchlist toggle's signed-in / in-list state (re-renders the button when the
-    /// list changes) and mutated when the user toggles it — same pattern as the detail hero.
-    let trakt: TraktService
     var defaultFocusNamespace: Namespace.ID?
     var onPlay: (MetaPreview) -> Void = { _ in }
     var onInfo: (MetaPreview) -> Void = { _ in }
@@ -27,7 +24,6 @@ struct HeroOverlay: View {
         ZStack(alignment: .bottomLeading) {
             HeroContentColumn(
                 model: model,
-                trakt: trakt,
                 width: width,
                 focus: $focusedControl,
                 defaultFocusNamespace: defaultFocusNamespace,
@@ -58,7 +54,6 @@ struct HeroOverlay: View {
 /// info block grows upward and the buttons stay put.
 private struct HeroContentColumn: View {
     let model: HeroCarouselModel
-    let trakt: TraktService
     let width: CGFloat
     var focus: FocusState<HeroOverlay.HeroControl?>.Binding
     var defaultFocusNamespace: Namespace.ID?
@@ -79,9 +74,8 @@ private struct HeroContentColumn: View {
                     // settles, so these fire only for the item that has come to rest (page nav is separate
                     // and `advance(by:)` already guards itself while paging).
                     onPlay: { if !model.isPaging { onPlay(meta) } },
-                    showWatchlist: trakt.isSignedIn,
-                    inWatchlist: trakt.isInWatchlist(imdb: meta.id),
-                    onWatchlist: { if !model.isPaging { trakt.toggleWatchlist(type: meta.type, imdb: meta.id) } },
+                    inWatchlist: UserLibrary.isInWatchlist(id: meta.id),
+                    onWatchlist: { if !model.isPaging { UserLibrary.toggleWatchlist(meta) } },
                     onInfo: { if !model.isPaging { onInfo(meta) } },
                     onPagePrevious: { model.pagePrevious() },
                     onPageNext: { model.advance(by: 1) }
@@ -231,7 +225,6 @@ private struct HeroActionRow: View {
     var defaultFocusNamespace: Namespace.ID?
     let onPlay: () -> Void
     /// Watchlist toggle: shown only when signed in to Trakt; `inWatchlist` drives the plus/checkmark.
-    let showWatchlist: Bool
     let inWatchlist: Bool
     let onWatchlist: () -> Void
     let onInfo: () -> Void
@@ -246,16 +239,14 @@ private struct HeroActionRow: View {
                 // instead of the centered Continue Watching row below.
                 .prefersHeroDefaultFocus(in: defaultFocusNamespace)
 
-            // Watchlist toggle (plus → checkmark), wired to Trakt exactly like the detail hero. Shown
-            // only when signed in — there's no watchlist to toggle when signed out (no dead control).
-            if showWatchlist {
-                HeroCircleButton(
-                    icon: inWatchlist ? "checkmark" : "plus",
-                    accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist",
-                    action: onWatchlist
-                )
-                .focused(focus, equals: .watchlist)
-            }
+            // Watchlist toggle (plus → checkmark), exactly like the detail hero. Always shown: the
+            // list lives on this device when Trakt is not connected, so it is never a dead control.
+            HeroCircleButton(
+                icon: inWatchlist ? "checkmark" : "plus",
+                accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist",
+                action: onWatchlist
+            )
+            .focused(focus, equals: .watchlist)
 
             HeroCircleButton(icon: "info", accessibilityLabel: "More Info", action: onInfo)
                 .focused(focus, equals: .info)

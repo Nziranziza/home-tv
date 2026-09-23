@@ -71,17 +71,16 @@ struct DetailHeroSection: View {
     /// cached episode list; the live Trakt watch state is injected here.
     private var seriesUpNext: MetaDetailViewModel.UpNext? {
         model.upNext(
-            progress: { trakt.progress(forKey: model.vm.episodeKey($0)) },
-            isWatched: { trakt.isWatched(type: model.typeID, imdb: model.metaID, season: $0.season, episode: $0.episode) }
+            progress: { UserLibrary.progress(forKey: model.vm.episodeKey($0)) },
+            isWatched: { UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: $0.season, episode: $0.episode) }
         )
     }
 
-    /// Play button label: episode-aware for series; Resume/Rewatch/Play for movies (Trakt state).
+    /// Play button label: episode-aware for series; Resume/Rewatch/Play for movies.
     private var playButtonTitle: String {
         if let upNext = seriesUpNext { return upNext.label }
-        guard trakt.isSignedIn else { return "Play" }
-        if trakt.progress(forKey: model.metaID) != nil { return "Resume" }
-        if trakt.isWatched(type: model.typeID, imdb: model.metaID) { return "Rewatch" }
+        if UserLibrary.progress(forKey: model.metaID) != nil { return "Resume" }
+        if UserLibrary.isWatched(type: model.typeID, id: model.metaID) { return "Rewatch" }
         return "Play"
     }
 
@@ -116,31 +115,32 @@ struct DetailHeroSection: View {
         HStack(spacing: Theme.Detail.heroActionRowSpacing) {
             HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }
                 .focused(zone, equals: .hero)
-            HeroWatchlistButton(trakt: trakt, type: model.typeID, imdb: model.metaID)
+            HeroWatchlistButton(preview: model.preview)
                 .focused(zone, equals: .hero)
-            // Watched eye, signed in only. For a show it marks the episode the Play pill resumes; for a
-            // movie it marks the movie. No eye on a plain "Play" show (no specific episode to mark).
-            if trakt.isSignedIn {
+            // Watched eye. For a show it marks the episode the Play pill resumes — recorded locally
+            // when Trakt is not connected — and for a movie it marks the movie, which only Trakt can
+            // hold. No eye on a plain "Play" show (no specific episode to mark).
+            if seriesUpNext?.marksEpisode == true || model.typeID != "series" {
                 if let upNext = seriesUpNext, upNext.marksEpisode {
                     let s = upNext.video.season ?? 0
                     let e = upNext.video.episode ?? 0
-                    let watched = trakt.isWatched(type: model.typeID, imdb: model.metaID, season: s, episode: e)
+                    let watched = UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: s, episode: e)
                     HeroCircleButton(
                         icon: watched ? "eye.slash" : "eye",
                         accessibilityLabel: watched
                             ? "Mark \(model.vm.seasonEpisodeLabel(upNext.video)) Unwatched"
                             : "Mark \(model.vm.seasonEpisodeLabel(upNext.video)) Watched"
                     ) {
-                        trakt.toggleEpisodeWatched(showIMDB: model.metaID, season: s, episode: e)
+                        UserLibrary.toggleEpisodeWatched(showID: model.metaID, season: s, episode: e)
                     }
                     .focused(zone, equals: .hero)
                 } else if model.typeID != "series" {
-                    let watched = trakt.isWatched(type: model.typeID, imdb: model.metaID)
+                    let watched = UserLibrary.isWatched(type: model.typeID, id: model.metaID)
                     HeroCircleButton(
                         icon: watched ? "eye.slash" : "eye",
                         accessibilityLabel: watched ? "Mark as Unwatched" : "Mark as Watched"
                     ) {
-                        trakt.toggleWatched(type: model.typeID, imdb: model.metaID)
+                        UserLibrary.toggleWatched(type: model.typeID, id: model.metaID)
                     }
                     .focused(zone, equals: .hero)
                 }

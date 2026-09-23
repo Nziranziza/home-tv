@@ -1,26 +1,22 @@
 import SwiftUI
 
-/// The hero's watchlist toggle: a plus that becomes a checkmark once the title is on the Trakt
-/// watchlist. Signed out there is no watchlist to toggle, so it renders an inert Add to Up Next plus —
-/// the control keeps its place in the row (and stays focusable) rather than the row reflowing on sign-in.
+/// The hero's watchlist toggle: a plus that becomes a checkmark once the title is saved.
+///
+/// Backed by Trakt when it is connected and by the local library otherwise, so the control does the
+/// same thing either way — it used to be inert when signed out.
 ///
 /// Shared by the title detail hero and the episode hero, which toggle the same show/movie.
 struct HeroWatchlistButton: View {
-    let trakt: TraktService
-    let type: String
-    let imdb: String
+    /// The whole preview, not just an id: saved locally the list has to render without re-fetching.
+    let preview: MetaPreview
 
     var body: some View {
-        if trakt.isSignedIn {
-            let inWatchlist = trakt.isInWatchlist(imdb: imdb)
-            HeroCircleButton(
-                icon: inWatchlist ? "checkmark" : "plus",
-                accessibilityLabel: inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"
-            ) {
-                trakt.toggleWatchlist(type: type, imdb: imdb)
-            }
-        } else {
-            HeroCircleButton(icon: "plus", accessibilityLabel: "Add to Up Next") { }
+        let saved = UserLibrary.isInWatchlist(id: preview.id)
+        HeroCircleButton(
+            icon: saved ? "checkmark" : "plus",
+            accessibilityLabel: saved ? "Remove from Watchlist" : "Add to Watchlist"
+        ) {
+            UserLibrary.toggleWatchlist(preview)
         }
     }
 }
