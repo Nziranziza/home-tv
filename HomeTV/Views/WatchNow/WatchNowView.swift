@@ -76,6 +76,15 @@ struct WatchNowView: View {
                                 }
                             }
 
+                            // What's new right now: in cinemas, or just landed to buy or rent. Sourced
+                            // from TMDB because no addon catalog carries a release window, and it hides
+                            // itself when that source has nothing. Sits below the catalogs and above
+                            // Browse by Genre — the showcase cards are near twice a catalog poster, so
+                            // leading with them would crowd out the rows the addons actually provide.
+                            InTheatersRow { meta in
+                                path.append(.detail(meta))
+                            }
+
                             // The only row whose cards push a destination rather than a title.
                             BrowseByGenreRow { genre in
                                 path.append(.genre(genre))

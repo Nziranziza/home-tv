@@ -87,6 +87,44 @@ actor TMDBClient {
         try await get([mediaType, String(id), "watch", "providers"])
     }
 
+    /// Movies whose release of one of `releaseTypes` in `region` falls inside a date window, most
+    /// popular first and carrying at least `minimumVotes` ratings.
+    ///
+    /// `release_date.gte`/`.lte` filter the *regional* release of those types, so the window asks the
+    /// question and the types give the answer: the theatrical types return what is in cinemas, the
+    /// digital/physical ones what has reached buy-or-rent. That is also how the In Theaters row tells a
+    /// just-landed title from one that has been out a while — same call, a different window.
+    ///
+    /// `vote_count.gte` is what keeps the long tail out. `sort_by=popularity.desc` will rank a regional
+    /// title with three ratings above a wide release, and popularity alone cannot tell them apart; this
+    /// is why `/movie/now_playing` is not used for the theatrical window, as it takes no filters at all.
+    /// `monetizationTypes` narrows the results to titles you can actually pay for that way in `region`
+    /// (JustWatch data, e.g. `rent|buy`). A release type says a title was *published* digitally, which
+    /// is not the same claim: a subscription-only premiere has a digital release and nothing to buy.
+    func moviesReleased(
+        region: String,
+        releaseTypes: String,
+        from: Date,
+        to: Date,
+        minimumVotes: Int,
+        monetizationTypes: String? = nil
+    ) async throws -> TMDBMovieListResponse {
+        var extra = [
+            "region": region,
+            "with_release_type": releaseTypes,
+            "release_date.gte": TMDBConfig.day(from),
+            "release_date.lte": TMDBConfig.day(to),
+            "vote_count.gte": String(minimumVotes),
+            "sort_by": "popularity.desc",
+            "include_adult": "false"
+        ]
+        if let monetizationTypes {
+            extra["watch_region"] = region
+            extra["with_watch_monetization_types"] = monetizationTypes
+        }
+        return try await get(["discover", "movie"], extra: extra)
+    }
+
     /// External ids for a recommendation, used to bridge a TMDB id back to an IMDB id for navigation
     /// into the addon-backed detail screen (called only when a "More Like This" item is selected).
     func externalIDs(mediaType: String, id: Int) async throws -> TMDBExternalIDs {

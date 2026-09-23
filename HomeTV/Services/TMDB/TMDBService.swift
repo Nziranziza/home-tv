@@ -24,6 +24,9 @@ actor TMDBService {
     private var personCache: [Int: PersonProfile] = [:]
     /// People matching a search term, keyed by the lowercased query (drives Search's Cast & Crew row).
     private var personSearchCache: [String: [CastPerson]] = [:]
+    /// The In Theaters & At Home row, keyed by the calendar day it was built for — the release windows
+    /// it slices by only move once a day, so one fetch per day per launch is plenty.
+    private var theatricalCache: [String: [TheatricalItem]] = [:]
 
     /// How many people the Cast & Crew row holds — enough to scroll, not enough to pull a long tail of
     /// near-irrelevant matches.
@@ -37,6 +40,7 @@ actor TMDBService {
     private var seasonInFlight: [String: Task<SeasonEnrichment?, Never>] = [:]
     private var personInFlight: [Int: Task<PersonProfile?, Never>] = [:]
     private var personSearchInFlight: [String: Task<[CastPerson], Never>] = [:]
+    private var theatricalInFlight: [String: Task<[TheatricalItem]?, Never>] = [:]
 
     private struct TMDBResolution: Sendable { let id: Int; let mediaType: String }
     struct SeasonEnrichment: Sendable { var episodes: [String: EpisodeEnrichment]; var posterURL: URL? }
@@ -111,6 +115,145 @@ actor TMDBService {
         let result = await task.value
         seasonInFlight[key] = nil
         return result
+    }
+
+    // MARK: - In Theaters & At Home
+
+    /// The In Theaters & At Home row's source: what is in cinemas right now, then what has reached
+    /// buy-or-rent at home, newest first.
+    ///
+    /// TMDB sources this row rather than merely enriching it because nothing else can — an addon
+    /// catalog is an ordered list of titles with no release-window data at all, and Cinemeta dates a
+    /// title only to the year. Everything *after* a selection still belongs to the addons: the cards
+    /// carry `TMDBRef`-encoded ids that `imdbID(for:)` bridges on select, so the detail screen and its
+    /// streams load from Cinemeta exactly as they do for every other row.
+    ///
+    /// Three discover calls, run concurrently, and none of them per-item. They differ only in which
+    /// release types and which date window they ask for — that pair is what assigns each card its
+    /// availability, since a TMDB list item carries no such field of its own.
+    ///
+    /// Returns `nil` when every window failed, which is a network problem rather than an empty row, so
+    /// the caller can retry instead of hiding the row for the rest of the day.
+    func theatricalItems() async -> [TheatricalItem]? {
+        guard isConfigured else { return [] }
+
+        let key = TMDBConfig.day(.now)
+        if let cached = theatricalCache[key] { return cached }
+        if let inFlight = theatricalInFlight[key] { return await inFlight.value }
+
+        let task = Task { () -> [TheatricalItem]? in
+            let now = Date.now
+            let region = TMDBConfig.region
+            // The two at-home windows meet at this edge, so it is computed once and shared: the newer
+            // window ends where the older one begins, with no day falling into both or neither.
+            let newlyAvailableEdge = TMDBConfig.date(Self.newlyAvailableDays, daysBefore: now)
+
+            async let landed = client.moviesReleased(
+                region: region,
+                releaseTypes: Self.digitalReleaseTypes,
+                from: newlyAvailableEdge,
+                to: now,
+                minimumVotes: Self.minimumVotes,
+                monetizationTypes: Self.buyOrRentMonetization
+            )
+            async let established = client.moviesReleased(
+                region: region,
+                releaseTypes: Self.digitalReleaseTypes,
+                from: TMDBConfig.date(Self.buyOrRentDays, daysBefore: now),
+                to: newlyAvailableEdge,
+                minimumVotes: Self.minimumVotes,
+                monetizationTypes: Self.buyOrRentMonetization
+            )
+            async let theaters = client.moviesReleased(
+                region: region,
+                releaseTypes: Self.theatricalReleaseTypes,
+                from: TMDBConfig.date(Self.theatricalDays, daysBefore: now),
+                to: now,
+                minimumVotes: Self.minimumVotes
+            )
+
+            // Each window degrades on its own: a failed call costs its slice of the row, not the row.
+            let landedPage = try? await landed
+            let establishedPage = try? await established
+            let theatersPage = try? await theaters
+            guard landedPage != nil || establishedPage != nil || theatersPage != nil else { return nil }
+
+            let items = Self.theatricalItems(
+                landed: landedPage?.results ?? [],
+                established: establishedPage?.results ?? [],
+                theaters: theatersPage?.results ?? []
+            )
+
+            // Hold for the day only when every window answered. Caching a row that is missing its
+            // theatrical half because one call blipped would keep it missing until tomorrow.
+            let isComplete = landedPage != nil && establishedPage != nil && theatersPage != nil
+            // Nothing to show *and* a window still unheard from is indistinguishable from total
+            // failure, so report it as one rather than letting the row hide itself on a half answer.
+            guard isComplete || !items.isEmpty else { return nil }
+
+            if isComplete, !items.isEmpty { theatricalCache[key] = items }
+            return items
+        }
+        theatricalInFlight[key] = task
+        let result = await task.value
+        theatricalInFlight[key] = nil
+        return result
+    }
+
+    /// Merge the three windows into one row, in the order the row shows them.
+    ///
+    /// Cinemas lead, for two reasons. It is what the row is named for and the half you cannot get from
+    /// any other row in the app — and a title is claimed by the first window it appears in, so putting
+    /// theatrical first also means a film still playing reads as in cinemas rather than being counted
+    /// against the at-home half by a digital release it happens to have picked up.
+    private static func theatricalItems(
+        landed: [TMDBMovieListItem],
+        established: [TMDBMovieListItem],
+        theaters: [TMDBMovieListItem]
+    ) -> [TheatricalItem] {
+        var claimed = Set<Int>()
+        let windows: [[TheatricalItem]] = [
+            (theaters, TheatricalAvailability.inTheaters),
+            (landed, .newlyAvailable),
+            (established, .buyOrRent)
+        ].map { window in
+            window.0.compactMap { result in
+                guard claimed.insert(result.id).inserted else { return nil }
+                return theatricalItem(from: result, availability: window.1)
+            }
+        }
+
+        // A share of the row per window before any of them takes a second helping, then the leftovers
+        // in the same order. Each window returns a full page, so without this whichever window leads
+        // fills the row on its own and the other two never reach it — in a row named for both halves.
+        var items = windows.flatMap { $0.prefix(theatricalWindowShare) }
+        items += windows.flatMap { $0.dropFirst(theatricalWindowShare) }
+        return Array(items.prefix(theatricalLimit))
+    }
+
+    /// Map one list entry to a card. Artwork is required — the row is nothing but key art, so an
+    /// art-less title is dropped rather than shown as an empty block.
+    private static func theatricalItem(
+        from result: TMDBMovieListItem,
+        availability: TheatricalAvailability
+    ) -> TheatricalItem? {
+        guard let poster = TMDBConfig.imageURL(path: result.posterPath, size: .w780)?.absoluteString,
+              let title = result.title?.nilIfBlank else { return nil }
+
+        let preview = MetaPreview(
+            id: TMDBRef(mediaType: "movie", id: result.id).encoded,
+            type: "movie",
+            name: title,
+            poster: poster,
+            posterShape: nil,
+            background: TMDBConfig.imageURL(path: result.backdropPath, size: .w1280)?.absoluteString,
+            logo: nil,
+            description: result.overview?.nilIfBlank,
+            releaseInfo: year(from: result.releaseDate),
+            imdbRating: nil,
+            genres: (result.genreIds ?? []).compactMap { TMDBGenres.name(forMovie: $0) }
+        )
+        return TheatricalItem(preview: preview, availability: availability)
     }
 
     // MARK: - Person (cast/crew screen)
@@ -525,6 +668,35 @@ actor TMDBService {
     // MARK: - Statics
 
     private static let recommendationLimit = 12
+
+    /// Cap on the In Theaters & At Home row. The cards are showcase-sized (about three across), so a
+    /// longer run is a lot of scrolling for a row that is meant to answer "what is new right now".
+    private static let theatricalLimit = 12
+
+    /// Slots each release window is guaranteed before any window takes a second helping.
+    private static let theatricalWindowShare = 4
+
+    /// TMDB release types 4 (digital) and 5 (physical) — between them, "you can buy or rent it" — and
+    /// 2 (limited) and 3 (wide), which together mean "it is in cinemas".
+    private static let digitalReleaseTypes = "4|5"
+    private static let theatricalReleaseTypes = "2|3"
+
+    /// A digital release type only says a title was *published* digitally — a subscription-only
+    /// premiere has one and nothing to buy. This asks JustWatch whether you can actually rent or buy it
+    /// in the region, so the at-home windows can only contain titles the bag glyph is true of.
+    private static let buyOrRentMonetization = "rent|buy"
+
+    /// Ratings a title needs before it can reach the row. Popularity alone does not separate a wide
+    /// release from a regional title nobody has seen — both can top a `popularity.desc` page — so the
+    /// vote count is what does. Low enough that a film released days ago still clears it.
+    private static let minimumVotes = 20
+
+    /// How recent a digital release has to be to read as *just* landed, how far back the row reaches
+    /// for buy-or-rent titles at all, and how long after opening a film still counts as in cinemas.
+    /// Counted in calendar days on `TMDBConfig.releaseCalendar`, like the dates they are compared to.
+    private static let newlyAvailableDays = 14
+    private static let buyOrRentDays = 60
+    private static let theatricalDays = 45
 
     /// Cap per filmography row, and the minimum credits a crew job needs to earn its own row (so a
     /// one-off "Thanks" credit doesn't become a section).

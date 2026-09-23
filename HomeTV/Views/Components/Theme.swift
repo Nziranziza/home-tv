@@ -294,6 +294,13 @@ enum Theme {
         // Apple's Continue Watching uses a slightly wider gap (~10.5% of card width) than other
         // landscape rows; dedicated so it doesn't widen those.
         static let continueWatchingCardSpacing: CGFloat = 34
+
+        // Showcase row (In Theaters & At Home). Its cards are near twice a catalog poster and carry
+        // their own caption, so only about three fit across — hence its own spacing and padding rather
+        // than the poster row's. Measured from the reference frame at 1920x1080.
+        static let showcaseCardSpacing: CGFloat = 40
+        static let showcaseVerticalPadding: CGFloat = 32
+        static let showcaseHeight: CGFloat = Theme.Card.showcaseSize.height + showcaseVerticalPadding * 2
     }
 
     /// Card geometry + the shared focus treatment (see `focusableCard`).
@@ -302,6 +309,11 @@ enum Theme {
         static let landscapeSize = CGSize(width: 460, height: 258)
         static let squareSide: CGFloat = 300
         static let continueWatchingSize = CGSize(width: 320, height: 230)
+
+        /// Showcase card (In Theaters & At Home): 4:5 key art, *taller* than wide — not the 2:3
+        /// `posterSize`. A 2:3 poster fills it by cropping about 8% off each end, which trims the
+        /// billing block rather than the title.
+        static let showcaseSize = CGSize(width: 556, height: 696)
 
         static let captionSpacing: CGFloat = 12
 
@@ -321,6 +333,14 @@ enum Theme {
 
         /// Height the bottom scrim behind a card-overlay label fades over.
         static let overlayScrimHeight: CGFloat = 40
+
+        // Caption overlaid on a showcase card, measured from the same reference frame. Bigger than the
+        // 320x230 overlay above, because the card is.
+        static let showcaseCaptionFont: Font = .system(size: 25, weight: .medium)
+        static let showcaseGlyphFont: Font = .system(size: 19, weight: .semibold)
+        static let showcaseGlyphDiameter: CGFloat = 38
+        static let showcaseGlyphSpacing: CGFloat = 13
+        static let showcaseInsets = EdgeInsets(top: 0, leading: 40, bottom: 24, trailing: 40)
 
         /// Genre tile label, bottom-left at `overlayInsets`. Fixed for the same reason as the overlay
         /// fonts above; measured from the reference frame at 28 pt on the 1920-pt canvas.
