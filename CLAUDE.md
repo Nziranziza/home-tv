@@ -134,6 +134,11 @@ If SwiftData is configured to use CloudKit:
   `git diff` speak for itself).
 - Never use double quotes (`"`) anywhere in a commit message. Refer to identifiers, labels, and
   UI strings without quoting them.
+- One commit per PR. A PR lands as a single commit describing what the change adds as a whole; the
+  bulleted body summarizes the finished feature, not the order it was built in.
+- Review fixes, cleanups, and follow-ups are squashed into that commit with `git commit --amend` or
+  an interactive rebase, never appended as extra commits. Force-push the amended branch to update
+  the PR.
 - Example:
   ```
   feat: add Trakt continue-watching to the Watch Now screen
