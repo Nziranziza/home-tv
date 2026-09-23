@@ -97,28 +97,33 @@ struct DetailEpisodesSection: View {
                     EpisodeCard(
                         thumbnailURL: info?.stillURL ?? episode.thumbnail.flatMap(URL.init(string:)),
                         episodeNumber: episode.episode ?? 0,
-                        title: info?.title ?? episode.title ?? "Episode \(episode.episode ?? 0)",
+                        title: info?.title ?? episode.episodeTitle ?? "Episode \(episode.episode ?? 0)",
                         overview: info?.overview ?? episode.overview,
                         dateText: model.episodeAirDateText[episode.id],
                         durationText: vm.episodeDurationText(episode, info: info),
                         ratingText: ratingText,
-                        progress: trakt.progress(forKey: vm.episodeKey(episode)),
-                        watched: trakt.isWatched(type: model.typeID, imdb: model.metaID, season: episode.season, episode: episode.episode),
+                        progress: UserLibrary.progress(forKey: vm.episodeKey(episode)),
+                        watched: UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: episode.season, episode: episode.episode),
                         isUpNext: episode.id == upNextID,
                         onFocusChange: { isFocused in
                             if isFocused { episodeFocused(episode, proxy: proxy) }
                         },
-                        onToggleWatched: trakt.isSignedIn ? {
-                            trakt.toggleEpisodeWatched(
-                                showIMDB: model.metaID,
-                                season: episode.season ?? 0,
-                                episode: episode.episode ?? 0
+                        // Available signed in or not — without Trakt this flips the local record.
+                        // Hidden for an unnumbered video: there is no episode to mark.
+                        onToggleWatched: episode.season != nil && episode.episode != nil ? {
+                            UserLibrary.toggleEpisodeWatched(
+                                showID: model.metaID,
+                                season: episode.season,
+                                episode: episode.episode
                             )
                         } : nil,
                         // Description → open the episode detail screen (reuses the loaded show model).
                         onOpenDetail: { episodeSelection = episode }
                     ) {
-                        // Thumbnail → play the episode.
+                        // Thumbnail → play the episode. Record it first, exactly as the hero and the
+                        // episode screen's Play do — this is the Continue Watching source when the
+                        // user is not signed in to Trakt, and it was the one play path that skipped it.
+                        model.recordHistory()
                         streamRequest = StreamRequest(
                             type: model.typeID,
                             contentID: episode.id,
@@ -144,8 +149,8 @@ struct DetailEpisodesSection: View {
     /// state injected. Used to mark the matching card with the "Up Next" badge.
     private var seriesUpNext: MetaDetailViewModel.UpNext? {
         model.upNext(
-            progress: { trakt.progress(forKey: model.vm.episodeKey($0)) },
-            isWatched: { trakt.isWatched(type: model.typeID, imdb: model.metaID, season: $0.season, episode: $0.episode) }
+            progress: { UserLibrary.progress(forKey: model.vm.episodeKey($0)) },
+            isWatched: { UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: $0.season, episode: $0.episode) }
         )
     }
 

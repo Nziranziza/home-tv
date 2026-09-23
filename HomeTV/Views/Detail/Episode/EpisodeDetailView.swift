@@ -34,7 +34,7 @@ struct EpisodeDetailView: View {
     }
 
     private var episodeTitle: String {
-        info?.title ?? episode.title ?? "Episode \(episode.episode ?? 0)"
+        info?.title ?? episode.episodeTitle ?? "Episode \(episode.episode ?? 0)"
     }
 
     var body: some View {

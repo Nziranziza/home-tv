@@ -7,7 +7,6 @@ import SwiftUI
 struct EpisodeHeroActionButtons: View {
     let model: MetaDetailModel
     let episode: Video
-    let trakt: TraktService
     @Binding var streamRequest: StreamRequest?
     var zone: FocusState<DetailZone?>.Binding
 
@@ -15,19 +14,22 @@ struct EpisodeHeroActionButtons: View {
         HStack(spacing: Theme.Detail.heroActionRowSpacing) {
             HeroPlayButton(title: playButtonTitle, icon: "play.fill") { startPlayback() }
                 .focused(zone, equals: .hero)
-            HeroWatchlistButton(trakt: trakt, type: model.typeID, imdb: model.metaID)
+            HeroWatchlistButton(preview: model.preview)
                 .focused(zone, equals: .hero)
-            if trakt.isSignedIn {
+            // Only for a numbered episode: an unnumbered video has no identity to record, and a
+            // control that silently does nothing is worse than no control.
+            if let season = episode.season, let episodeNumber = episode.episode {
                 HeroCircleButton(
                     icon: watched ? "eye.slash" : "eye",
                     accessibilityLabel: watched
                         ? "Mark \(model.vm.seasonEpisodeLabel(episode)) Unwatched"
                         : "Mark \(model.vm.seasonEpisodeLabel(episode)) Watched"
                 ) {
-                    // Only toggle when the episode is actually numbered — coercing nil to 0 would write a
-                    // bogus 0:0 record that the `watched` check (which passes the optionals through) never sees.
-                    guard let season = episode.season, let episodeNumber = episode.episode else { return }
-                    trakt.toggleEpisodeWatched(showIMDB: model.metaID, season: season, episode: episodeNumber)
+                    UserLibrary.toggleEpisodeWatched(
+                        showID: model.metaID,
+                        season: season,
+                        episode: episodeNumber
+                    )
                 }
                 .focused(zone, equals: .hero)
             }
@@ -38,13 +40,12 @@ struct EpisodeHeroActionButtons: View {
     }
 
     private var watched: Bool {
-        trakt.isWatched(type: model.typeID, imdb: model.metaID, season: episode.season, episode: episode.episode)
+        UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: episode.season, episode: episode.episode)
     }
 
-    /// Play / Resume / Rewatch for this specific episode, from Trakt state.
+    /// Play / Resume / Rewatch for this specific episode.
     private var playButtonTitle: String {
-        guard trakt.isSignedIn else { return "Play" }
-        if trakt.progress(forKey: model.vm.episodeKey(episode)) != nil { return "Resume" }
+        if UserLibrary.progress(forKey: model.vm.episodeKey(episode)) != nil { return "Resume" }
         if watched { return "Rewatch" }
         return "Play"
     }

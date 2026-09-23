@@ -33,8 +33,13 @@ struct HomeTVApp: App {
                     guard phase == .active, TraktService.shared.isSignedIn else { return }
                     Task { await TraktService.shared.refreshLibrary() }
                 }
-                // Top Shelf posters open hometv:// links; route them to the right detail screen.
-                .onOpenURL { DeepLinkRouter.shared.handle($0) }
+                // Incoming hometv:// links are either an external player handing playback back
+                // (playback-done / playback-error, declared in the Infuse launch URL) or a Top Shelf
+                // poster. The playback callbacks are consumed first; everything else goes to detail.
+                .onOpenURL { url in
+                    guard !PlaybackReturnCoordinator.shared.handle(url) else { return }
+                    DeepLinkRouter.shared.handle(url)
+                }
         }
     }
 }

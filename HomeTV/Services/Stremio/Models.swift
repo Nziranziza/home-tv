@@ -148,12 +148,25 @@ struct Meta: Codable, Identifiable, Hashable, Sendable {
 
 struct Video: Codable, Identifiable, Hashable, Sendable {
     let id: String
+    /// Cinemeta puts the episode title here and leaves `title` null; other add-ons do the opposite.
+    /// Read both — see `episodeTitle`.
+    let name: String?
     let title: String?
     let season: Int?
     let episode: Int?
     let released: String?
     let overview: String?
     let thumbnail: String?
+
+    /// The episode's own title from whichever field the add-on used, or nil when it has none.
+    var episodeTitle: String? {
+        for candidate in [name, title] {
+            if let candidate, !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return candidate
+            }
+        }
+        return nil
+    }
 }
 
 struct StreamResponse: Codable, Sendable {
