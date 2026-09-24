@@ -19,6 +19,43 @@ enum TMDBConfig {
     /// Metadata language. Fixed to en-US for determinism (no picker, not device locale).
     static let language = "en-US"
 
+    /// Release-window region for the theatrical/VOD endpoints — what is in theatres and when a title
+    /// reaches digital are both per-country. Pinned to US for the same reason as `language`: the app
+    /// has no region picker, and a device-locale region would silently change the row's contents.
+    static let region = "US"
+
+    /// Calendar the release windows are measured on. A TMDB release date is a plain calendar day with
+    /// no time of day, and these are US release dates — so the day boundary has to be a US one. Left to
+    /// the format style's default the dates would roll over on GMT, up to five hours early, which is
+    /// enough to call a title available the day before it is.
+    static let releaseTimeZone = TimeZone(identifier: "America/New_York") ?? .gmt
+
+    /// The same calendar, for counting days back from today.
+    static let releaseCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = releaseTimeZone
+        return calendar
+    }()
+
+    /// `days` calendar days before `date`. Calendar days rather than fixed 24-hour spans: across a
+    /// daylight-saving change a fixed span lands an hour out, which is enough to format as the
+    /// neighbouring day and move a window edge. Falls back to the fixed span if the calendar cannot
+    /// answer, which it always can for a plain day offset.
+    static func date(_ days: Int, daysBefore date: Date) -> Date {
+        releaseCalendar.date(byAdding: .day, value: -days, to: date)
+            ?? date.addingTimeInterval(-Double(days) * 24 * 60 * 60)
+    }
+
+    /// A date as TMDB's `YYYY-MM-DD` query format, on that calendar. Shared by the release-window
+    /// queries and the day key their results are cached under, so the two always agree on when today
+    /// ends.
+    static func day(_ date: Date) -> String {
+        date.formatted(
+            Date.ISO8601FormatStyle(dateSeparator: .dash, timeZone: releaseTimeZone)
+                .year().month().day()
+        )
+    }
+
     /// True once the key is present. All enrichment keys off this.
     static var isConfigured: Bool { !apiKey.isEmpty }
 

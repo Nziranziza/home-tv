@@ -189,6 +189,24 @@ struct TMDBExternalIDs: Codable, Sendable {
     let imdbId: String?
 }
 
+// MARK: - Movie lists (discover)
+
+/// A page of `/discover/movie`. Its items carry no IMDB id — the In Theaters row bridges to one lazily
+/// via `TMDBService.imdbID(for:)` when a card is selected.
+struct TMDBMovieListResponse: Codable, Sendable {
+    let results: [TMDBMovieListItem]
+}
+
+struct TMDBMovieListItem: Codable, Sendable {
+    let id: Int
+    let title: String?
+    let overview: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let genreIds: [Int]?
+    let releaseDate: String?
+}
+
 // MARK: - Movie detail
 
 struct TMDBMovieDetail: Codable, Sendable {
