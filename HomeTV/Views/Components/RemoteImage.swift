@@ -9,6 +9,8 @@ struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     let targetSize: CGSize
     var contentMode: ContentMode = .fill
+    /// `.template` draws the image's shape in the foreground style (a white wordmark).
+    var renderingMode: Image.TemplateRenderingMode? = nil
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: UIImage?
@@ -17,11 +19,13 @@ struct RemoteImage<Placeholder: View>: View {
         url: URL?,
         targetSize: CGSize,
         contentMode: ContentMode = .fill,
+        renderingMode: Image.TemplateRenderingMode? = nil,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
         self.targetSize = targetSize
         self.contentMode = contentMode
+        self.renderingMode = renderingMode
         self.placeholder = placeholder
         // Seed synchronously from the decoded-image cache so an already-loaded image (e.g. a
         // prefetched hero backdrop) is shown on the FIRST frame — no placeholder gap. This is what
@@ -33,6 +37,7 @@ struct RemoteImage<Placeholder: View>: View {
         Group {
             if let image {
                 Image(uiImage: image)
+                    .renderingMode(renderingMode)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
             } else {
