@@ -303,6 +303,21 @@ enum Theme {
         static let showcaseHeight: CGFloat = Theme.Card.showcaseSize.height + showcaseVerticalPadding * 2
     }
 
+    /// Channel cards on Watch Now and the channel screen they push.
+    enum Channel {
+        /// Key art over the top ~63% of the poster-sized card; the brand panel fills the rest.
+        static let cardArtHeight: CGFloat = 246
+        static let logoMaxSize = CGSize(width: 180, height: 84)
+
+        static let heroLogoMaxSize = CGSize(width: 220, height: 96)
+        static let heroLogoTopPadding: CGFloat = 66
+
+        // Top 10 cards, measured from the reference frames at 1920x1080.
+        static let rankFont: Font = .system(size: 84, weight: .bold)
+        static let rankInsets = EdgeInsets(top: 4, leading: 14, bottom: 0, trailing: 0)
+        static let topTenCaptionFont: Font = .system(size: 22, weight: .medium)
+    }
+
     /// Card geometry + the shared focus treatment (see `focusableCard`).
     enum Card {
         static let posterSize = CGSize(width: 260, height: 390)

@@ -40,7 +40,7 @@ struct ContentRow: View {
             RowHeader(title: spec.title, color: Theme.WatchNow.rowHeaderColor)
             switch status {
             case .loading, .idle:
-                placeholderRow
+                PosterRowPlaceholder()
             case .failed where metas.isEmpty:
                 EmptyView()
             case .loaded, .failed:
@@ -76,23 +76,6 @@ struct ContentRow: View {
         .scrollClipDisabled()
     }
 
-    private var placeholderRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Theme.Row.posterCardSpacing) {
-                ForEach(0..<6, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                        .fill(.black.opacity(0.06))
-                        .frame(width: Theme.Card.posterSize.width, height: Theme.Card.posterSize.height)
-                }
-            }
-            .padding(.horizontal, Theme.Row.contentInset)
-            .padding(.vertical, Theme.Row.posterVerticalPadding)
-        }
-        .frame(height: Theme.Row.posterHeight)
-        .redacted(reason: .placeholder)
-        .scrollClipDisabled()
-    }
-
     private func load() async {
         guard status == .idle else { return }
         status = .loading
@@ -121,5 +104,25 @@ struct ContentRow: View {
             case .square: .square
             }
         }
+    }
+}
+
+/// Grey poster-sized blocks holding a catalog row's space while it loads.
+struct PosterRowPlaceholder: View {
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Row.posterCardSpacing) {
+                ForEach(0..<6, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                        .fill(.black.opacity(0.06))
+                        .frame(width: Theme.Card.posterSize.width, height: Theme.Card.posterSize.height)
+                }
+            }
+            .padding(.horizontal, Theme.Row.contentInset)
+            .padding(.vertical, Theme.Row.posterVerticalPadding)
+        }
+        .frame(height: Theme.Row.posterHeight)
+        .redacted(reason: .placeholder)
+        .scrollClipDisabled()
     }
 }

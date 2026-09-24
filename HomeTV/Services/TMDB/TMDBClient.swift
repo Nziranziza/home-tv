@@ -131,6 +131,23 @@ actor TMDBClient {
         try await get([mediaType, String(id), "external_ids"])
     }
 
+    /// Movies or series matching discover `parameters`.
+    func discover(mediaType: String, parameters: [String: String]) async throws -> TMDBDiscoverResponse {
+        try await get(["discover", mediaType], extra: parameters)
+    }
+
+    /// A title's logos and external ids, and nothing else.
+    func titleSummary(mediaType: String, id: Int) async throws -> TMDBTitleSummary {
+        try await get([mediaType, String(id)], extra: [
+            "append_to_response": "images,external_ids",
+            "include_image_language": "en,null"
+        ])
+    }
+
+    func network(id: Int) async throws -> TMDBNetworkDetail {
+        try await get(["network", String(id)])
+    }
+
     // MARK: - Plumbing
 
     private func get<T: Decodable>(_ segments: [String], extra: [String: String] = [:]) async throws -> T {
