@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A titled poster grid, shared by Search's Browse/Results set and the genre screen. Geometry
-/// (260×391 posters, 40 pt gutters, 80 pt margins) matches the reference frame.
+/// A titled poster grid for the genre screen. Geometry (260×391 posters, 40 pt gutters, 80 pt margins)
+/// matches the reference frame; the margins come from the tvOS safe area, not padding, since six
+/// columns already fill the safe width and extra padding widens the screen past it (#54).
 struct PosterGrid: View {
     /// How the grid's title reads: a section label above a set within a screen (Search's
     /// Browse/Results), or the page title of a screen that is nothing but this grid (a genre).
@@ -41,7 +42,6 @@ struct PosterGrid: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.Layout.horizontalMargin)
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
