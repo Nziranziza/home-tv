@@ -13,11 +13,13 @@ struct WatchNowView: View {
     @State private var router = DeepLinkRouter.shared
     /// Shared hero carousel state, read by the pinned backdrop and the scrolling overlay alike.
     @State private var heroModel = HeroCarouselModel()
+    /// The open row preview, drawn over the page.
+    @State private var rowPreview: RowPreviewModel?
     @Environment(\.theme) private var theme
 
     /// Inactive while a detail is pushed or the stream picker modal is up, so the hero trailer isn't
     /// left decoding underneath either.
-    private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil }
+    private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -38,8 +40,8 @@ struct WatchNowView: View {
                     }
 
                     ForEach(model.rowSpecs) { spec in
-                        ContentRow(spec: spec) { meta in
-                            path.append(.detail(meta))
+                        ContentRow(spec: spec) { preview in
+                            rowPreview = RowPreviewModel(preview: preview)
                         }
                     }
 
@@ -72,8 +74,21 @@ struct WatchNowView: View {
                     }
                 }
 
+                // Hidden once the preview's opaque canvas covers it, so it neither draws nor offers focus.
+                .opacity(rowPreview?.coversWatchNow == true ? 0 : 1)
+                .disabled(rowPreview != nil)
+
                 if model.hasNoAddons {
                     emptyState
+                }
+
+                if let rowPreview {
+                    RowPreviewGallery(
+                        model: rowPreview,
+                        onPlay: { meta in play(meta) },
+                        onInfo: { meta in path.append(.detail(meta)) },
+                        onClosed: { self.rowPreview = nil }
+                    )
                 }
             }
             .task(id: model.rowSpecs.first?.id) {
@@ -143,6 +158,7 @@ struct WatchNowView: View {
     private func consumePendingDetail() {
         guard let pending = router.pendingDetail else { return }
         router.pendingDetail = nil
+        rowPreview = nil
         path = [.detail(pending)]
     }
 

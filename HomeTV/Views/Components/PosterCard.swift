@@ -80,7 +80,10 @@ struct ContentCard: View {
         await ImageLoader.shared.prefetch(url: url, targetSize: Theme.Hero.backdropTargetSize)
     }
 
-    private var artworkURL: URL? {
+    private var artworkURL: URL? { Self.artworkURL(for: meta, shape: shape) }
+
+    /// The artwork a tile of `shape` shows. Shared with the row preview, which grows out of it.
+    static func artworkURL(for meta: MetaPreview, shape: Shape) -> URL? {
         let raw = shape.prefersBackdrop ? (meta.background ?? meta.poster) : meta.poster
         return raw.flatMap(URL.init(string:))
     }

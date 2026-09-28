@@ -178,6 +178,55 @@ enum Theme {
         static let rowHeaderColor = SwiftUI.Color(red: 0.45, green: 0.45, blue: 0.47)
     }
 
+    /// Row preview gallery, measured from the Apple TV sample on the 1920×1080 canvas.
+    enum RowPreview {
+        /// Dark canvas behind the cards (#292929).
+        static let canvas = SwiftUI.Color(white: 41 / 255)
+        /// Neighbour peek at each screen edge; the centred card spans [peek + gap, width − peek − gap].
+        static let peek: CGFloat = 100
+        static let gap: CGFloat = 20
+        /// Canvas above the card; it runs flush to the bottom edge.
+        static let topGutter: CGFloat = 40
+        static let cornerRadius: CGFloat = 36
+        /// Black veil over the off-centre cards.
+        static let neighbourDim: Double = 0.5
+
+        /// Scale of a focused `.card` row tile (measured 286.67 / 260 pt).
+        static let sourceFocusLift: CGFloat = 1.1
+        // Motion, fitted frame by frame to the sample (both moves are critically damped springs).
+        /// Card grows out of the row (56% → 88% of the way in 0.13s, at rest by ≈0.5s), and shrinks back on Menu.
+        static let growSpring: Animation = .spring(response: 0.5, dampingFraction: 1)
+        /// Row artwork dims out while the card grows…
+        static let sourceArtFadeOut: Animation = .easeIn(duration: 0.22).delay(0.12)
+        /// …and the backdrop comes in once the card is about three-quarters grown.
+        static let backdropFadeIn: Animation = .easeOut(duration: 0.2).delay(0.27)
+        /// Watch Now darkens to the canvas a beat after the grow starts.
+        static let canvasFadeIn: Animation = .easeInOut(duration: 0.35).delay(0.1)
+        /// Closing shrink: the grow spring's shape (within 1.4% at every point) as a curve that ends at
+        /// 0.5s, so the close completes as the card lands. A spring only reports `.removed` once its
+        /// invisible tail dies out, ≈0.8s later, leaving Watch Now blocked under a finished gallery.
+        static let collapseCurve: Animation = .timingCurve(0.2, 0.15, 0.25, 1, duration: 0.5)
+        /// Closing: row artwork back over the backdrop, canvas away.
+        static let sourceArtFadeIn: Animation = .easeOut(duration: 0.2)
+        static let canvasFadeOut: Animation = .easeInOut(duration: 0.3)
+        /// Two frames between Watch Now drawing again and the collapse starting.
+        static let closeLeadIn: Duration = .milliseconds(33)
+        /// Strip slide on Left/Right: half-way at 0.2s, a long soft tail to rest by ≈0.75s.
+        static let slide: Animation = .spring(response: 0.75, dampingFraction: 1)
+        /// Quiet time after the last page move before the metadata fades back in (as the slide rests).
+        static let settleDelay: Duration = .milliseconds(750)
+        /// Quiet time after the grow before the first reveal.
+        static let openRevealDelay: Duration = .milliseconds(250)
+        static let infoFadeIn: Animation = .easeOut(duration: 0.25)
+        static let infoFadeOut: Animation = .easeOut(duration: 0.08)
+        /// Title swap behind the hidden overlay, just after the fade-out.
+        static let infoSwapDelay: Duration = .milliseconds(100)
+
+        /// Metadata column inside the card: 40pt in, buttons ending ≈124pt above the screen bottom.
+        static let infoLeading: CGFloat = 40
+        static let infoBottom: CGFloat = 124
+    }
+
     /// Search screen — the keyboard, query header and "Press ⏯…" hint are the native tvOS
     /// `.searchable` UI, so only the Browse grid's geometry lives here. Card size and gutter were
     /// measured from the reference frame (`ignore/search.png`, 1920×1080); the side margin is the
