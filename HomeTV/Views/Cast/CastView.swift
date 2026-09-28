@@ -58,7 +58,7 @@ struct CastView: View {
         .toolbar(.hidden, for: .tabBar)
         .task { await model.load() }
         .navigationDestination(item: $titleSelection) { item in
-            MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
+            MetaDetailView(preview: item)
         }
     }
 

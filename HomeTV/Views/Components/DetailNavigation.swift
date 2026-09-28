@@ -6,7 +6,7 @@ struct MetaDetailDestination: View {
     let meta: MetaPreview
 
     var body: some View {
-        MetaDetailView(typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name)
+        MetaDetailView(preview: meta)
             .id(meta.id)
     }
 }

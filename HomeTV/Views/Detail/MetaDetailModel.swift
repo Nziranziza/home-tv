@@ -20,6 +20,8 @@ final class MetaDetailModel {
     let typeID: String
     let metaID: String
     let fallbackTitle: String
+    /// The row card this screen was opened from, if any. Its art paints the backdrop before `meta` loads.
+    let seed: MetaPreview?
     /// Preview/sample injection only (see `#Preview`); nil in the app, where `load()` fetches from addons.
     private let previewMeta: Meta?
 
@@ -43,6 +45,9 @@ final class MetaDetailModel {
     private var loadedSeasons: Set<Int> = []
     var seasonPosters: [Int: URL] = [:]
     private(set) var status: LoadStatus = .loading
+    private(set) var readiness = DetailReadiness()
+    /// Whether the hero text, buttons and content rows are revealed (see `DetailReadiness`).
+    var isContentReady: Bool { readiness.isReady }
 
     // MARK: - Cached episode derivations (recomputed only when `meta` changes)
 
@@ -67,10 +72,11 @@ final class MetaDetailModel {
     /// on each season merge is worse than formatting the ~6 visible cards on demand.
     private(set) var episodeAirDateText: [String: String] = [:]
 
-    init(typeID: String, metaID: String, fallbackTitle: String, previewMeta: Meta? = nil) {
+    init(typeID: String, metaID: String, fallbackTitle: String, seed: MetaPreview? = nil, previewMeta: Meta? = nil) {
         self.typeID = typeID
         self.metaID = metaID
         self.fallbackTitle = fallbackTitle
+        self.seed = seed
         self.previewMeta = previewMeta
     }
 
@@ -80,7 +86,7 @@ final class MetaDetailModel {
     var vm: MetaDetailViewModel {
         MetaDetailViewModel(
             meta: meta, enrichment: enrichment, related: related,
-            typeID: typeID, metaID: metaID, fallbackTitle: fallbackTitle
+            typeID: typeID, metaID: metaID, fallbackTitle: fallbackTitle, seed: seed
         )
     }
 
@@ -134,9 +140,11 @@ final class MetaDetailModel {
         loadedSeasons = []
         seasonPosters = [:]
         trailerCandidates = []
+        readiness = DetailReadiness()
         if let previewMeta {                       // sample/preview path — no networking
             meta = previewMeta
             status = .loaded
+            readiness = .settled
             return
         }
         status = .loading
@@ -149,23 +157,36 @@ final class MetaDetailModel {
                 )
                 meta = response.meta
                 status = .loaded
-                // Related (genre catalog) and TMDB enrichment run concurrently; neither blocks the
-                // already-displayed base meta. Enrichment is best-effort — `enrich` returns nil when
-                // TMDB isn't configured, the id isn't an IMDB id, or there's no match.
+                readiness.metaLoaded = true
+                // Related, trailers, enrichment and the reveal cap run concurrently, and each lands on
+                // its own, so trailer autoplay never waits on the slower related fetch.
                 async let relatedTask: Void = loadRelated()
-                async let trailerTask = TrailerSource.candidates(type: typeID, id: metaID)
-                async let enrichTask = TMDBService.shared.enrich(stremioType: typeID, imdbID: metaID)
-                // Assign trailers first so autoplay starts as soon as they resolve — don't gate it
-                // behind the (often slower) related-catalog fetch. All three still run concurrently.
-                trailerCandidates = await trailerTask
-                _ = await relatedTask
-                enrichment = await enrichTask
+                async let trailerTask: Void = loadTrailers()
+                async let enrichTask: Void = loadEnrichment()
+                async let capTask: Void = revealAfterCap()
+                _ = await (relatedTask, trailerTask, enrichTask, capTask)
                 return
             } catch {
                 continue
             }
         }
         status = .failed
+    }
+
+    private func loadTrailers() async {
+        trailerCandidates = await TrailerSource.candidates(type: typeID, id: metaID)
+    }
+
+    /// Best-effort: `enrich` returns nil when TMDB isn't configured, the id isn't an IMDB id, or
+    /// there's no match. Either way the reveal stops waiting on it.
+    private func loadEnrichment() async {
+        enrichment = await TMDBService.shared.enrich(stremioType: typeID, imdbID: metaID)
+        readiness.enrichmentSettled = true
+    }
+
+    private func revealAfterCap() async {
+        guard (try? await Task.sleep(for: DetailReadiness.cap)) != nil else { return }
+        readiness.capElapsed = true
     }
 
     private func loadRelated() async {
@@ -211,10 +232,10 @@ final class MetaDetailModel {
             id: metaID,
             type: typeID,
             name: meta?.name ?? fallbackTitle,
-            poster: meta?.poster,
+            poster: meta?.poster ?? seed?.poster,
             posterShape: nil,
-            background: meta?.background,
-            logo: meta?.logo,
+            background: meta?.background ?? seed?.background,
+            logo: meta?.logo ?? seed?.logo,
             description: nil,
             releaseInfo: nil,
             imdbRating: nil,

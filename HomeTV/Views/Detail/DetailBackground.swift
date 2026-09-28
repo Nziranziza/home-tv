@@ -15,7 +15,7 @@ struct DetailBackground: View {
     var body: some View {
         ZStack {
             DetailBackdropBlurredLayer(url: model.vm.backdropURL)
-            DetailBackdropSharpLayer(url: model.vm.backdropURL)
+            DetailBackdropSharpLayer(url: model.vm.backdropURL, showsScrims: model.isContentReady)
                 .opacity(1 - scroll.p)
             DetailHeroTrailerLayer(controller: trailer, scroll: scroll)
         }
@@ -119,9 +119,21 @@ private struct DetailBackdropBlurredImage: View {
 
 private struct DetailBackdropSharpLayer: View {
     let url: URL?
+    /// The hero scrims fade in with the hero text; the bare backdrop is the loading placeholder.
+    var showsScrims = true
 
     var body: some View {
         DetailBackdropImage(url: url)
+            .overlay(
+                DetailHeroScrims()
+                    .animation(DetailRevealAnimation.fade) { $0.opacity(showsScrims ? 1 : 0) }
+            )
+    }
+}
+
+private struct DetailHeroScrims: View {
+    var body: some View {
+        Color.clear
             .overlay(
                 LinearGradient(
                     stops: [
