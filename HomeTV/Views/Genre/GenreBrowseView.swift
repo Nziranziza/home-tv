@@ -19,6 +19,7 @@ struct GenreBrowseView: View {
             theme.background.ignoresSafeArea()
             GenreBrowseContent(genre: genre, status: model.status, items: model.items, onSelect: onSelect)
         }
+        .toolbar(.hidden, for: .tabBar)
         .task { await model.load() }
     }
 }
