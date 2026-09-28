@@ -56,6 +56,7 @@ struct ContentCard: View {
         .focused($focused)
         .frame(width: size.width, height: size.height)
         .animation(.easeInOut(duration: 0.15), value: focused)
+        .task(id: focused) { await warmDetailBackdrop() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(meta.name), \(typeAndGenre)")
         .accessibilityAddTraits(.isButton)
@@ -68,6 +69,15 @@ struct ContentCard: View {
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
             .padding(10)
+    }
+
+    /// After a short dwell, decodes the detail backdrop so it's on screen the frame the detail opens.
+    /// Leaving focus cancels the wait, so scrolling past cards costs nothing.
+    private func warmDetailBackdrop() async {
+        // Same fallback as the detail backdrop: a card with no background shows its poster there.
+        guard focused, let url = (meta.background ?? meta.poster).flatMap(URL.init(string:)) else { return }
+        guard (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
+        await ImageLoader.shared.prefetch(url: url, targetSize: Theme.Hero.backdropTargetSize)
     }
 
     private var artworkURL: URL? {

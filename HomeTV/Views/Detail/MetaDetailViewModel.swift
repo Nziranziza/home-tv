@@ -15,11 +15,15 @@ struct MetaDetailViewModel {
     let typeID: String
     let metaID: String
     let fallbackTitle: String
+    /// The row card the screen opened from. Its art is shown before `meta` loads and kept after, so the
+    /// backdrop and logo never swap mid-reveal.
+    var seed: MetaPreview? = nil
 
     // MARK: - Background
 
     var backdropURL: URL? {
-        (meta?.background ?? meta?.poster).flatMap(URL.init(string:)) ?? enrichment?.backdropURL
+        (seed?.background ?? meta?.background ?? meta?.poster ?? seed?.poster).flatMap(URL.init(string:))
+            ?? enrichment?.backdropURL
     }
 
     // MARK: - Hero up-next (series)
@@ -206,7 +210,7 @@ struct MetaDetailViewModel {
     // uses TMDB only to fill a gap, since TMDB logos vary in style/colour. Nothing is ever blanked out.
 
     var displayLogoURL: URL? {
-        meta?.logo.flatMap(URL.init(string:)) ?? enrichment?.logoURL
+        (seed?.logo ?? meta?.logo).flatMap(URL.init(string:)) ?? enrichment?.logoURL
     }
 
     var displayDescription: String? {

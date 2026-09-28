@@ -32,20 +32,27 @@ struct MetaDetailView: View {
     @State private var trailerController = TrailerPlaybackController()
     /// Set when a Trailers-row card is selected → presents the full-screen in-app trailer player.
     @State private var trailerRequest: TrailerPlaybackRequest?
+    /// Bumped by Try Again to rerun the load task.
+    @State private var loadAttempt = 0
     @Environment(\.scenePhase) private var scenePhase
 
     /// Which region currently holds focus. Crossing the hero↔content boundary drives the full-viewport scroll.
     @FocusState private var zone: DetailZone?
 
-    init(typeID: String, metaID: String, fallbackTitle: String, previewMeta: Meta? = nil) {
+    init(typeID: String, metaID: String, fallbackTitle: String, seed: MetaPreview? = nil, previewMeta: Meta? = nil) {
         self.typeID = typeID
         self.metaID = metaID
         self.fallbackTitle = fallbackTitle
         self.previewMeta = previewMeta
         _model = State(initialValue: MetaDetailModel(
-            typeID: typeID, metaID: metaID, fallbackTitle: fallbackTitle, previewMeta: previewMeta
+            typeID: typeID, metaID: metaID, fallbackTitle: fallbackTitle, seed: seed, previewMeta: previewMeta
         ))
         _streamRequest = State(initialValue: MetaDetailView.initialStreamRequest())
+    }
+
+    /// Opens the title from a row card, painting the card's backdrop before the meta loads.
+    init(preview: MetaPreview) {
+        self.init(typeID: preview.type, metaID: preview.id, fallbackTitle: preview.name, seed: preview)
     }
 
     private static func initialStreamRequest() -> StreamRequest? {
@@ -72,6 +79,7 @@ struct MetaDetailView: View {
                 castSelection: $castSelection, episodeSelection: $episodeSelection,
                 trailerRequest: $trailerRequest, trailer: trailerController, zone: $zone
             )
+            .detailReveal(model.isContentReady)
             .onChange(of: model.related.count) { _, newCount in
                 if newCount > 0,
                    let target = ProcessInfo.processInfo.environment["SCROLL_TO"] {
@@ -79,7 +87,12 @@ struct MetaDetailView: View {
                 }
             }
         }
-        .task(id: "\(typeID):\(metaID)") { await model.load() }
+        .overlay {
+            if model.status == .failed {
+                DetailLoadFailedView(title: fallbackTitle) { loadAttempt += 1 }
+            }
+        }
+        .task(id: "\(typeID):\(metaID):\(loadAttempt)") { await model.load() }
         // Load this show's per-episode watched state from Trakt. The watched-shows sync gives only
         // show-level watched, so without this no episode would ever show a checkmark and the hero
         // up-next couldn't advance. Movies have no episode grid to fetch.
@@ -125,7 +138,7 @@ struct MetaDetailView: View {
         }
         .onDisappear { trailerController.teardown() }
         .navigationDestination(item: $relatedSelection) { item in
-            MetaDetailView(typeID: item.type, metaID: item.id, fallbackTitle: item.name)
+            MetaDetailView(preview: item)
         }
         .navigationDestination(item: $castSelection) { person in
             CastView(person: person)
