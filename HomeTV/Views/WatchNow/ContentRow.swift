@@ -28,10 +28,12 @@ struct ContentRowSpec: Identifiable, Hashable {
 
 struct ContentRow: View {
     let spec: ContentRowSpec
-    var onSelect: (MetaPreview) -> Void = { _ in }
+    /// Selecting a card opens the row preview over it.
+    var onSelect: (RowPreview) -> Void = { _ in }
 
     @State private var metas: [MetaPreview] = []
     @State private var status: LoadStatus = .idle
+    @State private var cardFrames = CardFrames()
 
     enum LoadStatus { case idle, loading, loaded, failed }
 
@@ -64,8 +66,13 @@ struct ContentRow: View {
     private var postersRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: isLandscape ? Theme.Row.landscapeCardSpacing : Theme.Row.posterCardSpacing) {
-                ForEach(metas) { meta in
-                    ContentCard(meta: meta, shape: rowShape.cardShape) { onSelect(meta) }
+                ForEach(metas.enumerated(), id: \.element.id) { index, meta in
+                    ContentCard(meta: meta, shape: rowShape.cardShape) {
+                        select(index)
+                    }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                        cardFrames.byID[meta.id] = $0
+                    }
                 }
             }
             .padding(.horizontal, Theme.Row.contentInset)
@@ -74,6 +81,19 @@ struct ContentRow: View {
         }
         .frame(height: isLandscape ? Theme.Row.landscapeHeight : Theme.Row.posterHeight)
         .scrollClipDisabled()
+    }
+
+    private func select(_ index: Int) {
+        let shape = rowShape.cardShape
+        let spacing = isLandscape ? Theme.Row.landscapeCardSpacing : Theme.Row.posterCardSpacing
+        let frame = cardFrames.byID[metas[index].id] ?? .zero
+        onSelect(RowPreview(
+            items: metas,
+            startIndex: index,
+            sourceFrame: frame,
+            sourceStep: shape.size.width + spacing,
+            sourceShape: shape
+        ))
     }
 
     private func load() async {
@@ -105,6 +125,12 @@ struct ContentRow: View {
             }
         }
     }
+}
+
+/// Card frames for the row preview's grow. A plain class, so the per-scroll-frame writes never
+/// invalidate the row.
+private final class CardFrames {
+    var byID: [String: CGRect] = [:]
 }
 
 /// Grey poster-sized blocks holding a catalog row's space while it loads.
