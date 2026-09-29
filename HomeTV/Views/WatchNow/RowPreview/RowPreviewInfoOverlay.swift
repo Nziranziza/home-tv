@@ -1,73 +1,66 @@
 import SwiftUI
 
-/// The metadata pinned over the centred card: title art, description, and Play + Info. One overlay for
-/// the whole gallery; only the backdrops slide beneath it.
+/// Everything pinned over the centred card: the metadata, the scrim and the peeking thumbnail strip.
+/// One overlay for the whole gallery; only the backdrops slide beneath it.
 struct RowPreviewInfoOverlay: View {
-    let meta: MetaPreview
+    let detail: MetaDetailModel
     var focus: FocusState<RowPreviewGallery.Control?>.Binding
     let areControlsEnabled: Bool
-    let onPlay: () -> Void
+    let onPlay: (StreamRequest) -> Void
     let onInfo: () -> Void
+    let onOpenEpisode: (Video) -> Void
+    let onOpenRelated: (MetaPreview) -> Void
     /// Up from the buttons, back to paging.
     let onExitControls: () -> Void
 
+    @State private var stripHeight: CGFloat = 0
+
     /// The logo's decode size, shared with the gallery's prefetch so the reveal is a cache hit.
-    static let logoSize = CGSize(width: Theme.Hero.logoMaxWidth, height: Theme.Hero.logoMaxHeight)
+    static let logoSize = CGSize(width: 280, height: 120)
 
     static func logoURL(for meta: MetaPreview) -> URL? {
         meta.logo.flatMap(URL.init(string:))
     }
 
+    /// Focus in the strip raises the whole overlay until the strip clears the card's bottom edge.
+    private var isStripFocused: Bool {
+        if case .strip = focus.wrappedValue { true } else { false }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Hero.contentSpacing) {
-            HeroTitleArt(
-                logoURL: Self.logoURL(for: meta),
-                accessibilityName: meta.name,
-                maxWidth: Self.logoSize.width,
-                maxHeight: Self.logoSize.height,
-                shadow: true
-            ) {
-                Text(meta.name)
-                    .font(Theme.Hero.titleFallbackFont)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .frame(maxWidth: Theme.Hero.titleMaxWidth, alignment: .leading)
-            }
-            // A fresh image per title: `RemoteImage` keeps its last image while a new URL loads, which
-            // would show the previous title's logo over this card.
-            .id(meta.id)
-            if let description = meta.description?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !description.isEmpty {
-                HeroDescription(text: description)
-            }
-            HStack(spacing: Theme.Hero.actionRowSpacing) {
-                HeroPlayButton(title: "Play", icon: "play.fill", action: onPlay)
-                    .focused(focus, equals: .play)
-                    .onMoveCommand { if $0 == .up { onExitControls() } }
-                HeroCircleButton(icon: "info", accessibilityLabel: "More Info", action: onInfo)
-                    .focused(focus, equals: .info)
-                    .onMoveCommand { if $0 == .up { onExitControls() } }
-            }
-            // Keeps Left off Play from escaping to the sidebar.
-            .focusBarrier(.leading, isActive: areControlsEnabled, gap: Theme.Hero.focusBarrierWidth) {
-                Task { focus.wrappedValue = .play }
-            }
-            .padding(.leading, -Theme.Hero.focusBarrierWidth)
-            .padding(.top, Theme.Hero.actionRowTopPadding)
-            .disabled(!areControlsEnabled)
-        }
-        .padding(.leading, Theme.RowPreview.infoLeading)
-        .padding(.bottom, Theme.RowPreview.infoBottom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .background(alignment: .bottom) {
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0), location: 0.35),
-                    .init(color: .black.opacity(0.75), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+        ZStack(alignment: .bottomLeading) {
+            RowPreviewMetadata(
+                detail: detail,
+                focus: focus,
+                areControlsEnabled: areControlsEnabled,
+                onPlay: onPlay,
+                onInfo: onInfo,
+                onExitControls: onExitControls
             )
+            .padding(.horizontal, Theme.RowPreview.infoLeading)
+            .padding(.bottom, Theme.RowPreview.infoBottom)
+            if RowPreviewStrip.hasContent(detail) {
+                RowPreviewStrip(
+                    detail: detail,
+                    focus: focus,
+                    onPlay: onPlay,
+                    onOpenEpisode: onOpenEpisode,
+                    onOpenRelated: onOpenRelated
+                )
+                // A fresh strip per title, so it opens on that title's up-next episode.
+                .id(detail.metaID)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
+                // Only the top peeks above the card's bottom edge.
+                .offset(y: stripHeight - Theme.RowPreview.stripPeek)
+                .disabled(!areControlsEnabled)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .offset(y: isStripFocused ? -(stripHeight + Theme.RowPreview.stripRaisedBottom - Theme.RowPreview.stripPeek) : 0)
+        .animation(Theme.RowPreview.stripRise, value: isStripFocused)
+        // Part of the overlay, so it fades with the text and keeps it readable on bright art or video.
+        .background {
+            RowPreviewScrim()
         }
     }
 }

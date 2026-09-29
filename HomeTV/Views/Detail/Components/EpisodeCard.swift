@@ -30,6 +30,8 @@ struct EpisodeCard: View {
     var onToggleWatched: (() -> Void)? = nil
     /// Selecting the description — opens the episode detail screen.
     var onOpenDetail: () -> Void = {}
+    /// Card width; the thumbnail is 16:9 at this width.
+    var width: CGFloat = 400
     /// Selecting the thumbnail — plays the episode.
     let action: () -> Void
 
@@ -44,8 +46,7 @@ struct EpisodeCard: View {
 
     // Sized so 4 cards are fully visible with the 5th peeking (88pt gutter + 4×400 + 3×28 = 1772,
     // 5th starts at 1800 within the 1920pt width) — matches Apple TV's episode row.
-    private let width: CGFloat = 400
-    private let imageHeight: CGFloat = 225
+    private var imageHeight: CGFloat { width * 9 / 16 }
 
     var body: some View {
         // When the image is focused it lifts/scales (.card); push the description down so the lifted image

@@ -11,7 +11,9 @@ struct RowPreviewModelTests {
         count: Int = 5,
         start: Int = 1,
         settleDelay: Duration = .milliseconds(60),
-        swapDelay: Duration = .milliseconds(10)
+        swapDelay: Duration = .milliseconds(10),
+        revealCap: Duration = .seconds(1),
+        loader: @escaping RowPreviewModel.DetailLoader = { await $0.load() }
     ) -> RowPreviewModel {
         let items = (0..<count).map { Fixture.meta("Title \($0)") }
         let preview = RowPreview(
@@ -21,7 +23,10 @@ struct RowPreviewModelTests {
             sourceStep: 296,
             sourceShape: .poster
         )
-        return RowPreviewModel(preview: preview, settleDelay: settleDelay, swapDelay: swapDelay)
+        return RowPreviewModel(
+            preview: preview, settleDelay: settleDelay, swapDelay: swapDelay,
+            revealCap: revealCap, makeDetail: Self.offlineDetail, loadDetail: loader
+        )
     }
 
     @Test func opensOnThePickedTitle() {
@@ -76,6 +81,60 @@ struct RowPreviewModelTests {
         #expect(model.infoItem.id == "Title 3")
     }
 
+    // MARK: Reveal gate
+
+    /// A detail model that loads from an in-memory meta, so `load()` settles at once without networking.
+    private static func offlineDetail(_ meta: MetaPreview) -> MetaDetailModel {
+        MetaDetailModel(
+            typeID: meta.type, metaID: meta.id, fallbackTitle: meta.name, seed: meta,
+            previewMeta: Meta(
+                id: meta.id, type: meta.type, name: meta.name, poster: nil, background: nil, logo: nil,
+                description: nil, releaseInfo: nil, runtime: nil, imdbRating: nil, genres: nil,
+                cast: nil, director: nil, videos: nil
+            ),
+            loadsRelated: false
+        )
+    }
+
+    @Test func revealWaitsForTheDetailData() async throws {
+        let gate = LoaderGate()
+        let model = model(revealCap: .seconds(10), loader: gate.load)
+        model.advance(by: 1)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(!model.isInfoVisible)
+        gate.release()
+        #expect(try await eventually { model.isInfoVisible })
+        #expect(model.infoItem.id == "Title 2")
+        #expect(model.infoDetail.isContentReady)
+    }
+
+    @Test func revealGoesAheadAtTheCap() async throws {
+        let gate = LoaderGate()
+        let model = model(revealCap: .milliseconds(300), loader: gate.load)
+        model.advance(by: 1)
+        #expect(try await eventually { model.isInfoVisible })
+        #expect(model.infoItem.id == "Title 2")
+        #expect(!model.infoDetail.isContentReady)
+    }
+
+    @Test func pagingBackReusesTheLoadedDetail() async throws {
+        let counter = LoadCounter()
+        let model = model(loader: counter.load)
+        model.advance(by: 1)
+        #expect(try await eventually { model.isInfoVisible })
+        let seen = model.infoDetail
+        model.advance(by: -1)
+        model.advance(by: 1)
+        #expect(try await eventually { model.isInfoVisible && model.infoItem.id == "Title 2" })
+        #expect(model.infoDetail === seen)
+        // Opening loads 0–2, paging to 2 adds 3; paging back and forth fetches nothing new.
+        #expect(counter.calls.sorted() == ["Title 0", "Title 1", "Title 2", "Title 3"])
+    }
+
+    @Test func noFullScreenTrailerUntilOneIsPlaying() {
+        #expect(model().fullScreenTrailer == nil)
+    }
+
     /// Polls `condition` until it holds or `timeout` passes.
     private func eventually(within timeout: Duration = .seconds(3), _ condition: () -> Bool) async throws -> Bool {
         let clock = ContinuousClock()
@@ -118,5 +177,29 @@ struct RowPreviewModelTests {
         #expect(model.window == 3...7)
         let first = self.model(count: 10, start: 0)
         #expect(first.window == 0...2)
+    }
+}
+
+/// A loader that holds every request until `release`.
+@MainActor
+private final class LoaderGate {
+    private var isReleased = false
+
+    func load(_ detail: MetaDetailModel) async {
+        while !isReleased { try? await Task.sleep(for: .milliseconds(10)) }
+        await detail.load()
+    }
+
+    func release() { isReleased = true }
+}
+
+/// A loader that records each title it is asked for.
+@MainActor
+private final class LoadCounter {
+    private(set) var calls: [String] = []
+
+    func load(_ detail: MetaDetailModel) async {
+        calls.append(detail.metaID)
+        await detail.load()
     }
 }
