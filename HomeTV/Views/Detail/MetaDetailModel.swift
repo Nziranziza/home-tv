@@ -24,6 +24,8 @@ final class MetaDetailModel {
     let seed: MetaPreview?
     /// Preview/sample injection only (see `#Preview`); nil in the app, where `load()` fetches from addons.
     private let previewMeta: Meta?
+    /// False for a row preview series, whose strip shows episodes rather than related titles.
+    private let loadsRelated: Bool
 
     /// Base meta from the addon. Recomputes the cached episode + credit/watch derivations when it changes.
     var meta: Meta? { didSet { recomputeEpisodes(); recomputeDerived() } }
@@ -72,12 +74,20 @@ final class MetaDetailModel {
     /// on each season merge is worse than formatting the ~6 visible cards on demand.
     private(set) var episodeAirDateText: [String: String] = [:]
 
-    init(typeID: String, metaID: String, fallbackTitle: String, seed: MetaPreview? = nil, previewMeta: Meta? = nil) {
+    init(
+        typeID: String,
+        metaID: String,
+        fallbackTitle: String,
+        seed: MetaPreview? = nil,
+        previewMeta: Meta? = nil,
+        loadsRelated: Bool = true
+    ) {
         self.typeID = typeID
         self.metaID = metaID
         self.fallbackTitle = fallbackTitle
         self.seed = seed
         self.previewMeta = previewMeta
+        self.loadsRelated = loadsRelated
     }
 
     /// The pure presentation/formatting engine for the cheap derivations (display strings, credits,
@@ -190,7 +200,7 @@ final class MetaDetailModel {
     }
 
     private func loadRelated() async {
-        guard let m = meta else { return }
+        guard loadsRelated, let m = meta else { return }
         let firstGenre = m.genres?.first
         for addon in AddonRegistry.shared.enabledAddons {
             let catalogs = addon.manifest.catalogs ?? []

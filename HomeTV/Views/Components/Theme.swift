@@ -221,6 +221,18 @@ enum Theme {
         static let infoFadeOut: Animation = .easeOut(duration: 0.08)
         /// Title swap behind the hidden overlay, just after the fade-out.
         static let infoSwapDelay: Duration = .milliseconds(100)
+        /// Longest a reveal waits on TMDB after paging to a title, before showing the row's own fields.
+        static let revealCap: Duration = .seconds(1)
+        /// Thumbnail strip, measured from the sample: 16:9 cards peeking above the card's bottom edge.
+        static let stripCardWidth: CGFloat = 372
+        static let stripSpacing: CGFloat = 37
+        static let stripPeek: CGFloat = 40
+        /// Space under the strip once focus has raised it into view.
+        static let stripRaisedBottom: CGFloat = 60
+        /// Matches the focus engine's 0.5s unfocus ease.
+        static let stripRise: Animation = .easeInOut(duration: 0.5)
+        /// Rest on a revealed title this long before its trailer starts in the card.
+        static let trailerDwell: Duration = .seconds(3)
 
         /// Metadata column inside the card: 40pt in, buttons ending ≈124pt above the screen bottom.
         static let infoLeading: CGFloat = 40

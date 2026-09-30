@@ -25,21 +25,22 @@ struct DetailRelatedSection: View {
         }
     }
 
-    /// Navigate to a Related item. Genre-catalog items carry a real IMDB id and navigate directly;
-    /// TMDB recommendation items carry an encoded TMDB ref, resolved to an IMDB id on select (one
-    /// request) so the addon-backed detail screen can load it.
     private func openRelated(_ item: MetaPreview) {
-        guard let ref = TMDBRef(encodedID: item.id) else {
-            relatedSelection = item
-            return
-        }
         Task {
-            guard let imdb = await TMDBService.shared.imdbID(for: ref) else { return }
-            relatedSelection = MetaPreview(
-                id: imdb, type: item.type, name: item.name,
-                poster: item.poster, posterShape: nil, background: item.background,
-                logo: nil, description: nil, releaseInfo: nil, imdbRating: nil, genres: nil
-            )
+            if let resolved = await Self.resolved(item) { relatedSelection = resolved }
         }
+    }
+
+    /// A Related item ready to open. Genre-catalog items carry a real IMDB id and open as they are;
+    /// TMDB recommendation items carry an encoded TMDB ref, resolved to an IMDB id (one request) so the
+    /// addon-backed detail screen can load it.
+    static func resolved(_ item: MetaPreview) async -> MetaPreview? {
+        guard let ref = TMDBRef(encodedID: item.id) else { return item }
+        guard let imdb = await TMDBService.shared.imdbID(for: ref) else { return nil }
+        return MetaPreview(
+            id: imdb, type: item.type, name: item.name,
+            poster: item.poster, posterShape: nil, background: item.background,
+            logo: nil, description: nil, releaseInfo: nil, imdbRating: nil, genres: nil
+        )
     }
 }

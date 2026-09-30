@@ -9,6 +9,8 @@ struct RowPreviewCard: View {
     let showsBackdrop: Bool
     /// Only the centre card and its neighbours decode a full-size backdrop.
     let loadsBackdrop: Bool
+    /// The centred card's inline trailer, crossfaded over the backdrop once it has a frame.
+    let trailer: TrailerPlaybackController?
     let dim: Double
     let topRadius: CGFloat
     let bottomRadius: CGFloat
@@ -22,6 +24,11 @@ struct RowPreviewCard: View {
                     Color.clear
                 }
                 .opacity(showsBackdrop ? 1 : 0)
+            }
+            .overlay {
+                if let trailer {
+                    RowPreviewTrailerLayer(controller: trailer)
+                }
             }
             .overlay {
                 RemoteImage(url: ContentCard.artworkURL(for: meta, shape: sourceShape), targetSize: sourceShape.size) {

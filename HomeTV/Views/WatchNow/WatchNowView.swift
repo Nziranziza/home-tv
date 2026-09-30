@@ -85,7 +85,8 @@ struct WatchNowView: View {
                 if let rowPreview {
                     RowPreviewGallery(
                         model: rowPreview,
-                        onPlay: { meta in play(meta) },
+                        isCovered: !path.isEmpty || streamRequest != nil,
+                        onPlay: { streamRequest = $0 },
                         onInfo: { meta in path.append(.detail(meta)) },
                         onClosed: { self.rowPreview = nil }
                     )

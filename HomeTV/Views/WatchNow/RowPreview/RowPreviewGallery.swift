@@ -5,12 +5,14 @@ import SwiftUI
 /// push always crossfades). Select or Info pushes the detail on top; Menu shrinks back into the row.
 struct RowPreviewGallery: View {
     let model: RowPreviewModel
-    let onPlay: (MetaPreview) -> Void
+    /// A detail push or the stream picker is over the gallery.
+    let isCovered: Bool
+    let onPlay: (StreamRequest) -> Void
     let onInfo: (MetaPreview) -> Void
     /// The close animation has finished: remove the gallery and focus this row card, in one update.
     let onClosed: () -> Void
 
-    enum Control: Hashable { case stage, play, info }
+    enum Control: Hashable { case stage, action(DetailHeroAction), info, strip(Int) }
 
     @FocusState private var focus: Control?
     /// The full screen, in global coordinates; row frames are global too.
@@ -21,6 +23,10 @@ struct RowPreviewGallery: View {
     @State private var showsSourceArt = true
     @State private var showsBackdrop = false
     @State private var isClosing = false
+    @State private var trailerRequest: TrailerPlaybackRequest?
+    /// An episode's description was selected in the strip: its detail is pushed over the gallery.
+    @State private var episodeSelection: Video?
+    @Environment(\.scenePhase) private var scenePhase
 
     private var screen: CGSize { bounds.size }
 
@@ -48,6 +54,14 @@ struct RowPreviewGallery: View {
                 if new == .stage { model.mode = .browsing }
             }
             .onChange(of: model.index) { _, _ in prefetchNeighbours() }
+            .onChange(of: isCovered || trailerRequest != nil || episodeSelection != nil || scenePhase != .active, initial: true) { _, suspended in
+                model.isSuspended = suspended
+            }
+            .onDisappear { model.stopTrailer() }
+            .trailerPlayerCover(request: $trailerRequest)
+            .navigationDestination(item: $episodeSelection) { episode in
+                EpisodeDetailView(model: model.infoDetail, episode: episode)
+            }
             .onChange(of: screen != .zero) { _, ready in
                 // Deferred a turn so the cards first draw on the row, then grow from there.
                 if ready { Task { open() } }
@@ -65,6 +79,7 @@ struct RowPreviewGallery: View {
             showsSourceArt: showsSourceArt,
             showsBackdrop: showsBackdrop,
             loadsBackdrop: abs(i - model.index) <= 1,
+            trailer: isCentre && model.isExpanded ? model.trailer : nil,
             dim: model.isExpanded && !isCentre ? Theme.RowPreview.neighbourDim : 0,
             topRadius: model.isExpanded ? Theme.RowPreview.cornerRadius : Theme.Radius.card,
             bottomRadius: model.isExpanded ? 0 : Theme.Radius.card
@@ -88,11 +103,19 @@ struct RowPreviewGallery: View {
 
     private var info: some View {
         RowPreviewInfoOverlay(
-            meta: model.infoItem,
+            detail: model.infoDetail,
             focus: $focus,
             areControlsEnabled: model.mode == .controls,
-            onPlay: { onPlay(model.infoItem) },
+            onPlay: onPlay,
             onInfo: { onInfo(model.infoItem) },
+            onOpenEpisode: { episodeSelection = $0 },
+            onOpenRelated: { item in
+                Task {
+                    // Menu during the lookup closes the gallery; don't push over Watch Now afterwards.
+                    guard let resolved = await DetailRelatedSection.resolved(item), !isClosing else { return }
+                    onInfo(resolved)
+                }
+            },
             onExitControls: exitControls
         )
         .clipShape(.rect(topLeadingRadius: Theme.RowPreview.cornerRadius, topTrailingRadius: Theme.RowPreview.cornerRadius, style: .continuous))
@@ -115,7 +138,9 @@ struct RowPreviewGallery: View {
             if !isClosing { model.advance(by: -1) }
             Task { focus = .stage }
         }
+        // Up while a trailer plays opens it full screen.
         .focusBarrier(.top, isActive: focus == .stage || focus == nil, gap: 1) {
+            if !isClosing, let request = model.fullScreenTrailer { trailerRequest = request }
             Task { focus = .stage }
         }
         .frame(width: centreFrame.width, height: centreFrame.height)
@@ -138,7 +163,7 @@ struct RowPreviewGallery: View {
     private func enterControls() {
         guard model.isInfoVisible, !isClosing else { return }
         model.mode = .controls
-        Task { focus = .play }
+        Task { focus = .action(.play) }
     }
 
     private func exitControls() {

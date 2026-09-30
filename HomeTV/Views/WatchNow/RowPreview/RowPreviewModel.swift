@@ -1,10 +1,14 @@
+import Observation
 import SwiftUI
 
-/// Paging, reveal and layout state for the row preview gallery.
+/// Paging, reveal, trailer and layout state for the row preview gallery.
 @MainActor
 @Observable
 final class RowPreviewModel {
     enum Mode { case browsing, controls }
+
+    typealias DetailFactory = @MainActor (MetaPreview) -> MetaDetailModel
+    typealias DetailLoader = @MainActor (MetaDetailModel) async -> Void
 
     let preview: RowPreview
     private(set) var index: Int
@@ -18,16 +22,50 @@ final class RowPreviewModel {
     private(set) var isInfoVisible = false
     /// The title the overlay shows. Only swapped while hidden, so text never changes over a moving card.
     private(set) var infoItem: MetaPreview
+    /// The detail data behind `infoItem`: the same model, and so the same hero, as the detail screen.
+    private(set) var infoDetail: MetaDetailModel
+    /// The one inline trailer, played in the centred card.
+    let trailer = TrailerPlaybackController()
+    /// A detail push, the stream picker, the full-screen trailer or backgrounding. Stops the trailer.
+    var isSuspended = false {
+        didSet {
+            guard isSuspended != oldValue else { return }
+            if isSuspended { stopTrailer() } else if isInfoVisible { startTrailer() }
+        }
+    }
 
     private let settleDelay: Duration
     private let swapDelay: Duration
-    private var settleTask: Task<Void, Never>?
-    private var swapTask: Task<Void, Never>?
+    private let revealCap: Duration
+    private let trailerDwell: Duration
+    private let makeDetail: DetailFactory
+    private let loadDetail: DetailLoader
+    @ObservationIgnored private var settleTask: Task<Void, Never>?
+    @ObservationIgnored private var swapTask: Task<Void, Never>?
+    @ObservationIgnored private var capTask: Task<Void, Never>?
+    @ObservationIgnored private var readyTask: Task<Void, Never>?
+    @ObservationIgnored private var trailerTask: Task<Void, Never>?
+    /// Settled, waiting on the current title's readiness or the cap.
+    @ObservationIgnored private var isAwaitingReveal = false
+    /// When the current title was paged to; the cap runs from here.
+    @ObservationIgnored private var currentSince: ContinuousClock.Instant = .now
+    /// Loaded (or loading) once per title, so paging back never fetches again.
+    @ObservationIgnored private var details: [String: MetaDetailModel] = [:]
 
     init(
         preview: RowPreview,
         settleDelay: Duration = Theme.RowPreview.settleDelay,
-        swapDelay: Duration = Theme.RowPreview.infoSwapDelay
+        swapDelay: Duration = Theme.RowPreview.infoSwapDelay,
+        revealCap: Duration = Theme.RowPreview.revealCap,
+        trailerDwell: Duration = Theme.RowPreview.trailerDwell,
+        makeDetail: @escaping DetailFactory = {
+            // Related titles fill a movie's strip; a series shows episodes instead.
+            MetaDetailModel(
+                typeID: $0.type, metaID: $0.id, fallbackTitle: $0.name, seed: $0,
+                loadsRelated: $0.type == "movie"
+            )
+        },
+        loadDetail: @escaping DetailLoader = { await $0.load() }
     ) {
         self.preview = preview
         let start = min(max(preview.startIndex, 0), preview.items.count - 1)
@@ -35,6 +73,15 @@ final class RowPreviewModel {
         infoItem = preview.items[start]
         self.settleDelay = settleDelay
         self.swapDelay = swapDelay
+        self.revealCap = revealCap
+        self.trailerDwell = trailerDwell
+        self.makeDetail = makeDetail
+        self.loadDetail = loadDetail
+        let first = makeDetail(preview.items[start])
+        infoDetail = first
+        details[first.metaID] = first
+        Task { await loadDetail(first) }
+        loadAroundCurrent()
     }
 
     var items: [MetaPreview] { preview.items }
@@ -52,7 +99,9 @@ final class RowPreviewModel {
         let target = min(max(index + delta, 0), items.count - 1)
         guard target != index else { return false }
         index = target
+        currentSince = .now
         hideInfo()
+        loadAroundCurrent()
         scheduleSwap()
         scheduleSettle()
         return true
@@ -65,8 +114,13 @@ final class RowPreviewModel {
         swapTask?.cancel()
         swapTask = Task { [weak self, swapDelay] in
             guard (try? await Task.sleep(for: swapDelay)) != nil, let self else { return }
-            infoItem = current
+            swapInfo()
         }
+    }
+
+    private func swapInfo() {
+        infoItem = current
+        infoDetail = detail(for: current)
     }
 
     /// Reveals the overlay after `delay` (default `settleDelay`) of quiet; every page move restarts it.
@@ -81,17 +135,102 @@ final class RowPreviewModel {
 
     func hideInfo() {
         settleTask?.cancel()
+        capTask?.cancel()
+        readyTask?.cancel()
+        isAwaitingReveal = false
         isInfoVisible = false
+        stopTrailer()
     }
 
+    // MARK: Reveal gate
+
+    /// Reveals once the current title's detail data is ready (the detail screen's own gate), or once
+    /// `revealCap` has passed since it was paged to, whichever is first.
     private func settle() {
+        isAwaitingReveal = true
+        let detail = detail(for: current)
+        if detail.isContentReady {
+            reveal()
+            return
+        }
+        let remaining = revealCap - (ContinuousClock.now - currentSince)
+        capTask?.cancel()
+        capTask = Task { [weak self] in
+            guard (try? await Task.sleep(for: remaining)) != nil else { return }
+            self?.reveal()
+        }
+        readyTask?.cancel()
+        readyTask = Task { [weak self] in
+            for await ready in Observations({ detail.isContentReady }) where ready {
+                self?.reveal()
+                return
+            }
+        }
+    }
+
+    private func reveal() {
+        guard isAwaitingReveal else { return }
+        isAwaitingReveal = false
+        capTask?.cancel()
+        readyTask?.cancel()
         guard infoItem.id != current.id else {
-            isInfoVisible = true
+            showInfo()
             return
         }
         // Not swapped yet: swap now, and reveal a turn later so the two never share an animation.
-        infoItem = current
-        Task { [weak self] in self?.isInfoVisible = true }
+        swapInfo()
+        Task { [weak self] in self?.showInfo() }
+    }
+
+    private func showInfo() {
+        isInfoVisible = true
+        startTrailer()
+    }
+
+    // MARK: Detail data
+
+    private func detail(for meta: MetaPreview) -> MetaDetailModel {
+        if let existing = details[meta.id] { return existing }
+        let detail = makeDetail(meta)
+        details[meta.id] = detail
+        Task { [loadDetail] in await loadDetail(detail) }
+        return detail
+    }
+
+    /// The current title first, then its neighbours, so paging either way usually finds it loaded.
+    private func loadAroundCurrent() {
+        for i in [index, index + 1, index - 1] where items.indices.contains(i) {
+            _ = detail(for: items[i])
+        }
+    }
+
+    // MARK: Trailer
+
+    /// Plays the revealed title's trailer in the card after a dwell, once its sources have loaded.
+    private func startTrailer() {
+        guard !isSuspended else { return }
+        trailerTask?.cancel()
+        let detail = infoDetail
+        trailerTask = Task { [weak self, trailerDwell] in
+            for await candidates in Observations({ detail.trailerCandidates }) where !candidates.isEmpty {
+                guard let self, !isSuspended, isInfoVisible, infoDetail === detail else { return }
+                trailer.load(candidates)
+                trailer.autoplay(after: trailerDwell)
+                return
+            }
+        }
+    }
+
+    /// Tears the player down at once, so at most one decoder is ever alive.
+    func stopTrailer() {
+        trailerTask?.cancel()
+        trailer.teardown()
+    }
+
+    /// The playing trailer full screen, from the clip already on screen.
+    var fullScreenTrailer: TrailerPlaybackRequest? {
+        guard trailer.isReady else { return nil }
+        return TrailerPlaybackRequest(title: infoItem.name, candidates: trailer.playbackOrder)
     }
 
     // MARK: Layout
