@@ -5,8 +5,6 @@ import SwiftUI
 @MainActor
 @Observable
 final class RowPreviewModel {
-    enum Mode { case browsing, controls }
-
     typealias DetailFactory = @MainActor (MetaPreview) -> MetaDetailModel
     typealias DetailLoader = @MainActor (MetaDetailModel) async -> Void
 
@@ -16,8 +14,6 @@ final class RowPreviewModel {
     var isExpanded = false
     /// True once the grow has finished, so Watch Now can stop drawing under the opaque canvas.
     var coversWatchNow = false
-    /// Browsing: Left/Right page the strip. Controls: focus is on the action buttons.
-    var mode: Mode = .browsing
     /// The metadata overlay is hidden while the strip moves and revealed once it settles.
     private(set) var isInfoVisible = false
     /// The title the overlay shows. Only swapped while hidden, so text never changes over a moving card.
@@ -51,6 +47,8 @@ final class RowPreviewModel {
     @ObservationIgnored private var currentSince: ContinuousClock.Instant = .now
     /// Loaded (or loading) once per title, so paging back never fetches again.
     @ObservationIgnored private var details: [String: MetaDetailModel] = [:]
+    /// Unfinished loads, so paging past a title cancels its fetch rather than queueing it.
+    @ObservationIgnored private var loads: [String: Task<Void, Never>] = [:]
 
     init(
         preview: RowPreview,
@@ -80,8 +78,7 @@ final class RowPreviewModel {
         let first = makeDetail(preview.items[start])
         infoDetail = first
         details[first.metaID] = first
-        Task { await loadDetail(first) }
-        loadAroundCurrent()
+        startLoad(first)
     }
 
     var items: [MetaPreview] { preview.items }
@@ -101,7 +98,8 @@ final class RowPreviewModel {
         index = target
         currentSince = .now
         hideInfo()
-        loadAroundCurrent()
+        cancelDistantLoads()
+        _ = detail(for: current)
         scheduleSwap()
         scheduleSettle()
         return true
@@ -148,6 +146,7 @@ final class RowPreviewModel {
     /// `revealCap` has passed since it was paged to, whichever is first.
     private func settle() {
         isAwaitingReveal = true
+        loadNeighbours()
         let detail = detail(for: current)
         if detail.isContentReady {
             reveal()
@@ -193,14 +192,34 @@ final class RowPreviewModel {
         if let existing = details[meta.id] { return existing }
         let detail = makeDetail(meta)
         details[meta.id] = detail
-        Task { [loadDetail] in await loadDetail(detail) }
+        startLoad(detail)
         return detail
     }
 
-    /// The current title first, then its neighbours, so paging either way usually finds it loaded.
-    private func loadAroundCurrent() {
-        for i in [index, index + 1, index - 1] where items.indices.contains(i) {
+    private func startLoad(_ detail: MetaDetailModel) {
+        let id = detail.metaID
+        loads[id] = Task { [weak self, loadDetail] in
+            await loadDetail(detail)
+            guard !Task.isCancelled else { return }
+            self?.loads[id] = nil
+        }
+    }
+
+    /// Once settled, so a slide the user keeps paging through never fetches the titles beside it.
+    private func loadNeighbours() {
+        for i in [index + 1, index - 1] where items.indices.contains(i) {
             _ = detail(for: items[i])
+        }
+    }
+
+    /// Cancels unfinished loads more than a page away and forgets them: a cancelled load settles
+    /// without its TMDB data, so a revisit must load afresh.
+    private func cancelDistantLoads() {
+        let near = Set([index - 1, index, index + 1].filter(items.indices.contains).map { items[$0].id })
+        for (id, task) in loads where !near.contains(id) {
+            task.cancel()
+            loads[id] = nil
+            details[id] = nil
         }
     }
 

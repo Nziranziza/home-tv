@@ -127,8 +127,30 @@ struct RowPreviewModelTests {
         model.advance(by: 1)
         #expect(try await eventually { model.isInfoVisible && model.infoItem.id == "Title 2" })
         #expect(model.infoDetail === seen)
-        // Opening loads 0–2, paging to 2 adds 3; paging back and forth fetches nothing new.
-        #expect(counter.calls.sorted() == ["Title 0", "Title 1", "Title 2", "Title 3"])
+        // Paging to 2 loads it, settling there adds 1's neighbour 3; back and forth fetches nothing new.
+        #expect(counter.calls.sorted() == ["Title 1", "Title 2", "Title 3"])
+    }
+
+    @Test func neighboursLoadOnlyOnceSettled() async throws {
+        let counter = LoadCounter()
+        let model = model(settleDelay: .milliseconds(400), loader: counter.load)
+        model.advance(by: 1)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(counter.calls.sorted() == ["Title 1", "Title 2"])
+        #expect(try await eventually { counter.calls.contains("Title 3") })
+    }
+
+    @Test func fastPagingCancelsTheTitlesPassedThrough() async throws {
+        let gate = LoaderGate()
+        let model = model(count: 10, start: 0, settleDelay: .seconds(5), loader: gate.load)
+        for _ in 0..<5 { model.advance(by: 1) }
+        // Only the centred titles start; each more than a page behind is cancelled, not queued.
+        #expect(try await eventually { gate.started.count == 6 && gate.cancelled.count == 4 })
+        #expect(gate.started.sorted() == (0...5).map { "Title \($0)" })
+        #expect(gate.cancelled.sorted() == (0...3).map { "Title \($0)" })
+        // A cancelled title loads afresh on a revisit.
+        model.advance(by: -3)
+        #expect(try await eventually { gate.started.filter { $0 == "Title 2" }.count == 2 })
     }
 
     @Test func noFullScreenTrailerUntilOneIsPlaying() {
@@ -180,13 +202,21 @@ struct RowPreviewModelTests {
     }
 }
 
-/// A loader that holds every request until `release`.
+/// A loader that holds every request until `release`, recording starts and cancellations.
 @MainActor
 private final class LoaderGate {
     private var isReleased = false
+    private(set) var started: [String] = []
+    private(set) var cancelled: [String] = []
 
     func load(_ detail: MetaDetailModel) async {
-        while !isReleased { try? await Task.sleep(for: .milliseconds(10)) }
+        started.append(detail.metaID)
+        while !isReleased {
+            guard (try? await Task.sleep(for: .milliseconds(10))) != nil else {
+                cancelled.append(detail.metaID)
+                return
+            }
+        }
         await detail.load()
     }
 

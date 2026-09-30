@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// The detail hero's text, action row and credits, plus Info, laid out in the preview card.
+/// The detail hero's text, action row and credits, plus Info, laid out in the preview card. Display
+/// only, as in the sample: the buttons never take focus; Select or Down on the card opens the detail.
 struct RowPreviewMetadata: View {
     let detail: MetaDetailModel
-    var focus: FocusState<RowPreviewGallery.Control?>.Binding
-    let areControlsEnabled: Bool
     let onPlay: (StreamRequest) -> Void
     let onInfo: () -> Void
-    /// Up from the buttons, back to paging.
-    let onExitControls: () -> Void
+
+    /// Never set: the row is disabled, but its API binds each button to a focus value.
+    @FocusState private var focus: DetailHeroAction?
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -23,21 +23,13 @@ struct RowPreviewMetadata: View {
                 .id(detail.metaID)
                 DetailHeroActionRow(
                     model: detail,
-                    focus: focus,
-                    focusValue: { .action($0) },
-                    onPlay: onPlay,
-                    onMoveUp: onExitControls
+                    focus: $focus,
+                    focusValue: { $0 },
+                    onPlay: onPlay
                 ) {
                     HeroCircleButton(icon: "info", accessibilityLabel: "More Info", action: onInfo)
-                        .focused(focus, equals: .info)
-                        .onMoveCommand { if $0 == .up { onExitControls() } }
                 }
-                // Keeps Left off Play from escaping to the sidebar.
-                .focusBarrier(.leading, isActive: areControlsEnabled, gap: Theme.Hero.focusBarrierWidth) {
-                    Task { focus.wrappedValue = .action(.play) }
-                }
-                .padding(.leading, -Theme.Hero.focusBarrierWidth)
-                .disabled(!areControlsEnabled)
+                .disabled(true)
             }
         }
     }
