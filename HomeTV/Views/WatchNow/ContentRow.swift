@@ -30,10 +30,14 @@ struct ContentRow: View {
     let spec: ContentRowSpec
     /// Selecting a card opens the row preview over it.
     var onSelect: (RowPreview) -> Void = { _ in }
+    /// The card a closed row preview hands focus back to; the row's other cards are disabled meanwhile.
+    var focusTarget: String?
 
     @State private var metas: [MetaPreview] = []
     @State private var status: LoadStatus = .idle
     @State private var cardFrames = CardFrames()
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scroller = RowScroller()
 
     enum LoadStatus { case idle, loading, loaded, failed }
 
@@ -70,6 +74,7 @@ struct ContentRow: View {
                     ContentCard(meta: meta, shape: rowShape.cardShape) {
                         select(index)
                     }
+                    .disabled(focusTarget.map { $0 != meta.id } ?? false)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
                         cardFrames.byID[meta.id] = $0
                     }
@@ -77,7 +82,22 @@ struct ContentRow: View {
             }
             .padding(.horizontal, Theme.Row.contentInset)
             .padding(.vertical, isLandscape ? Theme.Row.landscapeVerticalPadding : Theme.Row.posterVerticalPadding)
-            
+        }
+        .scrollPosition($scrollPosition)
+        // Written into the scroller, not state, so scrolling never re-renders the row.
+        .onScrollGeometryChange(for: RowScrollMetrics.self) { geometry in
+            RowScrollMetrics(
+                offset: geometry.contentOffset.x,
+                lower: -geometry.contentInsets.leading,
+                upper: max(-geometry.contentInsets.leading,
+                           geometry.contentSize.width + geometry.contentInsets.trailing - geometry.containerSize.width)
+            )
+        } action: { _, metrics in
+            scroller.offset = metrics.offset
+            scroller.offsetRange = metrics.lower...metrics.upper
+        }
+        .onAppear {
+            scroller.scrollTo = { [position = $scrollPosition] x in position.wrappedValue.scrollTo(x: x) }
         }
         .frame(height: isLandscape ? Theme.Row.landscapeHeight : Theme.Row.posterHeight)
         .scrollClipDisabled()
@@ -88,11 +108,13 @@ struct ContentRow: View {
         let spacing = isLandscape ? Theme.Row.landscapeCardSpacing : Theme.Row.posterCardSpacing
         let frame = cardFrames.byID[metas[index].id] ?? .zero
         onSelect(RowPreview(
+            rowID: spec.id,
             items: metas,
             startIndex: index,
             sourceFrame: frame,
             sourceStep: shape.size.width + spacing,
-            sourceShape: shape
+            sourceShape: shape,
+            scroller: scroller
         ))
     }
 

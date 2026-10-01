@@ -5,6 +5,8 @@ import SwiftUI
 struct HeroSheetPage<Badge: View, Rows: View>: View {
     let heroModel: HeroCarouselModel
     var showsHero: Bool = true
+    /// Takes the hero's buttons out of focus without touching the rows.
+    var isHeroDisabled = false
     var onPlay: (MetaPreview) -> Void = { _ in }
     var onInfo: (MetaPreview) -> Void = { _ in }
     /// Drawn top-leading over the hero, scrolling with it (the channel screen's logo).
@@ -50,6 +52,7 @@ struct HeroSheetPage<Badge: View, Rows: View>: View {
                     }
                     .focusSection()
                     .focusScope(contentFocus)
+                    .disabled(isHeroDisabled)
 
                     // Light content sheet that rises over the hero, carrying every row. Its top sits
                     // just below the hero's dots so the first row peeks at rest. Transparent at rest
@@ -83,6 +86,7 @@ extension HeroSheetPage where Badge == EmptyView {
     init(
         heroModel: HeroCarouselModel,
         showsHero: Bool = true,
+        isHeroDisabled: Bool = false,
         onPlay: @escaping (MetaPreview) -> Void = { _ in },
         onInfo: @escaping (MetaPreview) -> Void = { _ in },
         @ViewBuilder rows: () -> Rows
@@ -90,6 +94,7 @@ extension HeroSheetPage where Badge == EmptyView {
         self.init(
             heroModel: heroModel,
             showsHero: showsHero,
+            isHeroDisabled: isHeroDisabled,
             onPlay: onPlay,
             onInfo: onInfo,
             badge: { EmptyView() },

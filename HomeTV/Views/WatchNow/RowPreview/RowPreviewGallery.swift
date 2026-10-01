@@ -9,7 +9,7 @@ struct RowPreviewGallery: View {
     let isCovered: Bool
     let onPlay: (StreamRequest) -> Void
     let onInfo: (MetaPreview) -> Void
-    /// The close animation has finished: remove the gallery and focus this row card, in one update.
+    /// The close animation has finished: remove the gallery, handing focus to the closed-on row card.
     let onClosed: () -> Void
 
     /// The stage is the gallery's only focusable: the metadata is display-only.
@@ -171,6 +171,8 @@ struct RowPreviewGallery: View {
         // Watch Now draws again under the still-opaque canvas, a beat before anything moves, so the
         // page's first frame back is not also the collapse's first frame.
         model.coversWatchNow = false
+        // Bring the title closed on into view, so the shrink always has a slot to land in.
+        model.scrollRowToCurrent(screen: screen)
         Task {
             try? await Task.sleep(for: Theme.RowPreview.closeLeadIn)
             collapse()
