@@ -22,8 +22,9 @@ actor ImageLoader {
     private struct Key: Hashable {
         let url: URL
         let maxPixel: Int
+        let trimsTransparency: Bool
 
-        var cacheKey: NSString { "\(url.absoluteString)|\(maxPixel)" as NSString }
+        var cacheKey: NSString { "\(url.absoluteString)|\(maxPixel)|\(trimsTransparency)" as NSString }
     }
 
     // NSCache is internally thread-safe, so the decoded-image cache can be read from a nonisolated
@@ -52,15 +53,17 @@ actor ImageLoader {
 
     /// Synchronous peek into the decoded-image cache so a view can show an already-decoded image on
     /// its very first frame (no placeholder flash). Safe from any thread — `NSCache` is thread-safe.
-    nonisolated func cachedImage(for url: URL, targetSize: CGSize) -> UIImage? {
-        cache.object(forKey: Key(url: url, maxPixel: Self.maxPixel(for: targetSize)).cacheKey)
+    nonisolated func cachedImage(for url: URL, targetSize: CGSize, trimsTransparency: Bool = false) -> UIImage? {
+        let key = Key(url: url, maxPixel: Self.maxPixel(for: targetSize), trimsTransparency: trimsTransparency)
+        return cache.object(forKey: key.cacheKey)
     }
 
-    /// Returns a downsampled image for `url` sized for a `targetSize`-point frame.
+    /// Returns a downsampled image for `url` sized for a `targetSize`-point frame. `trimsTransparency`
+    /// crops away transparent margins, for logos delivered on a padded canvas.
     /// Throws on network/decoding failure (callers fall back to a placeholder).
-    func image(for url: URL, targetSize: CGSize) async throws -> UIImage {
+    func image(for url: URL, targetSize: CGSize, trimsTransparency: Bool = false) async throws -> UIImage {
         let maxPixel = Self.maxPixel(for: targetSize)
-        let key = Key(url: url, maxPixel: maxPixel)
+        let key = Key(url: url, maxPixel: maxPixel, trimsTransparency: trimsTransparency)
 
         if let cached = cache.object(forKey: key.cacheKey) {
             return cached
@@ -81,7 +84,8 @@ actor ImageLoader {
             guard let image = Self.downsample(data: data, maxPixel: maxPixel) else {
                 throw ImageLoaderError.decodingFailed
             }
-            return image
+            guard trimsTransparency, let cgImage = image.cgImage else { return image }
+            return UIImage(cgImage: Self.trimmingTransparentEdges(cgImage))
         }
         inFlight[key] = task
 
@@ -97,8 +101,8 @@ actor ImageLoader {
     }
 
     /// Warms the cache for an upcoming image (e.g. the next hero backdrop) without blocking a view.
-    func prefetch(url: URL, targetSize: CGSize) {
-        Task { try? await image(for: url, targetSize: targetSize) }
+    func prefetch(url: URL, targetSize: CGSize, trimsTransparency: Bool = false) {
+        Task { try? await image(for: url, targetSize: targetSize, trimsTransparency: trimsTransparency) }
     }
 
     // MARK: - Downsampling
@@ -126,6 +130,37 @@ actor ImageLoader {
             return nil
         }
         return UIImage(cgImage: thumbnail)
+    }
+
+    /// Crops `image` to the bounds of its visible pixels. Runs on the already-downsampled image, so the
+    /// alpha scan is a few hundred thousand bytes.
+    private static func trimmingTransparentEdges(_ image: CGImage) -> CGImage {
+        let width = image.width, height = image.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return image }
+
+        // Rows run top to bottom in the buffer, matching `cropping(to:)`'s coordinates.
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            let row = y * width
+            for x in 0..<width where alpha[row + x] > 8 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return image }
+        let bounds = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        guard bounds.size != CGSize(width: width, height: height) else { return image }
+        return image.cropping(to: bounds) ?? image
     }
 }
 

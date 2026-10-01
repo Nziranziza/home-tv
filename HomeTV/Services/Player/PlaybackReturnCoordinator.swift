@@ -65,7 +65,10 @@ final class PlaybackReturnCoordinator {
 
         // Which item the player came back on: located by URL in a queue, otherwise the one we launched.
         var returned = launch.contentID
+        var returnedEpisode = Self.episodeNumbers(in: launch.contentID)
         var runtime = launch.runtimeSeconds
+        // Whether `runtime` is the returned episode's own; a borrowed one is too rough to call it finished.
+        var runtimeIsOwn = true
         if let queue = launch.queue,
            let raw = value(named: Self.lastPlayedURLParameter, in: items),
            let last = URL(string: raw),
@@ -77,8 +80,11 @@ final class PlaybackReturnCoordinator {
                     episode: entry.episode
                 )
             }
-            returned = queue.entries[index].episodeID
-            runtime = queue.entries[index].runtimeSeconds ?? runtime
+            let entry = queue.entries[index]
+            returned = entry.episodeID
+            returnedEpisode = (entry.season, entry.episode)
+            runtime = entry.runtimeSeconds ?? runtime
+            runtimeIsOwn = entry.runtimeSeconds != nil || entry.episodeID == launch.contentID
         } else if launch.queue != nil {
             return      // a queue we could not place the return in — better to record nothing
         }
@@ -86,6 +92,10 @@ final class PlaybackReturnCoordinator {
         guard let position, let runtime, runtime > 0 else { return }
         let fraction = Double(position) / Double(runtime)
         UserLibrary.recordProgress(fraction, id: returned)
+        // Played to the end: finished, not just a resume point.
+        if fraction > LocalLibrary.resumeRange.upperBound, runtimeIsOwn, let returnedEpisode {
+            UserLibrary.markEpisodeWatched(showID: launch.showID, season: returnedEpisode.season, episode: returnedEpisode.episode)
+        }
         // Continue Watching cards are keyed by the show, so the resume point is recorded there too.
         if returned != launch.showID, !launch.showID.isEmpty {
             UserLibrary.recordProgress(fraction, id: launch.showID)
@@ -109,6 +119,13 @@ final class PlaybackReturnCoordinator {
             if host.hasPrefix("\(known)-") { return (known, String(host.dropFirst(known.count + 1))) }
         }
         return nil
+    }
+
+    /// Season and episode from an episode content id (`tt0903747:1:4`), nil for a movie or show.
+    static func episodeNumbers(in contentID: String) -> (season: Int, episode: Int)? {
+        let parts = contentID.split(separator: ":")
+        guard parts.count == 3, let season = Int(parts[1]), let episode = Int(parts[2]) else { return nil }
+        return (season, episode)
     }
 
     private func value(named name: String, in items: [URLQueryItem]) -> String? {

@@ -1,17 +1,21 @@
 import SwiftUI
 
-/// The title hero's text block: logo, type/genre chips with the certification box, synopsis, and the
-/// facts line. Shared by the detail hero and the row preview so both read identically.
+/// The title hero's text block: logo, type/genre chips with the certification box, synopsis (the
+/// up-next episode's once a show is under way), and the facts line. Shared by the detail hero and the
+/// row preview so both read identically.
 struct DetailHeroInfo: View {
     let model: MetaDetailModel
 
+    /// The logo box, in Apple TV's proportions (wide wordmarks reach ≈440 pt, tall ones ≈135 pt).
+    static let logoSize = CGSize(width: 440, height: 135)
+
     var body: some View {
-        // Per-title logo art, scaled to the reference (block ≈ 278 × 119, wordmark ≈ 14% of width).
         HeroTitleArt(
             logoURL: model.vm.displayLogoURL,
             accessibilityName: model.meta?.name ?? model.fallbackTitle,
-            maxWidth: 280,
-            maxHeight: 120
+            maxWidth: Self.logoSize.width,
+            maxHeight: Self.logoSize.height,
+            trimsPadding: true
         ) {
             Text(model.meta?.name ?? model.fallbackTitle)
                 .font(Theme.Hero.titleFallbackFont)
@@ -26,7 +30,10 @@ struct DetailHeroInfo: View {
             trailingBadge: model.vm.displayCertification,
             leading: .provider(model.enrichment?.providerBadgeURL)
         )
-        if let description = model.vm.displayDescription, !description.isEmpty {
+        // A show under way describes its up-next episode, as Apple TV+ does; otherwise the logline.
+        if let synopsis = model.heroEpisodeSynopsis(model.upNext()) {
+            EpisodeHeroDescription(label: synopsis.label, overview: synopsis.overview)
+        } else if let description = model.vm.displayDescription, !description.isEmpty {
             HeroDescription(text: description)
         }
         HeroFactsLine(text: model.vm.factsLine)
