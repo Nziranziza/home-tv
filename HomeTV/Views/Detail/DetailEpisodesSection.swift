@@ -19,7 +19,12 @@ struct DetailEpisodesSection: View {
 
     @State private var selectedSeason: Int?
     @FocusState private var focusedSeason: Int?
-    @State private var didRevealUpNext = false
+    /// The episode focus enters the strip on: up-next at first, then the last focused episode, or a
+    /// season's first episode after jumping to it from a tab.
+    @State private var stripAnchorID: String?
+    @State private var stripFocused = false
+    /// Set once the user focuses a tab or an episode; until then the strip follows the up-next episode.
+    @State private var userNavigated = false
 
     private var currentSeason: Int? { selectedSeason ?? model.seasons.first }
 
@@ -37,17 +42,18 @@ struct DetailEpisodesSection: View {
             // `selectSeason` only scrolls when the season actually changed.
             .onChange(of: focusedSeason) { _, newValue in
                 guard let newValue else { return }
+                userNavigated = true
                 selectSeason(newValue, proxy: proxy)
             }
-            // On load, reveal the up-next episode: select its season and scroll the strip to it, so the
-            // episode the hero Play targets is what you see first (instead of always S1, E1).
-            .onChange(of: model.sortedEpisodes.count) { _, count in
-                guard count > 0, !didRevealUpNext,
-                      let upNext = seriesUpNext, upNext.marksEpisode else { return }
-                didRevealUpNext = true
-                selectedSeason = upNext.video.season
+            // Reveal the up-next episode — select its season, scroll to it and make it the entry — and
+            // follow it until the user navigates, since Trakt's episode progress can land after the
+            // episodes do.
+            .onChange(of: upNextEpisode?.id, initial: true) { _, _ in
+                guard !userNavigated, let episode = upNextEpisode else { return }
+                selectedSeason = episode.season
+                stripAnchorID = episode.id
                 withAnimation(.easeOut(duration: 0.35)) {
-                    proxy.scrollTo(upNext.video.id, anchor: .leading)
+                    proxy.scrollTo(episode.id, anchor: .leading)
                 }
             }
             // Fetch TMDB episode info for the season in view, lazily — re-runs when the selected season
@@ -106,7 +112,11 @@ struct DetailEpisodesSection: View {
                         watched: UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: episode.season, episode: episode.episode),
                         isUpNext: episode.id == upNextID,
                         onFocusChange: { isFocused in
-                            if isFocused { episodeFocused(episode, proxy: proxy) }
+                            if isFocused {
+                                episodeFocused(episode, proxy: proxy)
+                            } else if stripAnchorID == episode.id {
+                                stripFocused = false
+                            }
                         },
                         // Available signed in or not — without Trakt this flips the local record.
                         // Hidden for an unnumbered video: there is no episode to mark.
@@ -133,6 +143,9 @@ struct DetailEpisodesSection: View {
                         )
                     }
                     .id(episode.id)
+                    // Entering the strip lands on the anchor: geometry would pick whichever card sits
+                    // nearest, and tvOS drops programmatic focus into another scroll view.
+                    .disabled(!stripFocused && stripAnchorID != nil && episode.id != stripAnchorID)
                     // The episode strip is the focus entry from the hero: the season selector is hidden
                     // (faded) in the hero state, so Down lands here and drives the scroll.
                     .contentZone(true, zone)
@@ -145,13 +158,14 @@ struct DetailEpisodesSection: View {
         .focusSection()
     }
 
-    /// The hero's up-next episode (resume / next-to-watch), over the cached episode list with live Trakt
-    /// state injected. Used to mark the matching card with the "Up Next" badge.
+    /// The hero's up-next episode, used to mark the matching card with the "Up Next" badge.
     private var seriesUpNext: MetaDetailViewModel.UpNext? {
-        model.upNext(
-            progress: { UserLibrary.progress(forKey: model.vm.episodeKey($0)) },
-            isWatched: { UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: $0.season, episode: $0.episode) }
-        )
+        model.upNext()
+    }
+
+    /// The episode the hero targets, nil for Rewatch.
+    private var upNextEpisode: Video? {
+        seriesUpNext.flatMap { $0.marksEpisode ? $0.video : nil }
     }
 
     /// Triggered when a season tab gains focus (or is clicked): highlight it and scroll the continuous
@@ -163,6 +177,7 @@ struct DetailEpisodesSection: View {
         let changed = selectedSeason != season
         selectedSeason = season
         guard changed, let target = model.firstEpisodeID(of: season) else { return }
+        stripAnchorID = target
         withAnimation(.easeOut(duration: 0.35)) {
             proxy.scrollTo(target, anchor: .leading)
         }
@@ -172,6 +187,9 @@ struct DetailEpisodesSection: View {
     /// whichever season the focused episode belongs to (and scroll the selector to reveal that tab),
     /// so the header always reflects what you're looking at as you scroll across season boundaries.
     private func episodeFocused(_ episode: Video, proxy: ScrollViewProxy) {
+        userNavigated = true
+        stripFocused = true
+        stripAnchorID = episode.id
         let season = episode.season
         guard selectedSeason != season else { return }
         selectedSeason = season
@@ -204,6 +222,9 @@ private struct SeasonSelectorBar: View {
                     }
                     .buttonStyle(SeasonTabStyle(isSelected: currentSeason == season))
                     .focused(focusedSeason, equals: season)
+                    // Entering the bar lands on the selected season: geometry would pick the tab above
+                    // the focused episode, and tvOS drops programmatic focus into another scroll view.
+                    .disabled(focusedSeason.wrappedValue == nil && season != currentSeason)
                     .id("season-\(season)")
                 }
             }
@@ -212,10 +233,6 @@ private struct SeasonSelectorBar: View {
         }
         .detailRowScroll(clipsToBounds: false)   // season selector overflows its fixed-height slot upward
         .focusSection()
-        // Up from the episode strip would otherwise pick a tab by geometry (the one above the focused
-        // episode), not the selected season. The focus guide redirects entry to the selected season's
-        // tab. Above `.opacity` so the guide fades with the selector and is inert in the hero state.
-        .focusGuide(focusedSeason, to: currentSeason)
         .opacity(scroll.logoReveal)
     }
 }

@@ -35,45 +35,70 @@ struct MetaDetailViewModel {
         let label: String
         let resumeProgress: Double?   // non-nil while this episode is mid-watch on Trakt
         let marksEpisode: Bool        // true for resume / next-unwatched; false for the "Rewatch" fallback
+        /// The show is under way, so the hero describes this episode instead of the show (Apple TV+ style).
+        var describesEpisode = true
     }
 
-    /// The show hero's episode: the last played episode if it isn't finished (resume), otherwise the
-    /// next episode to watch — the one right after your furthest-watched episode. We use the *furthest*
-    /// watched (not the earliest gap), so an old skipped episode can't drag the hero backward.
+
+    /// The show hero's episode, decided only by the last played episode (newest play activity): resume
+    /// it if unfinished, else play the one after it, else Rewatch from the start after the finale.
+    /// With no activity known, falls back to resuming the latest in-progress episode or playing the one
+    /// after the furthest watched.
     ///
-    /// `progress`/`isWatched` are injected (Trakt-backed in the app, faked in tests) so this stays a
-    /// pure function of the episode list + watch state. The episode list is passed in (the caller
-    /// supplies the cached, already-sorted `MetaDetailModel.sortedEpisodes`) so the sort isn't redone
-    /// here on every call.
+    /// Watch state is injected (library-backed in the app, faked in tests) so this stays pure. `eps` is
+    /// the cached, already-sorted `MetaDetailModel.sortedEpisodes`.
     func upNext(
         episodes eps: [Video],
         progress: (Video) -> Double?,
-        isWatched: (Video) -> Bool
+        isWatched: (Video) -> Bool,
+        lastPlayed: (Video) -> PlayActivity?
     ) -> UpNext? {
         guard typeID == "series" else { return nil }
         guard !eps.isEmpty else { return nil }
 
-        // 1. Last played but not finished → resume it.
-        if let inProgress = eps.last(where: { progress($0) != nil }) {
-            return UpNext(
-                video: inProgress,
-                label: "Resume \(seasonEpisodeLabel(inProgress))",
-                resumeProgress: progress(inProgress),
-                marksEpisode: true
-            )
+        var last: (index: Int, activity: PlayActivity)?
+        for (index, episode) in eps.enumerated() {
+            // `>=` so a tie goes to the later episode.
+            guard let activity = lastPlayed(episode), activity.date >= last?.activity.date ?? .distantPast else { continue }
+            last = (index, activity)
         }
-        // 2. Next to watch → the episode right after the furthest-watched one.
+        if let last {
+            guard last.activity.isFinished else { return play(eps[last.index], progress: progress) }
+            let nextIdx = eps.index(after: last.index)
+            guard nextIdx < eps.count else { return rewatch(eps) }
+            return play(eps[nextIdx], progress: progress)
+        }
+
+        // No activity known: resume the latest in-progress episode…
+        if let inProgress = eps.last(where: { progress($0) != nil }) {
+            return play(inProgress, progress: progress)
+        }
+        // …else the one after the furthest watched, so an old skipped episode can't drag it backward.
         if let lastWatchedIdx = eps.lastIndex(where: { isWatched($0) }) {
             let nextIdx = eps.index(after: lastWatchedIdx)
-            if nextIdx < eps.count {
-                let next = eps[nextIdx]
-                return UpNext(video: next, label: "Play \(seasonEpisodeLabel(next))", resumeProgress: nil, marksEpisode: true)
-            }
-            // Furthest-watched is the final episode → nothing left to watch next.
-            return UpNext(video: eps[0], label: "Play", resumeProgress: nil, marksEpisode: false)
+            guard nextIdx < eps.count else { return rewatch(eps) }
+            return play(eps[nextIdx], progress: progress)
         }
-        // 3. Nothing watched yet → the next to watch is the first episode.
-        return UpNext(video: eps[0], label: "Play \(seasonEpisodeLabel(eps[0]))", resumeProgress: nil, marksEpisode: true)
+        return UpNext(video: eps[0], label: "Play First Episode", resumeProgress: nil, marksEpisode: true, describesEpisode: false)
+    }
+
+    /// Resume `episode` if it has progress, otherwise play it from the start.
+    private func play(_ episode: Video, progress: (Video) -> Double?) -> UpNext {
+        let resume = progress(episode)
+        let verb = resume == nil ? "Play" : "Resume"
+        return UpNext(video: episode, label: "\(verb) \(seasonEpisodeLabel(episode))", resumeProgress: resume, marksEpisode: true)
+    }
+
+    /// What's left of a part-watched episode ("43m", "1h 2m"), or nil without a runtime.
+    func timeLeftText(progress: Double, runtimeMinutes: Int?) -> String? {
+        guard let runtimeMinutes, runtimeMinutes > 0 else { return nil }
+        let minutes = max(1, Int((Double(runtimeMinutes) * (1 - progress)).rounded()))
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+    }
+
+    /// Nothing left to watch: start the show over, without targeting an episode.
+    private func rewatch(_ eps: [Video]) -> UpNext {
+        UpNext(video: eps[0], label: "Rewatch", resumeProgress: nil, marksEpisode: false, describesEpisode: false)
     }
 
     // MARK: - Episodes & seasons
@@ -242,9 +267,11 @@ struct MetaDetailViewModel {
         return ratingPlaceholder
     }
 
-    /// Run time, preferring TMDB minutes (formatted via `FormatStyle`) over the addon's string.
+    /// Run time ("1h 9m"), preferring TMDB minutes over the addon's string. An addon "53 min" is
+    /// reformatted the same way; anything else shows as given.
     var displayRuntime: String? {
-        if let minutes = enrichment?.runtimeMinutes, minutes > 0 {
+        let addonMinutes = meta?.runtime?.split(separator: " ").first.flatMap { Int($0) }
+        if let minutes = enrichment?.runtimeMinutes ?? addonMinutes, minutes > 0 {
             return Duration.seconds(minutes * 60)
                 .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
         }

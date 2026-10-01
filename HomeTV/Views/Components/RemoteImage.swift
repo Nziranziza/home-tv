@@ -11,6 +11,8 @@ struct RemoteImage<Placeholder: View>: View {
     var contentMode: ContentMode = .fill
     /// `.template` draws the image's shape in the foreground style (a white wordmark).
     var renderingMode: Image.TemplateRenderingMode? = nil
+    /// Crops transparent margins, for logos on a padded canvas.
+    var trimsTransparency = false
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: UIImage?
@@ -20,17 +22,19 @@ struct RemoteImage<Placeholder: View>: View {
         targetSize: CGSize,
         contentMode: ContentMode = .fill,
         renderingMode: Image.TemplateRenderingMode? = nil,
+        trimsTransparency: Bool = false,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
         self.targetSize = targetSize
         self.contentMode = contentMode
         self.renderingMode = renderingMode
+        self.trimsTransparency = trimsTransparency
         self.placeholder = placeholder
         // Seed synchronously from the decoded-image cache so an already-loaded image (e.g. a
         // prefetched hero backdrop) is shown on the FIRST frame — no placeholder gap. This is what
         // lets the backdrop slide in already rendered instead of popping in after the slide.
-        _image = State(initialValue: url.flatMap { ImageLoader.shared.cachedImage(for: $0, targetSize: targetSize) })
+        _image = State(initialValue: url.flatMap { ImageLoader.shared.cachedImage(for: $0, targetSize: targetSize, trimsTransparency: trimsTransparency) })
     }
 
     var body: some View {
@@ -49,7 +53,7 @@ struct RemoteImage<Placeholder: View>: View {
 
     private var taskID: String {
         guard let url else { return "nil" }
-        return "\(url.absoluteString)|\(Int(targetSize.width))x\(Int(targetSize.height))"
+        return "\(url.absoluteString)|\(Int(targetSize.width))x\(Int(targetSize.height))|\(trimsTransparency)"
     }
 
     private func load() async {
@@ -59,7 +63,7 @@ struct RemoteImage<Placeholder: View>: View {
         }
         // Don't clear first — keep showing the seeded/previous image until the new one is ready, so
         // there's no flash mid-slide.
-        if let loaded = try? await ImageLoader.shared.image(for: url, targetSize: targetSize) {
+        if let loaded = try? await ImageLoader.shared.image(for: url, targetSize: targetSize, trimsTransparency: trimsTransparency) {
             image = loaded
         }
     }

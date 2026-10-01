@@ -30,13 +30,13 @@ struct RatingBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.bold))
-            // Tight padding so the thin outline hugs the small rating text (e.g. IMDb 7.7 / TV-MA).
-            .padding(.horizontal, 2)
+            .font(.system(size: 16, weight: .bold))
+            // Tight padding so the outline hugs the small rating text (e.g. 15+ / TV-MA).
+            .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .stroke(.white.opacity(0.55), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(.white.opacity(0.85), lineWidth: 1.5)
             )
             .foregroundStyle(.white.opacity(0.9))
     }
@@ -113,19 +113,20 @@ private struct LeadingBadgeView: View {
     }
 }
 
-/// A streaming-provider logo shown in the metadata row's leading slot — a small rounded square
-/// (provider logos are square artwork), sized to match the source badge.
+/// A streaming-provider logo shown in the metadata row's leading slot — a disc edged with a faint
+/// ring, as Apple TV draws it.
 struct ProviderBadge: View {
     let url: URL
 
-    private var size: CGFloat { Theme.Hero.sourceBadgeSize }
+    private var size: CGFloat { Theme.Hero.providerBadgeSize }
 
     var body: some View {
         RemoteImage(url: url, targetSize: CGSize(width: size, height: size), contentMode: .fit) {
             Color.white.opacity(0.12)
         }
         .frame(width: size, height: size)
-        .clipShape(.rect(cornerRadius: size * 0.22))
+        .clipShape(.circle)
+        .overlay(.white.opacity(0.25), in: .circle.inset(by: 0.5).stroke(lineWidth: 1))
         .accessibilityHidden(true)
     }
 }
@@ -164,6 +165,8 @@ struct HeroTitleArt<Fallback: View>: View {
     let maxWidth: CGFloat
     let maxHeight: CGFloat
     var shadow: Bool = false
+    /// Crops the art's transparent padding so the wordmark itself fills the box, as Apple TV's does.
+    var trimsPadding: Bool = false
     @ViewBuilder var fallback: () -> Fallback
 
     var body: some View {
@@ -171,7 +174,8 @@ struct HeroTitleArt<Fallback: View>: View {
             RemoteImage(
                 url: logoURL,
                 targetSize: CGSize(width: maxWidth, height: maxHeight),
-                contentMode: .fit
+                contentMode: .fit,
+                trimsTransparency: trimsPadding
             ) {
                 fallback()
             }
@@ -186,16 +190,21 @@ struct HeroTitleArt<Fallback: View>: View {
 
 // MARK: - Hero action buttons
 
-/// Primary hero action — a white pill (e.g. "Play").
+/// Primary hero action — a white pill (e.g. "Play"). With `progress`, a resume bar sits between the
+/// icon and the title (▶ ━━ 43m).
 struct HeroPlayButton: View {
     let title: String
     let icon: String
+    var progress: Double? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
+                if let progress {
+                    HeroResumeBar(progress: progress)
+                }
                 Text(title)
             }
             .font(.system(size: 30, weight: .semibold))
@@ -203,6 +212,20 @@ struct HeroPlayButton: View {
             .frame(height: Theme.Hero.buttonHeight)
         }
         .buttonStyle(HeroPlayButtonStyle())
+    }
+}
+
+/// The Play pill's resume bar. Drawn in the label's foreground style so it flips with the focus colours.
+private struct HeroResumeBar: View {
+    let progress: Double
+
+    var body: some View {
+        Capsule()
+            .fill(.secondary)
+            .frame(width: Theme.Hero.resumeBarWidth, height: Theme.Hero.resumeBarHeight)
+            .overlay(alignment: .leading) {
+                Capsule().frame(width: Theme.Hero.resumeBarWidth * max(0, min(1, progress)))
+            }
     }
 }
 
@@ -219,7 +242,7 @@ struct HeroCircleButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 26, weight: .semibold))
+                .font(Theme.Hero.circleIconFont)
                 .frame(width: Theme.Hero.buttonHeight, height: Theme.Hero.buttonHeight)
         }
         .buttonStyle(HeroCircleButtonStyle(bare: bare))

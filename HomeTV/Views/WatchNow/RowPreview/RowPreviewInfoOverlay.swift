@@ -8,7 +8,7 @@ struct RowPreviewInfoOverlay: View {
     let onInfo: () -> Void
 
     /// The logo's decode size, shared with the gallery's prefetch so the reveal is a cache hit.
-    static let logoSize = CGSize(width: 280, height: 120)
+    static let logoSize = DetailHeroInfo.logoSize
 
     static func logoURL(for meta: MetaPreview) -> URL? {
         meta.logo.flatMap(URL.init(string:))
