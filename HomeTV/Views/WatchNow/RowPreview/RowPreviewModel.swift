@@ -14,6 +14,8 @@ final class RowPreviewModel {
     var isExpanded = false
     /// True once the grow has finished, so Watch Now can stop drawing under the opaque canvas.
     var coversWatchNow = false
+    /// How far the row was scrolled on close to bring the current title on screen.
+    private(set) var rowScroll: CGFloat = 0
     /// The metadata overlay is hidden while the strip moves and revealed once it settles.
     private(set) var isInfoVisible = false
     /// The title the overlay shows. Only swapped while hidden, so text never changes over a moving card.
@@ -268,18 +270,27 @@ final class RowPreviewModel {
         )
     }
 
-    /// Card `i` back on the row, extrapolated from the picked card by the row's spacing. `lifted`
-    /// grows the picked card to its focused size: true opening (it was focused), false closing (the
-    /// real card underneath is unfocused, so at rest).
+    /// Card `i` back on the row, extrapolated from the picked card by the row's spacing, less any
+    /// scroll applied on close. `lifted` grows the picked card to its focused size: true opening (it was
+    /// focused), false closing (the real card underneath is at rest until it takes focus).
     func rowFrame(at i: Int, lifted: Bool = true) -> CGRect {
-        let frame = preview.sourceFrame.offsetBy(dx: CGFloat(i - preview.startIndex) * preview.sourceStep, dy: 0)
+        let frame = preview.sourceFrame.offsetBy(dx: CGFloat(i - preview.startIndex) * preview.sourceStep - rowScroll, dy: 0)
         guard lifted, i == preview.startIndex else { return frame }
         let lift = Theme.RowPreview.sourceFocusLift
         return frame.insetBy(dx: -frame.width * (lift - 1) / 2, dy: -frame.height * (lift - 1) / 2)
     }
 
-    /// Whether the current card's row slot is on screen to shrink back into. After paging past the
-    /// visible part of the row it isn't, and the gallery fades out instead.
+    /// Brings the current title's card on screen for the close to shrink into: left alone if its slot
+    /// is already visible, else scrolled to where the opened one sat (clamped at the row's ends). Done
+    /// under the opaque canvas, before anything moves.
+    func scrollRowToCurrent(screen: CGSize) {
+        guard !canCollapseIntoRow(screen: screen) else { return }
+        let wanted = CGFloat(index - preview.startIndex) * preview.sourceStep
+        rowScroll = preview.scroller.scroll(by: wanted)
+    }
+
+    /// Whether the current card's row slot is on screen to shrink back into. Always true once the row
+    /// has scrolled to it; the fade is only a safety net.
     func canCollapseIntoRow(screen: CGSize) -> Bool {
         CGRect(origin: .zero, size: screen).contains(rowFrame(at: index, lifted: false))
     }

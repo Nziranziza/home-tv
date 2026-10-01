@@ -15,11 +15,16 @@ struct WatchNowView: View {
     @State private var heroModel = HeroCarouselModel()
     /// The open row preview, drawn over the page.
     @State private var rowPreview: RowPreviewModel?
+    /// The row card a closed preview hands focus back to. While set, it is the page's only focusable.
+    @State private var focusReturn: FocusReturn?
     @Environment(\.theme) private var theme
 
     /// Inactive while a detail is pushed or the stream picker modal is up, so the hero trailer isn't
     /// left decoding underneath either.
     private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil }
+
+    /// Everything but the returning card is disabled while focus lands on it.
+    private var isFocusLocked: Bool { focusReturn != nil }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -27,6 +32,7 @@ struct WatchNowView: View {
                 HeroSheetPage(
                     heroModel: heroModel,
                     showsHero: !model.hasNoAddons,
+                    isHeroDisabled: isFocusLocked,
                     onPlay: { meta in play(meta) },
                     onInfo: { meta in path.append(.detail(meta)) }
                 ) {
@@ -37,18 +43,23 @@ struct WatchNowView: View {
                         ContinueWatchingRow(items: continueItems) { item in
                             path.append(.detail(item.preview))
                         }
+                        .disabled(isFocusLocked)
                     }
 
                     ForEach(model.rowSpecs) { spec in
-                        ContentRow(spec: spec) { preview in
-                            rowPreview = RowPreviewModel(preview: preview)
-                        }
+                        ContentRow(
+                            spec: spec,
+                            onSelect: { rowPreview = RowPreviewModel(preview: $0) },
+                            focusTarget: focusReturn?.rowID == spec.id ? focusReturn?.cardID : nil
+                        )
+                        .disabled(isFocusLocked && focusReturn?.rowID != spec.id)
                     }
 
                     // One card per streaming service, each pushing its channel screen.
                     ExploreChannelsRow { channel in
                         path.append(.channel(channel))
                     }
+                    .disabled(isFocusLocked)
 
                     // What's new right now: in cinemas, or just landed to buy or rent. Sourced
                     // from TMDB because no addon catalog carries a release window, and it hides
@@ -58,11 +69,13 @@ struct WatchNowView: View {
                     InTheatersRow { meta in
                         path.append(.detail(meta))
                     }
+                    .disabled(isFocusLocked)
 
                     // The only row whose cards push a destination rather than a title.
                     BrowseByGenreRow { genre in
                         path.append(.genre(genre))
                     }
+                    .disabled(isFocusLocked)
 
                     // Last row on the screen: what you've finished. Computed once for the same
                     // reason as `continueItems` above.
@@ -71,6 +84,7 @@ struct WatchNowView: View {
                         RecentlyWatchedRow(items: recentItems) { item in
                             path.append(.detail(item.preview))
                         }
+                        .disabled(isFocusLocked)
                     }
                 }
 
@@ -88,7 +102,7 @@ struct WatchNowView: View {
                         isCovered: !path.isEmpty || streamRequest != nil,
                         onPlay: { streamRequest = $0 },
                         onInfo: { meta in path.append(.detail(meta)) },
-                        onClosed: { self.rowPreview = nil }
+                        onClosed: { close(rowPreview) }
                     )
                 }
             }
@@ -151,6 +165,21 @@ struct WatchNowView: View {
         )
     }
 
+    /// Removes the gallery with the closed-on card as the page's only focusable, so tvOS's fallback for
+    /// the lost focus can only land there. A programmatic request can't: tvOS drops one from a row that
+    /// doesn't contain the focused item, and the gallery's stage is outside every row.
+    private func close(_ preview: RowPreviewModel) {
+        // A deep link may already have dismissed it mid-close.
+        guard rowPreview === preview else { return }
+        let target = FocusReturn(rowID: preview.preview.rowID, cardID: preview.current.id)
+        focusReturn = target
+        rowPreview = nil
+        Task {
+            try? await Task.sleep(for: Theme.RowPreview.focusLockHold)
+            if focusReturn == target { focusReturn = nil }
+        }
+    }
+
     /// Presents the detail screen for a deep-linked title, if one is waiting. Replacing the whole
     /// navigation path makes this work from any state: cold launch (empty path), warm with nothing
     /// open, and — crucially — warm while another detail is already on the stack (the user opened one,
@@ -160,6 +189,7 @@ struct WatchNowView: View {
         guard let pending = router.pendingDetail else { return }
         router.pendingDetail = nil
         rowPreview = nil
+        focusReturn = nil
         path = [.detail(pending)]
     }
 

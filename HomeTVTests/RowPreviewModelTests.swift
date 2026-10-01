@@ -13,15 +13,18 @@ struct RowPreviewModelTests {
         settleDelay: Duration = .milliseconds(60),
         swapDelay: Duration = .milliseconds(10),
         revealCap: Duration = .seconds(1),
+        scroller: RowScroller = RowScroller(),
         loader: @escaping RowPreviewModel.DetailLoader = { await $0.load() }
     ) -> RowPreviewModel {
         let items = (0..<count).map { Fixture.meta("Title \($0)") }
         let preview = RowPreview(
+            rowID: "row",
             items: items,
             startIndex: start,
             sourceFrame: CGRect(x: 384, y: 510, width: 260, height: 390),
             sourceStep: 296,
-            sourceShape: .poster
+            sourceShape: .poster,
+            scroller: scroller
         )
         return RowPreviewModel(
             preview: preview, settleDelay: settleDelay, swapDelay: swapDelay,
@@ -192,6 +195,67 @@ struct RowPreviewModelTests {
         #expect(model.canCollapseIntoRow(screen: screen))
         for _ in 0..<8 { model.advance(by: 1) }
         #expect(!model.canCollapseIntoRow(screen: screen))
+    }
+
+    /// A row scrolled to `offset` within `range`, recording where it was asked to scroll.
+    private func scroller(offset: CGFloat, range: ClosedRange<CGFloat>) -> RowScroller {
+        let scroller = RowScroller()
+        scroller.offset = offset
+        scroller.offsetRange = range
+        scroller.scrollTo = { [unowned scroller] in scroller.offset = $0 }
+        return scroller
+    }
+
+    @Test func rowScrollIsClampedToTheRowsEnds() {
+        #expect(RowScroller.clampedDelta(300, from: 100, within: 0...1000) == 300)
+        #expect(RowScroller.clampedDelta(1200, from: 100, within: 0...1000) == 900)
+        #expect(RowScroller.clampedDelta(-300, from: 100, within: 0...1000) == -100)
+        #expect(RowScroller.clampedDelta(0, from: 100, within: 0...1000) == 0)
+    }
+
+    @Test func scrollReportsWhatItApplied() {
+        let row = scroller(offset: 900, range: 0...1000)
+        #expect(row.scroll(by: 500) == 100)
+        #expect(row.offset == 1000)
+        #expect(row.scroll(by: 10) == 0)
+    }
+
+    @Test func closingScrollsTheTitleIntoTheOpenedSlot() {
+        let row = scroller(offset: 0, range: 0...5000)
+        let model = model(count: 12, start: 1, scroller: row)
+        for _ in 0..<8 { model.advance(by: 1) }
+        model.scrollRowToCurrent(screen: screen)
+        #expect(row.offset == CGFloat(8 * 296))
+        #expect(model.rowFrame(at: 9, lifted: false) == CGRect(x: 384, y: 510, width: 260, height: 390))
+        #expect(model.canCollapseIntoRow(screen: screen))
+    }
+
+    @Test func closingOnAVisibleTitleLeavesTheRowAlone() {
+        let row = scroller(offset: 0, range: 0...5000)
+        let model = model(count: 12, start: 1, scroller: row)
+        model.advance(by: 2)
+        model.scrollRowToCurrent(screen: screen)
+        #expect(row.offset == 0)
+        #expect(model.rowFrame(at: 3, lifted: false).minX == CGFloat(384 + 2 * 296))
+    }
+
+    @Test func closingPastTheRowsEndLandsRightOfTheOpenedSlot() {
+        let row = scroller(offset: 0, range: 0...592)
+        let model = model(count: 12, start: 1, scroller: row)
+        for _ in 0..<6 { model.advance(by: 1) }
+        model.scrollRowToCurrent(screen: screen)
+        // Only two of the six steps fit, so the card sits four slots right of where it opened.
+        #expect(model.rowFrame(at: 7, lifted: false).minX == CGFloat(384 + 4 * 296))
+        #expect(model.canCollapseIntoRow(screen: screen))
+    }
+
+    @Test func closingBeforeTheRowsStartLandsInTheCardsOwnSlot() {
+        let row = scroller(offset: 0, range: 0...5000)
+        let model = model(count: 12, start: 1, scroller: row)
+        model.advance(by: -1)
+        model.scrollRowToCurrent(screen: screen)
+        #expect(row.offset == 0)
+        #expect(model.rowFrame(at: 0, lifted: false).minX == CGFloat(384 - 296))
     }
 
     @Test func windowKeepsTwoCardsEachSide() {

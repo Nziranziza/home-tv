@@ -211,6 +211,8 @@ enum Theme {
         static let canvasFadeOut: Animation = .easeInOut(duration: 0.3)
         /// Two frames between Watch Now drawing again and the collapse starting.
         static let closeLeadIn: Duration = .milliseconds(33)
+        /// How long the closed-on card stays the page's only focusable, for focus to land on it.
+        static let focusLockHold: Duration = .milliseconds(300)
         /// Strip slide on Left/Right: half-way at 0.2s, a long soft tail to rest by ≈0.75s.
         static let slide: Animation = .spring(response: 0.75, dampingFraction: 1)
         /// Quiet time after the last page move before the metadata fades back in (as the slide rests).
