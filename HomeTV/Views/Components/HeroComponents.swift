@@ -227,6 +227,7 @@ struct HeroCircleButton: View {
     }
 }
 
+/// White when focused; the resting platter otherwise, like the circle buttons.
 private struct HeroPlayButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         StyleBody(configuration: configuration)
@@ -238,8 +239,14 @@ private struct HeroPlayButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(.black)
-                .background(Capsule(style: .continuous).fill(Color.white))
+                .foregroundStyle(isFocused ? .black : .white)
+                .background {
+                    if isFocused {
+                        Color.white.clipShape(.capsule(style: .continuous))
+                    } else {
+                        HeroRestingPlatter(shape: .capsule(style: .continuous))
+                    }
+                }
                 .scaleEffect(configuration.isPressed ? 0.97 : (isFocused ? 1.06 : 1.0))
                 .shadow(color: .black.opacity(isFocused ? 0.45 : 0.0), radius: 22, y: 12)
                 .animation(.easeInOut(duration: 0.18), value: isFocused)
@@ -262,14 +269,15 @@ private struct HeroCircleButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(isFocused ? .black : .white)
-                // Focused: solid white circle. Unfocused: a dark near-black glass circle, or — for a
-                // `bare` control (the carousel chevron) — nothing, so only the glyph shows at rest.
-                .background(
-                    isFocused
-                        ? Color.white
-                        : (bare ? Color.clear : Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.85)),
-                    in: .circle
-                )
+                // Focused: solid white circle. Unfocused: the resting platter, or — for a `bare`
+                // control (the carousel chevron) — nothing, so only the glyph shows at rest.
+                .background {
+                    if isFocused {
+                        Color.white.clipShape(.circle)
+                    } else if !bare {
+                        HeroRestingPlatter(shape: .circle)
+                    }
+                }
                 .scaleEffect(configuration.isPressed ? 0.95 : (isFocused ? 1.08 : 1.0))
                 .shadow(color: .black.opacity(isFocused ? 0.45 : 0.0), radius: 14, y: 8)
                 .animation(.easeInOut(duration: 0.18), value: isFocused)

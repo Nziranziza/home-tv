@@ -159,6 +159,8 @@ final class MetaDetailModel {
         }
         status = .loading
         for addon in AddonRegistry.shared.enabledAddons {
+            // A row preview cancels a load it has paged past; stop before any further fetch.
+            guard !Task.isCancelled else { return }
             do {
                 let response = try await StremioClient.shared.meta(
                     baseURL: addon.baseURL,
@@ -168,6 +170,7 @@ final class MetaDetailModel {
                 meta = response.meta
                 status = .loaded
                 readiness.metaLoaded = true
+                guard !Task.isCancelled else { return }
                 // Related, trailers, enrichment and the reveal cap run concurrently, and each lands on
                 // its own, so trailer autoplay never waits on the slower related fetch.
                 async let relatedTask: Void = loadRelated()
@@ -203,6 +206,7 @@ final class MetaDetailModel {
         guard loadsRelated, let m = meta else { return }
         let firstGenre = m.genres?.first
         for addon in AddonRegistry.shared.enabledAddons {
+            guard !Task.isCancelled else { return }
             let catalogs = addon.manifest.catalogs ?? []
             guard let catalog = catalogs.first(where: { $0.type == typeID }) else { continue }
             let extra = firstGenre.map { ["genre": $0] } ?? [:]

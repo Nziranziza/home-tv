@@ -10,8 +10,6 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
     var focus: FocusState<Focus?>.Binding
     let focusValue: (DetailHeroAction) -> Focus
     let onPlay: (StreamRequest) -> Void
-    /// Up from any button, for a host that isn't a focus section of its own.
-    var onMoveUp: (() -> Void)?
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -21,10 +19,8 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
                 onPlay(playbackRequest(upNext))
             }
             .focused(focus, equals: focusValue(.play))
-            .onMoveUp(onMoveUp)
             HeroWatchlistButton(preview: model.preview)
                 .focused(focus, equals: focusValue(.watchlist))
-                .onMoveUp(onMoveUp)
             // Watched eye. For a show it marks the episode the Play pill resumes — recorded locally
             // when Trakt is not connected — and for a movie it marks the movie, which only Trakt can
             // hold. No eye on a plain "Play" show (no specific episode to mark).
@@ -41,7 +37,6 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
                     UserLibrary.toggleEpisodeWatched(showID: model.metaID, season: s, episode: e)
                 }
                 .focused(focus, equals: focusValue(.watched))
-                .onMoveUp(onMoveUp)
             } else if model.typeID != "series" {
                 let watched = UserLibrary.isWatched(type: model.typeID, id: model.metaID)
                 HeroCircleButton(
@@ -51,11 +46,9 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
                     UserLibrary.toggleWatched(type: model.typeID, id: model.metaID)
                 }
                 .focused(focus, equals: focusValue(.watched))
-                .onMoveUp(onMoveUp)
             }
             HeroShareButton()
                 .focused(focus, equals: focusValue(.share))
-                .onMoveUp(onMoveUp)
             trailing()
         }
         .padding(.top, Theme.Detail.heroActionRowTopPadding)
@@ -108,16 +101,5 @@ extension DetailHeroActionRow where Trailing == EmptyView {
         onPlay: @escaping (StreamRequest) -> Void
     ) {
         self.init(model: model, focus: focus, focusValue: focusValue, onPlay: onPlay, trailing: { EmptyView() })
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func onMoveUp(_ action: (() -> Void)?) -> some View {
-        if let action {
-            onMoveCommand { if $0 == .up { action() } }
-        } else {
-            self
-        }
     }
 }

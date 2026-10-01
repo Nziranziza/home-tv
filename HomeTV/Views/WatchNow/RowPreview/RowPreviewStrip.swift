@@ -1,19 +1,12 @@
 import SwiftUI
 
-/// The row preview's thumbnail strip: a series' episodes (from the up-next one), or a movie's related
-/// titles. Reuses the detail screen's `EpisodeCard` and the row `ContentCard`.
+/// The row preview's peeking thumbnails: a series' episodes from the up-next one, or a movie's related
+/// titles. A glimpse of the detail screen's first row, not a control: Down opens that screen.
 struct RowPreviewStrip: View {
     let detail: MetaDetailModel
-    var focus: FocusState<RowPreviewGallery.Control?>.Binding
-    let onPlay: (StreamRequest) -> Void
-    let onOpenEpisode: (Video) -> Void
-    let onOpenRelated: (MetaPreview) -> Void
 
-    @State private var position = ScrollPosition(idType: String.self)
-    /// The last card with focus, for the leading barrier to hand focus back to.
-    @State private var lastFocused = 0
-    /// The season of the focused episode, so its TMDB data loads as you scroll into it.
-    @State private var focusedSeason: Int?
+    /// Four in view and the fifth at the card's edge, as in the sample.
+    private static let count = 5
 
     /// Episodes for a series; related titles only for a movie.
     static func hasContent(_ detail: MetaDetailModel) -> Bool {
@@ -21,88 +14,49 @@ struct RowPreviewStrip: View {
     }
 
     var body: some View {
-        let vm = detail.vm
-        let upNext = detail.upNext(
-            progress: { UserLibrary.progress(forKey: vm.episodeKey($0)) },
-            isWatched: { UserLibrary.isEpisodeWatched(type: detail.typeID, showID: detail.metaID, season: $0.season, episode: $0.episode) }
-        )
-        let upNextID = upNext.flatMap { $0.marksEpisode ? $0.video.id : nil }
-        let season = focusedSeason ?? upNext?.video.season ?? detail.seasons.first
-        let width = Theme.RowPreview.stripCardWidth
-        ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: Theme.RowPreview.stripSpacing) {
-                if detail.sortedEpisodes.isEmpty {
-                    ForEach(vm.relatedItems.enumerated(), id: \.element.id) { i, item in
-                        ContentCard(meta: item, shape: .landscape, sizeOverride: CGSize(width: width, height: width * 9 / 16)) {
-                            onOpenRelated(item)
+        let episodes = self.episodes
+        // An overlay on a peek-high base: the row is wider and taller than the card, and must not size
+        // the overlay. Only its top shows; the rest runs past the card's edges, where the overlay clips it.
+        Color.clear
+            .frame(height: Theme.RowPreview.stripPeek)
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: Theme.RowPreview.stripSpacing) {
+                    if episodes.isEmpty {
+                        ForEach(detail.vm.relatedItems.prefix(Self.count)) { item in
+                            RowPreviewThumbnail(url: ContentCard.artworkURL(for: item, shape: .landscape))
                         }
-                        .focused(focus, equals: .strip(i))
-                    }
-                } else {
-                    let ratingText = vm.displayCertification
-                    ForEach(detail.sortedEpisodes.enumerated(), id: \.element.id) { i, episode in
-                        let info = detail.episodeInfo[Enrichment.episodeKey(season: episode.season ?? 0, episode: episode.episode ?? 0)]
-                        EpisodeCard(
-                            thumbnailURL: info?.stillURL ?? episode.thumbnail.flatMap(URL.init(string:)),
-                            episodeNumber: episode.episode ?? 0,
-                            title: info?.title ?? episode.episodeTitle ?? "Episode \(episode.episode ?? 0)",
-                            overview: info?.overview ?? episode.overview,
-                            dateText: detail.episodeAirDateText[episode.id],
-                            durationText: vm.episodeDurationText(episode, info: info),
-                            ratingText: ratingText,
-                            progress: UserLibrary.progress(forKey: vm.episodeKey(episode)),
-                            watched: UserLibrary.isEpisodeWatched(type: detail.typeID, showID: detail.metaID, season: episode.season, episode: episode.episode),
-                            isUpNext: episode.id == upNextID,
-                            onFocusChange: { if $0 { focusedSeason = episode.season } },
-                            onToggleWatched: episode.season != nil && episode.episode != nil ? {
-                                UserLibrary.toggleEpisodeWatched(showID: detail.metaID, season: episode.season, episode: episode.episode)
-                            } : nil,
-                            onOpenDetail: { onOpenEpisode(episode) },
-                            width: width
-                        ) {
-                            detail.recordHistory()
-                            onPlay(StreamRequest(
-                                type: detail.typeID,
-                                contentID: episode.id,
-                                title: detail.meta.map { "\($0.name) — \(vm.episodeLabel(episode))" } ?? vm.episodeLabel(episode),
-                                backgroundURL: episode.thumbnail ?? detail.meta?.background,
-                                logoURL: detail.meta?.logo
-                            ))
+                    } else {
+                        ForEach(episodes) { episode in
+                            let info = detail.episodeInfo[Enrichment.episodeKey(season: episode.season ?? 0, episode: episode.episode ?? 0)]
+                            RowPreviewThumbnail(url: info?.stillURL ?? episode.thumbnail.flatMap(URL.init(string:)))
                         }
-                        .focused(focus, equals: .strip(i))
                     }
                 }
+                .fixedSize()
             }
-            .scrollTargetLayout()
-            .detailRowContentPadding(0)
-        }
-        // Margins rather than padding, so scrolling to the up-next episode keeps it under Play.
-        .contentMargins(.horizontal, Theme.RowPreview.infoLeading, for: .scrollContent)
-        .scrollPosition($position, anchor: .leading)
-        .detailRowScroll()
-        // A horizontal scroll view is vertically flexible; keep it to the cards' height.
-        .fixedSize(horizontal: false, vertical: true)
-        .focusSection()
-        // Left off the first card would otherwise open the sidebar.
-        .focusBarrier(.leading, isActive: isFocused, gap: Theme.Hero.focusBarrierWidth) {
-            Task { focus.wrappedValue = .strip(lastFocused) }
-        }
-        // The barrier widens the view on its leading side; shed that so the cards line up under Play.
-        .padding(.leading, -Theme.Hero.focusBarrierWidth)
-        .onChange(of: focus.wrappedValue) { _, new in
-            if case .strip(let i) = new { lastFocused = i }
-        }
-        // Opens on the episode Play resumes, as the detail's episode row does.
-        .onAppear {
-            if let upNextID { position.scrollTo(id: upNextID, anchor: .leading) }
-        }
-        // TMDB stills and titles for the season in view, as the detail's episode row loads them.
-        .task(id: "\(detail.metaID)|\(season ?? -1)") {
-            await detail.loadSeasonEnrichment(season)
+            .accessibilityHidden(true)
+        // TMDB stills for the seasons in view, as the detail's episode row loads them.
+        .task(id: "\(detail.metaID)|\(seasons(of: episodes))") {
+            for season in seasons(of: episodes) {
+                await detail.loadSeasonEnrichment(season)
+            }
         }
     }
 
-    private var isFocused: Bool {
-        if case .strip = focus.wrappedValue { true } else { false }
+    /// From the up-next episode, clamped so a late one still fills the row, as the detail's
+    /// episode row scrolled to it does.
+    private var episodes: ArraySlice<Video> {
+        let all = detail.sortedEpisodes
+        let upNext = detail.upNext(
+            progress: { UserLibrary.progress(forKey: detail.vm.episodeKey($0)) },
+            isWatched: { UserLibrary.isEpisodeWatched(type: detail.typeID, showID: detail.metaID, season: $0.season, episode: $0.episode) }
+        )
+        let upNextIndex = upNext.flatMap { next in next.marksEpisode ? all.firstIndex { $0.id == next.video.id } : nil } ?? 0
+        let start = max(0, min(upNextIndex, all.count - (Self.count - 1)))
+        return all[start...].prefix(Self.count)
+    }
+
+    private func seasons(of episodes: ArraySlice<Video>) -> [Int] {
+        Set(episodes.compactMap(\.season)).sorted()
     }
 }

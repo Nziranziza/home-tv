@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The row preview: a catalog row's titles as large backdrop cards on a dark canvas, paged with
 /// Left/Right. Drawn over Watch Now rather than pushed, because it grows out of the row card (a tvOS
-/// push always crossfades). Select or Info pushes the detail on top; Menu shrinks back into the row.
+/// push always crossfades). Select or Down pushes the detail on top; Menu shrinks back into the row.
 struct RowPreviewGallery: View {
     let model: RowPreviewModel
     /// A detail push or the stream picker is over the gallery.
@@ -12,9 +12,8 @@ struct RowPreviewGallery: View {
     /// The close animation has finished: remove the gallery and focus this row card, in one update.
     let onClosed: () -> Void
 
-    enum Control: Hashable { case stage, action(DetailHeroAction), info, strip(Int) }
-
-    @FocusState private var focus: Control?
+    /// The stage is the gallery's only focusable: the metadata is display-only.
+    @FocusState private var isStageFocused: Bool
     /// The full screen, in global coordinates; row frames are global too.
     @State private var bounds: CGRect = .zero
     @State private var isFadingOut = false
@@ -24,8 +23,6 @@ struct RowPreviewGallery: View {
     @State private var showsBackdrop = false
     @State private var isClosing = false
     @State private var trailerRequest: TrailerPlaybackRequest?
-    /// An episode's description was selected in the strip: its detail is pushed over the gallery.
-    @State private var episodeSelection: Video?
     @Environment(\.scenePhase) private var scenePhase
 
     private var screen: CGSize { bounds.size }
@@ -49,19 +46,13 @@ struct RowPreviewGallery: View {
             }
             .ignoresSafeArea()
             .opacity(isFadingOut ? 0 : 1)
-            .onExitCommand(perform: handleMenu)
-            .onChange(of: focus) { _, new in
-                if new == .stage { model.mode = .browsing }
-            }
+            .onExitCommand(perform: close)
             .onChange(of: model.index) { _, _ in prefetchNeighbours() }
-            .onChange(of: isCovered || trailerRequest != nil || episodeSelection != nil || scenePhase != .active, initial: true) { _, suspended in
+            .onChange(of: isCovered || trailerRequest != nil || scenePhase != .active, initial: true) { _, suspended in
                 model.isSuspended = suspended
             }
             .onDisappear { model.stopTrailer() }
             .trailerPlayerCover(request: $trailerRequest)
-            .navigationDestination(item: $episodeSelection) { episode in
-                EpisodeDetailView(model: model.infoDetail, episode: episode)
-            }
             .onChange(of: screen != .zero) { _, ready in
                 // Deferred a turn so the cards first draw on the row, then grow from there.
                 if ready { Task { open() } }
@@ -104,19 +95,8 @@ struct RowPreviewGallery: View {
     private var info: some View {
         RowPreviewInfoOverlay(
             detail: model.infoDetail,
-            focus: $focus,
-            areControlsEnabled: model.mode == .controls,
             onPlay: onPlay,
-            onInfo: { onInfo(model.infoItem) },
-            onOpenEpisode: { episodeSelection = $0 },
-            onOpenRelated: { item in
-                Task {
-                    // Menu during the lookup closes the gallery; don't push over Watch Now afterwards.
-                    guard let resolved = await DetailRelatedSection.resolved(item), !isClosing else { return }
-                    onInfo(resolved)
-                }
-            },
-            onExitControls: exitControls
+            onInfo: openDetail
         )
         .clipShape(.rect(topLeadingRadius: Theme.RowPreview.cornerRadius, topTrailingRadius: Theme.RowPreview.cornerRadius, style: .continuous))
         .frame(width: centreFrame.width, height: centreFrame.height)
@@ -125,50 +105,42 @@ struct RowPreviewGallery: View {
         .animation(model.isInfoVisible ? Theme.RowPreview.infoFadeIn : Theme.RowPreview.infoFadeOut, value: model.isInfoVisible)
     }
 
-    /// Invisible focus target over the centred card. The only focusable while browsing, so Left/Right
-    /// always reach it; edge strips keep Left and Up from escaping to the sidebar.
+    /// Invisible focus target over the centred card, and the gallery's only focusable, so Left/Right
+    /// always reach it; edge strips keep Left and Up from escaping to the sidebar. Stays enabled through
+    /// the close so focus stays parked here while the cards move; input is ignored via `isClosing`.
     private var stage: some View {
-        Button { if !isClosing { onInfo(model.current) } } label: {
+        Button(action: openDetail) {
             Color.clear
         }
         .buttonStyle(RowPreviewStageButtonStyle())
-        .focused($focus, equals: .stage)
+        .focused($isStageFocused)
         .onMoveCommand(perform: handleMove)
-        .focusBarrier(.leading, isActive: focus == .stage || focus == nil, gap: 1) {
+        .focusBarrier(.leading, isActive: true, gap: 1) {
             if !isClosing { model.advance(by: -1) }
-            Task { focus = .stage }
+            Task { isStageFocused = true }
         }
         // Up while a trailer plays opens it full screen.
-        .focusBarrier(.top, isActive: focus == .stage || focus == nil, gap: 1) {
+        .focusBarrier(.top, isActive: true, gap: 1) {
             if !isClosing, let request = model.fullScreenTrailer { trailerRequest = request }
-            Task { focus = .stage }
+            Task { isStageFocused = true }
         }
         .frame(width: centreFrame.width, height: centreFrame.height)
         .offset(x: centreFrame.minX, y: centreFrame.minY)
-        // Stays enabled through the close so focus stays parked here: disabling it mid-collapse sends
-        // the focus engine searching the window while the cards move. Input is ignored via `isClosing`.
-        .disabled(model.mode == .controls)
         .accessibilityLabel(model.current.name)
     }
 
     private func handleMove(_ direction: MoveCommandDirection) {
-        guard !isClosing else { return }
         switch direction {
-        case .right: model.advance(by: 1)
-        case .down: enterControls()
+        case .right: if !isClosing { model.advance(by: 1) }
+        // Down opens the detail, as Select does: the strip is only a peek of its first row.
+        case .down: openDetail()
         default: break
         }
     }
 
-    private func enterControls() {
-        guard model.isInfoVisible, !isClosing else { return }
-        model.mode = .controls
-        Task { focus = .action(.play) }
-    }
-
-    private func exitControls() {
-        model.mode = .browsing
-        Task { focus = .stage }
+    private func openDetail() {
+        guard !isClosing else { return }
+        onInfo(model.current)
     }
 
     // MARK: Open / close
@@ -189,15 +161,7 @@ struct RowPreviewGallery: View {
         }
         withAnimation(Theme.RowPreview.sourceArtFadeOut) { showsSourceArt = false }
         withAnimation(Theme.RowPreview.backdropFadeIn) { showsBackdrop = true }
-        focus = .stage
-    }
-
-    private func handleMenu() {
-        if model.mode == .controls {
-            exitControls()
-        } else {
-            close()
-        }
+        isStageFocused = true
     }
 
     private func close() {

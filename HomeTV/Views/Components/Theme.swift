@@ -227,10 +227,6 @@ enum Theme {
         static let stripCardWidth: CGFloat = 372
         static let stripSpacing: CGFloat = 37
         static let stripPeek: CGFloat = 40
-        /// Space under the strip once focus has raised it into view.
-        static let stripRaisedBottom: CGFloat = 60
-        /// Matches the focus engine's 0.5s unfocus ease.
-        static let stripRise: Animation = .easeInOut(duration: 0.5)
         /// Rest on a revealed title this long before its trailer starts in the card.
         static let trailerDwell: Duration = .seconds(3)
 
