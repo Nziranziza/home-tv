@@ -104,6 +104,7 @@ struct TraktProgressSeason: Codable, Sendable {
 struct TraktProgressEpisode: Codable, Sendable {
     let number: Int
     let completed: Bool
+    let lastWatchedAt: String?   // Trakt `last_watched_at`, ISO-8601
 }
 
 /// One in-progress item from `/sync/playback`. `progress` is 0–100; `type` is "movie" or "episode"

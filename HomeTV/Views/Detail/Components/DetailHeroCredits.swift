@@ -18,7 +18,7 @@ struct DetailHeroCredits: View {
                     HeroCreditLine(label: "Director", names: directors)
                 }
             }
-            .frame(maxWidth: 400, alignment: .leading)
+            .frame(maxWidth: 440, alignment: .leading)
         }
     }
 }

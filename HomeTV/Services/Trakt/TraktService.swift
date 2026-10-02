@@ -30,6 +30,11 @@ final class TraktService {
     private(set) var watchedEpisodeKeys: Set<String> = []  // "showImdb:season:episode"
     private(set) var watchlistIDs: Set<String> = []        // imdb ids (movies + shows)
     private(set) var playbackProgress: [String: Double] = [:]  // key → 0...1
+    /// Newest episode activity from playback `paused_at` and history `watched_at`, by episode key.
+    private(set) var episodeActivity: [String: PlayActivity] = [:]
+    /// Per-episode `last_watched_at` from the show progress endpoint, which reaches past the history
+    /// fetch limit. Loaded per show with `watchedEpisodeKeys`.
+    private(set) var episodeLastWatchedAt: [String: Date] = [:]
     private(set) var watchlistItems: [MetaPreview] = []
     private(set) var continueWatchingItems: [MetaPreview] = []
     /// Finished movies/episodes, newest first — the Recently Watched row. Episode-level, so a show
@@ -201,6 +206,8 @@ final class TraktService {
         watchedEpisodeKeys = []
         watchlistIDs = []
         playbackProgress = [:]
+        episodeActivity = [:]
+        episodeLastWatchedAt = [:]
         watchlistItems = []
         continueWatchingItems = []
         recentlyWatchedItems = []
@@ -246,7 +253,9 @@ final class TraktService {
         async let historyReq = TraktClient.shared.history(limit: Self.historyFetchLimit, token: token)
 
         let watchedMovies = (try? await watchedMoviesReq) ?? []
-        let watchedShows = (try? await watchedShowsReq) ?? []
+        // nil on a failed fetch, so the per-episode caches aren't pruned against an empty list.
+        let fetchedWatchedShows = try? await watchedShowsReq
+        let watchedShows = fetchedWatchedShows ?? []
         let watchlistMov = (try? await watchlistMoviesReq) ?? []
         let watchlistSh = (try? await watchlistShowsReq) ?? []
         let playbackMov = (try? await playbackMoviesReq) ?? []
@@ -261,6 +270,7 @@ final class TraktService {
         // thousands of entries for heavy accounts — doing that on `@MainActor` stalls the UI on every
         // sync. `Task.detached` runs it on the concurrent pool; only the final assignments hop back.
         let currentEpisodeKeys = watchedEpisodeKeys
+        let currentLastWatchedAt = episodeLastWatchedAt
         let snapshot = await Task.detached {
             Self.buildLibrarySnapshot(
                 watchedMovies: watchedMovies,
@@ -270,7 +280,9 @@ final class TraktService {
                 playbackMov: playbackMov,
                 playbackEp: playbackEp,
                 history: history ?? [],
-                currentEpisodeKeys: currentEpisodeKeys
+                currentEpisodeKeys: currentEpisodeKeys,
+                currentLastWatchedAt: currentLastWatchedAt,
+                prunesEpisodeCaches: fetchedWatchedShows != nil
             )
         }.value
 
@@ -288,8 +300,14 @@ final class TraktService {
         // Only when the fetch actually came back — a network blip shouldn't empty the row.
         if history != nil {
             recentlyWatchedItems = snapshot.recentlyWatchedItems
+            episodeActivity = snapshot.episodeActivity
+        } else {
+            episodeActivity = snapshot.episodeActivity.merging(episodeActivity.filter(\.value.isFinished)) {
+                PlayActivity.newest($0, $1) ?? $0
+            }
         }
         watchedEpisodeKeys = snapshot.watchedEpisodeKeys
+        episodeLastWatchedAt = snapshot.episodeLastWatchedAt
     }
 
     /// The rebuilt caches, produced by the pure `buildLibrarySnapshot` off the main actor.
@@ -301,7 +319,9 @@ final class TraktService {
         let playbackProgress: [String: Double]
         let continueWatchingItems: [MetaPreview]
         let recentlyWatchedItems: [RecentlyWatchedItem]
+        let episodeActivity: [String: PlayActivity]
         let watchedEpisodeKeys: Set<String>
+        let episodeLastWatchedAt: [String: Date]
     }
 
     /// Pure transform of the six Trakt sync payloads into the UI caches. `nonisolated static` so it runs
@@ -314,7 +334,9 @@ final class TraktService {
         playbackMov: [TraktPlaybackItem],
         playbackEp: [TraktPlaybackItem],
         history: [TraktHistoryItem],
-        currentEpisodeKeys: Set<String>
+        currentEpisodeKeys: Set<String>,
+        currentLastWatchedAt: [String: Date],
+        prunesEpisodeCaches: Bool
     ) -> LibrarySnapshot {
         // Watched. `/sync/watched/shows` reliably reports which shows have any watched episode
         // (show-level), but for many accounts it omits the per-season/episode breakdown entirely — so we
@@ -352,6 +374,7 @@ final class TraktService {
         let merged = (playbackMov + playbackEp)
             .sorted { ($0.pausedAt ?? "") > ($1.pausedAt ?? "") }   // ISO-8601 sorts correctly as text
 
+        var activity: [String: PlayActivity] = [:]
         var continueItems: [MetaPreview] = []
         var seen = Set<String>()
         for item in merged {
@@ -363,7 +386,11 @@ final class TraktService {
             } else if let showID = item.show?.ids.imdb,
                       let season = item.episode?.season,
                       let number = item.episode?.number {
-                progress["\(showID):\(season):\(number)"] = item.progress / 100.0
+                let key = "\(showID):\(season):\(number)"
+                progress[key] = item.progress / 100.0
+                if let pausedAt = date(fromISO8601: item.pausedAt) {
+                    activity[key] = PlayActivity.newest(activity[key], PlayActivity(date: pausedAt, isFinished: false))
+                }
                 if progress[showID] == nil { progress[showID] = item.progress / 100.0 }
                 if seen.insert(showID).inserted {
                     continueItems.append(preview(imdb: showID, type: "series", name: item.show?.title ?? ""))
@@ -378,6 +405,14 @@ final class TraktService {
         // episodes you finished still appear while the next one is in progress.
         var recentItems: [RecentlyWatchedItem] = []
         var watchedSeen = Set<String>()
+        for entry in history where entry.type == "episode" {
+            guard let showID = entry.show?.ids.imdb,
+                  let season = entry.episode?.season,
+                  let number = entry.episode?.number,
+                  let watchedAt = date(fromISO8601: entry.watchedAt) else { continue }
+            let key = "\(showID):\(season):\(number)"
+            activity[key] = PlayActivity.newest(activity[key], PlayActivity(date: watchedAt, isFinished: true))
+        }
         for entry in history {
             guard recentItems.count < recentlyWatchedLimit else { break }
             guard let item = recentlyWatchedItem(from: entry),
@@ -390,10 +425,13 @@ final class TraktService {
         // so it's left to `loadEpisodeProgress` — but prune keys for shows that just dropped out of
         // `watchedShowIDs` (un-watched entirely elsewhere) so the two caches stay aligned. Shows still
         // watched keep their keys and refresh the next time their detail screen opens.
-        let prunedEpisodeKeys = currentEpisodeKeys.filter { key in
+        func isWatchedShow(_ key: String) -> Bool {
+            guard prunesEpisodeCaches else { return true }
             guard let separator = key.firstIndex(of: ":") else { return false }
             return showIDs.contains(String(key[..<separator]))
         }
+        let prunedEpisodeKeys = currentEpisodeKeys.filter(isWatchedShow)
+        let prunedLastWatchedAt = currentLastWatchedAt.filter { isWatchedShow($0.key) }
 
         return LibrarySnapshot(
             watchedMovieIDs: movieIDs,
@@ -403,7 +441,9 @@ final class TraktService {
             playbackProgress: progress,
             continueWatchingItems: continueItems,
             recentlyWatchedItems: recentItems,
-            watchedEpisodeKeys: prunedEpisodeKeys
+            episodeActivity: activity,
+            watchedEpisodeKeys: prunedEpisodeKeys,
+            episodeLastWatchedAt: prunedLastWatchedAt
         )
     }
 
@@ -418,15 +458,20 @@ final class TraktService {
               let progress = try? await TraktClient.shared.showProgress(imdb: showIMDB, token: token)
         else { return }
 
-        var keys = watchedEpisodeKeys.filter { !$0.hasPrefix("\(showIMDB):") }
+        let prefix = "\(showIMDB):"
+        var keys = watchedEpisodeKeys.filter { !$0.hasPrefix(prefix) }
+        var lastWatchedAt = episodeLastWatchedAt.filter { !$0.key.hasPrefix(prefix) }
         var hasWatchedEpisode = false
         for season in progress.seasons {
             for episode in season.episodes where episode.completed {
-                keys.insert("\(showIMDB):\(season.number):\(episode.number)")
+                let key = "\(prefix)\(season.number):\(episode.number)"
+                keys.insert(key)
+                lastWatchedAt[key] = Self.date(fromISO8601: episode.lastWatchedAt)
                 hasWatchedEpisode = true
             }
         }
         watchedEpisodeKeys = keys
+        episodeLastWatchedAt = lastWatchedAt
         // Keep the show-level watched set consistent with the episode keys we just inserted, rather than
         // the nullable `completed` aggregate — so a show still counts as watched even if Trakt reports a
         // null total while its episodes carry `completed: true`. An un-watch elsewhere clears it.
@@ -450,6 +495,14 @@ final class TraktService {
 
     /// Playback progress (0...1) for a movie/show imdb id, or an episode key "imdb:season:episode".
     func progress(forKey key: String) -> Double? { playbackProgress[key] }
+
+    /// An episode's newest play activity across playback, history and show progress.
+    func lastPlayed(forKey key: String) -> PlayActivity? {
+        PlayActivity.newest(
+            episodeActivity[key],
+            episodeLastWatchedAt[key].map { PlayActivity(date: $0, isFinished: true) }
+        )
+    }
 
     // MARK: - Actions (optimistic local update → API call → revert on failure)
 
@@ -503,16 +556,28 @@ final class TraktService {
         guard isSignedIn else { return }
         let key = "\(showIMDB):\(season):\(episode)"
         let wasWatched = watchedEpisodeKeys.contains(key)
+        let previousActivity = episodeActivity[key]
+        let previousLastWatchedAt = episodeLastWatchedAt[key]
+        let previousProgress = playbackProgress[key]
         if wasWatched {
             watchedEpisodeKeys.remove(key)
+            episodeActivity[key] = nil
+            episodeLastWatchedAt[key] = nil
         } else {
             watchedEpisodeKeys.insert(key)
             watchedShowIDs.insert(showIMDB)
             playbackProgress[key] = nil   // no longer in progress → up-next advances
+            episodeActivity[key] = PlayActivity(date: .now, isFinished: true)
+        }
+        let revert = {
+            if wasWatched { self.watchedEpisodeKeys.insert(key) } else { self.watchedEpisodeKeys.remove(key) }
+            self.episodeActivity[key] = previousActivity
+            self.episodeLastWatchedAt[key] = previousLastWatchedAt
+            self.playbackProgress[key] = previousProgress
         }
         Task {
             guard let token = await validAccessToken() else {
-                if wasWatched { watchedEpisodeKeys.insert(key) } else { watchedEpisodeKeys.remove(key) }
+                revert()
                 return
             }
             let body = episodeSyncBody(showIMDB: showIMDB, season: season, episode: episode)
@@ -523,7 +588,7 @@ final class TraktService {
                     try await TraktClient.shared.addToHistory(body: body, token: token)
                 }
             } catch {
-                if wasWatched { watchedEpisodeKeys.insert(key) } else { watchedEpisodeKeys.remove(key) }
+                revert()
                 lastError = "Couldn't update your Trakt history."
             }
         }
@@ -538,6 +603,8 @@ final class TraktService {
             } else {
                 watchedShowIDs.remove(imdb)
                 watchedEpisodeKeys = watchedEpisodeKeys.filter { !$0.hasPrefix("\(imdb):") }
+                episodeActivity = episodeActivity.filter { !$0.key.hasPrefix("\(imdb):") }
+                episodeLastWatchedAt = episodeLastWatchedAt.filter { !$0.key.hasPrefix("\(imdb):") }
             }
         } else {
             if watched { watchedMovieIDs.insert(imdb) } else { watchedMovieIDs.remove(imdb) }

@@ -47,10 +47,7 @@ struct RowPreviewStrip: View {
     /// episode row scrolled to it does.
     private var episodes: ArraySlice<Video> {
         let all = detail.sortedEpisodes
-        let upNext = detail.upNext(
-            progress: { UserLibrary.progress(forKey: detail.vm.episodeKey($0)) },
-            isWatched: { UserLibrary.isEpisodeWatched(type: detail.typeID, showID: detail.metaID, season: $0.season, episode: $0.episode) }
-        )
+        let upNext = detail.upNext()
         let upNextIndex = upNext.flatMap { next in next.marksEpisode ? all.firstIndex { $0.id == next.video.id } : nil } ?? 0
         let start = max(0, min(upNextIndex, all.count - (Self.count - 1)))
         return all[start...].prefix(Self.count)

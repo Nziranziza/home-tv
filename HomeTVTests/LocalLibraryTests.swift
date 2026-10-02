@@ -71,6 +71,39 @@ struct LocalLibraryTests {
         #expect(store.progress(forKey: "c") == nil)
     }
 
+    // MARK: - Last played
+
+    @Test func playingRecordsWhetherItWasFinished() {
+        let store = Self.makeStore()
+        store.setProgress(0.4, id: "a")
+        store.setProgress(0.99, id: "b")
+        #expect(store.lastPlayed(forKey: "a")?.isFinished == false)
+        #expect(store.lastPlayed(forKey: "b")?.isFinished == true)
+        #expect(store.lastPlayed(forKey: "c") == nil)
+    }
+
+    @Test func aBarelyStartedPlayIsNotActivity() throws {
+        let store = Self.makeStore()
+        store.setProgress(0.4, id: "a")
+        let paused = try #require(store.lastPlayed(forKey: "a"))
+        store.setProgress(0.002, id: "a")
+        #expect(store.lastPlayed(forKey: "a") == paused)
+        store.setProgress(0.002, id: "b")
+        #expect(store.lastPlayed(forKey: "b") == nil)
+    }
+
+    @Test func markingWatchedFinishesItNowAndUnmarkingForgetsIt() throws {
+        let store = Self.makeStore()
+        store.setProgress(0.4, id: "a")
+        let paused = try #require(store.lastPlayed(forKey: "a"))
+        store.setWatched(true, id: "a")
+        let finished = try #require(store.lastPlayed(forKey: "a"))
+        #expect(finished.isFinished)
+        #expect(finished.date >= paused.date)
+        store.setWatched(false, id: "a")
+        #expect(store.lastPlayed(forKey: "a") == nil)
+    }
+
     // MARK: - Watchlist
 
     @Test func theWatchlistTogglesAndKeepsNewestFirst() {
@@ -97,6 +130,7 @@ struct LocalLibraryTests {
         let reloaded = Self.makeStore(suite)
         #expect(reloaded.isWatched("tt0903747:1:4"))
         #expect(reloaded.progress(forKey: "tt0903747:1:5") == 0.3)
+        #expect(reloaded.lastPlayed(forKey: "tt0903747:1:5")?.isFinished == false)
         #expect(reloaded.watchlist.map(\.name) == ["Inception"])
     }
 }

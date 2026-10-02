@@ -14,16 +14,20 @@ final class LocalLibrary {
     private(set) var watchedIDs: Set<String> = []
     /// Fraction watched, 0...1, by content id — the same shape and keying as Trakt's playback progress.
     private(set) var progressByID: [String: Double] = [:]
+    /// Newest play activity by content id, which picks the show hero's episode.
+    private(set) var activityByID: [String: PlayActivity] = [:]
     /// Saved titles, newest first. Whole previews rather than ids, so the row renders without fetching.
     private(set) var watchlist: [MetaPreview] = []
 
     /// Outside this a title has barely started, or is finished. Mirrors Trakt's own playback window.
-    private static let resumeRange: ClosedRange<Double> = 0.01...0.95
+    static let resumeRange: ClosedRange<Double> = 0.01...0.95
 
     private struct Snapshot: Codable {
         var watched: [String]
         var progress: [String: Double]
         var watchlist: [MetaPreview]
+        /// Optional so libraries saved before it existed still decode.
+        var activity: [String: PlayActivity]?
     }
 
     private let storageKey = "hometv.localLibrary.v1"
@@ -36,6 +40,7 @@ final class LocalLibrary {
         watchedIDs = Set(snapshot.watched)
         progressByID = snapshot.progress
         watchlist = snapshot.watchlist
+        activityByID = snapshot.activity ?? [:]
     }
 
     /// The content id for a title, or one of its episodes. nil when unnumbered: coercing to 0 would
@@ -51,11 +56,17 @@ final class LocalLibrary {
 
     func isWatched(_ id: String) -> Bool { watchedIDs.contains(id) }
 
+    /// Marking watched counts as finishing it now, even if it already was; unmarking forgets its activity.
     func setWatched(_ watched: Bool, id: String) {
-        let changed = watched ? watchedIDs.insert(id).inserted : watchedIDs.remove(id) != nil
-        guard changed else { return }
-        // Finishing clears the resume point, as Trakt drops the playback entry.
-        if watched { progressByID[id] = nil }
+        if watched {
+            watchedIDs.insert(id)
+            // Finishing clears the resume point, as Trakt drops the playback entry.
+            progressByID[id] = nil
+            activityByID[id] = PlayActivity(date: .now, isFinished: true)
+        } else {
+            guard watchedIDs.remove(id) != nil else { return }
+            activityByID[id] = nil
+        }
         save()
     }
 
@@ -65,17 +76,18 @@ final class LocalLibrary {
 
     func progress(forKey key: String) -> Double? { progressByID[key] }
 
-    /// How far into a title the user got. Outside the resume window the entry is dropped.
+    /// How far into a title the user got. Outside the resume window the entry is dropped; past its end
+    /// the title counts as finished. A barely-started play isn't activity, so a stray open can't take over
+    /// the hero.
     func setProgress(_ fraction: Double, id: String) {
-        guard Self.resumeRange.contains(fraction) else {
-            guard progressByID[id] != nil else { return }
-            progressByID[id] = nil
-            save()
-            return
+        progressByID[id] = Self.resumeRange.contains(fraction) ? fraction : nil
+        if fraction >= Self.resumeRange.lowerBound {
+            activityByID[id] = PlayActivity(date: .now, isFinished: fraction > Self.resumeRange.upperBound)
         }
-        progressByID[id] = fraction
         save()
     }
+
+    func lastPlayed(forKey key: String) -> PlayActivity? { activityByID[key] }
 
     // MARK: - Watchlist
 
@@ -91,7 +103,7 @@ final class LocalLibrary {
     }
 
     private func save() {
-        let snapshot = Snapshot(watched: Array(watchedIDs), progress: progressByID, watchlist: watchlist)
+        let snapshot = Snapshot(watched: Array(watchedIDs), progress: progressByID, watchlist: watchlist, activity: activityByID)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: storageKey)
     }

@@ -13,7 +13,7 @@ struct HeroFactsLine: View {
         HStack(spacing: Theme.Hero.metaChipsSpacing) {
             Text(text)
                 .font(Theme.Hero.chipFont)
-                .foregroundStyle(Theme.Color.primaryText)
+                .foregroundStyle(.white.opacity(Theme.Hero.factsOpacity))
             QualityBadges()
         }
     }
