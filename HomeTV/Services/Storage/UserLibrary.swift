@@ -69,6 +69,15 @@ enum UserLibrary {
         local.setProgress(fraction, id: id)
     }
 
+    // MARK: - Last played
+
+    /// An episode's newest play activity, when known. Unnumbered videos have none.
+    static func lastPlayed(showID: String, season: Int?, episode: Int?) -> PlayActivity? {
+        guard let season, let episode,
+              let key = LocalLibrary.id(show: showID, season: season, episode: episode) else { return nil }
+        return trakt.isSignedIn ? trakt.lastPlayed(forKey: key) : local.lastPlayed(forKey: key)
+    }
+
     // MARK: - Watchlist
 
     static var watchlistItems: [MetaPreview] {

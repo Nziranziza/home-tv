@@ -206,7 +206,7 @@ struct RowPreviewGallery: View {
                 Task { await ImageLoader.shared.prefetch(url: url, targetSize: Theme.Hero.backdropTargetSize) }
             }
             if let url = RowPreviewInfoOverlay.logoURL(for: meta) {
-                Task { await ImageLoader.shared.prefetch(url: url, targetSize: RowPreviewInfoOverlay.logoSize) }
+                Task { await ImageLoader.shared.prefetch(url: url, targetSize: RowPreviewInfoOverlay.logoSize, trimsTransparency: true) }
             }
         }
     }

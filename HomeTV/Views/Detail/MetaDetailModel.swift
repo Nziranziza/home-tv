@@ -128,12 +128,37 @@ final class MetaDetailModel {
     }
 
     /// The hero's up-next episode (resume / next-to-watch). Pure algorithm in `MetaDetailViewModel`,
-    /// run over the cached `sortedEpisodes`; the live Trakt watch state is injected by the caller.
-    func upNext(
-        progress: (Video) -> Double?,
-        isWatched: (Video) -> Bool
-    ) -> MetaDetailViewModel.UpNext? {
-        vm.upNext(episodes: sortedEpisodes, progress: progress, isWatched: isWatched)
+    /// run over the cached `sortedEpisodes` with the live `UserLibrary` watch state.
+    func upNext() -> MetaDetailViewModel.UpNext? {
+        let snapshot = vm
+        return snapshot.upNext(
+            episodes: sortedEpisodes,
+            progress: { UserLibrary.progress(forKey: snapshot.episodeKey($0)) },
+            isWatched: { UserLibrary.isEpisodeWatched(type: self.typeID, showID: self.metaID, season: $0.season, episode: $0.episode) },
+            lastPlayed: { UserLibrary.lastPlayed(showID: self.metaID, season: $0.season, episode: $0.episode) }
+        )
+    }
+
+    /// Time left on the up-next episode when it's being resumed. Runtime is the episode's own from TMDB,
+    /// else the show's typical episode runtime.
+    func resumeTimeLeft(_ upNext: MetaDetailViewModel.UpNext) -> String? {
+        guard let progress = upNext.resumeProgress else { return nil }
+        let key = Enrichment.episodeKey(season: upNext.video.season ?? 0, episode: upNext.video.episode ?? 0)
+        let runtime = episodeInfo[key]?.runtimeMinutes ?? enrichment?.runtimeMinutes
+        return vm.timeLeftText(progress: progress, runtimeMinutes: runtime)
+    }
+
+    /// The hero synopsis for a show under way: the up-next episode's bold "S1, E2 · Title" label and its
+    /// overview. nil when the hero should keep the show's logline.
+    func heroEpisodeSynopsis(_ upNext: MetaDetailViewModel.UpNext?) -> (label: String, overview: String)? {
+        guard let upNext, upNext.describesEpisode else { return nil }
+        let episode = upNext.video
+        let info = episodeInfo[Enrichment.episodeKey(season: episode.season ?? 0, episode: episode.episode ?? 0)]
+        guard let overview = info?.overview ?? episode.overview, !overview.isEmpty else { return nil }
+        let label = [vm.seasonEpisodeLabel(episode), info?.title ?? episode.episodeTitle]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        return (label, overview)
     }
 
     var currentSeasonDefault: Int? { seasons.first }

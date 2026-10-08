@@ -98,9 +98,15 @@ enum Theme {
         static let pageDotsPillVerticalPadding: CGFloat = 9
 
         static let buttonHeight: CGFloat = 66
-        static let primaryButtonHorizontalPadding: CGFloat = 44
+        // ≈ half the pill height, as Apple TV pads its Play pill.
+        static let primaryButtonHorizontalPadding: CGFloat = 33
+        // Resume bar inside the Play pill (▶ ━━ 43m), proportioned to Apple TV's.
+        static let resumeBarWidth: CGFloat = 52
+        static let resumeBarHeight: CGFloat = 10
 
         static let sourceBadgeSize: CGFloat = 30
+        /// Streaming-provider disc ahead of the hero chips, as Apple TV draws it.
+        static let providerBadgeSize: CGFloat = 40
 
         static let titleMaxWidth: CGFloat = 1100
         // Logo art fit box, sized to Apple TV's Watch Now: a hero logo there measures ≈150 pt tall and
@@ -116,11 +122,13 @@ enum Theme {
         // treatment around the shared size.
         static let titleFallbackFont: Font = .system(size: 52, weight: .heavy)
         static let chipFont: Font = .system(size: 26, weight: .medium)
-        static let descriptionFont: Font = .system(size: 27)
-        static let descriptionOpacity: Double = 0.68
-        static let descriptionLineSpacing: CGFloat = 6
+        static let descriptionFont: Font = .system(size: 25, weight: .medium)
+        static let descriptionOpacity: Double = 0.58
+        static let descriptionLineSpacing: CGFloat = 2
         static let descriptionLineLimit: Int = 4
-        static let descriptionMaxWidth: CGFloat = 780
+        static let descriptionMaxWidth: CGFloat = 700
+        static let factsOpacity: Double = 0.8
+        static let circleIconFont: Font = .system(size: 32, weight: .semibold)
     }
 
     enum WatchNow {
@@ -296,7 +304,7 @@ enum Theme {
         // both at once.
         /// Vertical rhythm between the hero's rows (title, chips, synopsis, facts, actions). Tight, so
         /// the upper stack sits low in the frame.
-        static let heroColumnSpacing: CGFloat = 16
+        static let heroColumnSpacing: CGFloat = 21
         /// Bottom inset on the hero column, which puts the action row near the bottom safe area (88% down).
         static let heroColumnBottomPadding: CGFloat = 40
         // MARK: Content row breathing room
@@ -321,9 +329,9 @@ enum Theme {
         static let rowFocusOverflowBottom: CGFloat = 72
 
         /// Gap between the hero's action buttons.
-        static let heroActionRowSpacing: CGFloat = 18
+        static let heroActionRowSpacing: CGFloat = 26
         /// Lift between the facts line and the action row.
-        static let heroActionRowTopPadding: CGFloat = 6
+        static let heroActionRowTopPadding: CGFloat = 15
 
         /// Uniform height of a content row's header slot (the band that holds a section label or the
         /// season selector, directly above the row's cards). Fixing it — and bottom-anchoring taller

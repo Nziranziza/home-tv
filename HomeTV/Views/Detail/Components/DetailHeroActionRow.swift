@@ -14,10 +14,18 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
 
     var body: some View {
         let upNext = seriesUpNext
+        // Resuming an episode shows ▶ ━━ 43m instead of its label, when the runtime is known.
+        let timeLeft = upNext.flatMap(model.resumeTimeLeft)
         HStack(spacing: Theme.Detail.heroActionRowSpacing) {
-            HeroPlayButton(title: playButtonTitle(upNext), icon: "play.fill") {
+            HeroPlayButton(
+                title: timeLeft ?? playButtonTitle(upNext),
+                icon: "play.fill",
+                progress: timeLeft == nil ? nil : upNext?.resumeProgress
+            ) {
                 onPlay(playbackRequest(upNext))
             }
+            .accessibilityLabel(playButtonTitle(upNext))
+            .accessibilityValue(timeLeft.map { "\($0) left" } ?? "")
             .focused(focus, equals: focusValue(.play))
             HeroWatchlistButton(preview: model.preview)
                 .focused(focus, equals: focusValue(.watchlist))
@@ -54,12 +62,9 @@ struct DetailHeroActionRow<Focus: Hashable, Trailing: View>: View {
         .padding(.top, Theme.Detail.heroActionRowTopPadding)
     }
 
-    /// The show hero's up-next episode (resume / next-to-watch), with the live watch state injected.
+    /// The show hero's up-next episode (resume / next-to-watch / rewatch).
     private var seriesUpNext: MetaDetailViewModel.UpNext? {
-        model.upNext(
-            progress: { UserLibrary.progress(forKey: model.vm.episodeKey($0)) },
-            isWatched: { UserLibrary.isEpisodeWatched(type: model.typeID, showID: model.metaID, season: $0.season, episode: $0.episode) }
-        )
+        model.upNext()
     }
 
     /// Episode-aware for series; Resume/Rewatch/Play for movies.
