@@ -41,8 +41,12 @@ private struct ContinueWatchingCard: View {
     private var size: CGSize { Theme.Card.continueWatchingSize }
 
     /// Real playback progress (0–1) for this title when it is known, otherwise the placeholder below
-    /// so the card always matches Apple's layout.
-    private var storedProgress: Double? { UserLibrary.progress(forKey: item.metaID) }
+    /// so the card always matches Apple's layout. An episode card reads its own episode, and an up-next
+    /// episode has none.
+    private var storedProgress: Double? {
+        guard let episodeKey = item.episodeKey else { return UserLibrary.progress(forKey: item.metaID) }
+        return UserLibrary.progress(forKey: episodeKey) ?? 0
+    }
 
     var body: some View {
         Button(action: action) {
@@ -125,9 +129,13 @@ private struct ContinueWatchingCard: View {
         }
     }
 
-    /// Real progress text when Trakt has playback for this title, else the placeholder. When real,
-    /// we only know the percentage (no runtime), so we show that rather than a fabricated time.
+    /// The episode for a series card, real progress text when Trakt has playback for this title, else
+    /// the placeholder. When real, we only know the percentage (no runtime), so we show that rather
+    /// than a fabricated time.
     private var timeText: String {
+        if let season = item.season, let episode = item.episode {
+            return "S\(season), E\(episode)"
+        }
         if let p = storedProgress {
             return "\(Int((p * 100).rounded()))% watched"
         }
