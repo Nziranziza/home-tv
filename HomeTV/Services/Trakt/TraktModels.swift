@@ -70,10 +70,12 @@ struct TraktWatchedMovie: Codable, Sendable {
     let movie: TraktMovie
 }
 
-/// A watched show from `/sync/watched/shows`. Used only for the show-level watched set — the
-/// per-episode breakdown comes from `TraktShowProgress` (this endpoint omits it for many accounts).
+/// A watched show from `/sync/watched/shows`. Used for the show-level watched set and to pick the
+/// shows Continue Watching asks for an up-next episode — the per-episode breakdown comes from
+/// `TraktShowProgress` (this endpoint omits it for many accounts).
 struct TraktWatchedShow: Codable, Sendable {
     let show: TraktShow
+    let lastWatchedAt: String?   // Trakt `last_watched_at`, ISO-8601
 }
 
 struct TraktWatchlistMovie: Codable, Sendable {

@@ -13,8 +13,17 @@ struct WatchHistoryItem: Codable, Identifiable, Hashable, Sendable {
     /// still decodes; see `WatchHistory.finishedItems` for how it's derived when nothing reports
     /// completion.
     var finishedAt: Date? = nil
+    /// The episode a series card plays: in progress or up next. Trakt only; nil for movies.
+    var season: Int? = nil
+    var episode: Int? = nil
 
     var id: String { "\(typeID):\(metaID)" }
+
+    /// "imdb:season:episode" for a series card with an episode, matching Trakt's progress keys.
+    var episodeKey: String? {
+        guard let season, let episode else { return nil }
+        return "\(metaID):\(season):\(episode)"
+    }
 
     var preview: MetaPreview {
         MetaPreview(
