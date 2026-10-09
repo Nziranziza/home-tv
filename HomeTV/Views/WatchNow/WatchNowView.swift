@@ -36,8 +36,7 @@ struct WatchNowView: View {
                     onPlay: { meta in play(meta) },
                     onInfo: { meta in path.append(.detail(meta)) }
                 ) {
-                    // Compute once — reading `continueWatchingItems` twice (guard + row) re-maps
-                    // Trakt's list into fresh `WatchHistoryItem`s each time.
+                    // Compute once — the guard and the row both read it.
                     let continueItems = continueWatchingItems
                     if !continueItems.isEmpty {
                         ContinueWatchingRow(items: continueItems) { item in
@@ -131,7 +130,7 @@ struct WatchNowView: View {
     /// devices), otherwise the local watch history recorded when you tap Play in HomeTV.
     private var continueWatchingItems: [WatchHistoryItem] {
         if trakt.isSignedIn {
-            return trakt.continueWatchingItems.map { WatchHistoryItem(preview: $0) }
+            return trakt.continueWatchingItems
         }
         return history.inProgressItems
     }
