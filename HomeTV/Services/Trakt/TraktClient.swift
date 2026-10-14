@@ -112,7 +112,8 @@ actor TraktClient {
     }
 
     func watchedShows(token: String) async throws -> [TraktWatchedShow] {
-        try decode(try await perform(request("sync/watched/shows", token: token)))
+        // `noseasons`: we only read show-level fields, and the season breakdown dominates the payload.
+        try decode(try await perform(request("sync/watched/shows?extended=noseasons", token: token)))
     }
 
     /// Per-episode watched progress for a single show (by IMDB id / Trakt id / slug). Unlike
