@@ -83,9 +83,9 @@ private struct PlayerRow: View {
 
     private func detail(for player: ExternalPlayer) -> String {
         switch player {
-        case .infuse: "Recommended. Handles HTTP and magnet links."
-        case .vlc: "Direct HTTP streams only. No magnet support."
-        case .system: "Open with the system's default handler."
+        case .infuse: "Recommended. Handles HTTP and magnet links, and resumes where you left off."
+        case .vlc: "Direct HTTP streams only. No magnet support. Always starts from the beginning."
+        case .system: "Open with the system's default handler. Always starts from the beginning."
         }
     }
 }

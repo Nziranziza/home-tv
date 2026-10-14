@@ -47,6 +47,8 @@ struct StreamPickerView: View {
     @State private var runtimeSeconds: Int?
     /// Release year from the title's meta, for a movie's `Name (Year).mkv` filename.
     @State private var releaseYear: Int?
+    /// Set once the meta lookup has finished, found or not, so `play` doesn't launch without a runtime.
+    @State private var isMetaResolved = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -883,9 +885,14 @@ struct StreamPickerView: View {
     private func play(_ item: LabeledStream) async {
         // Let the episodes ahead finish resolving, or the queue is only as long as whatever landed
         // while the user read the stream list. Bounded, and usually already satisfied.
+        let expiry = ContinuousClock.now + SeasonQueuePrefetcher.coverageDeadline
+        // The resume position needs the runtime, and the queue needs the episode list.
+        while !isMetaResolved, ContinuousClock.now < expiry, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         await queuePrefetcher.awaitResolution(
             of: forwardEpisodeIDs,
-            within: SeasonQueuePrefetcher.coverageDeadline
+            within: expiry - ContinuousClock.now
         )
         let queue = seasonQueue(for: item)
         queuePrefetcher.cancel()
@@ -894,6 +901,11 @@ struct StreamPickerView: View {
         // Only Infuse's URL carries our callback: state left for any other player is never cleared, and
         // a late callback would then land on the wrong title.
         let token = PlaybackReturnCoordinator.makeToken()
+        // The same key the Resume label reads, so the button and the launch agree.
+        let startPosition = PlayerLauncher.resumePosition(
+            fraction: UserLibrary.progress(forKey: contentID),
+            runtimeSeconds: runtimeSeconds
+        )
         let expectsCallback = preference.defaultPlayer == .infuse
         PlaybackReturnCoordinator.shared.willLaunch(
             expectsCallback
@@ -913,6 +925,7 @@ struct StreamPickerView: View {
                     queue: queue,
                     using: preference.defaultPlayer,
                     title: title,
+                    startPosition: startPosition,
                     token: token
                 )
             } else {
@@ -921,6 +934,7 @@ struct StreamPickerView: View {
                     using: preference.defaultPlayer,
                     title: title,
                     filename: launchFilename(for: item),
+                    startPosition: startPosition,
                     token: token
                 )
             }
@@ -1009,6 +1023,8 @@ struct StreamPickerView: View {
     /// Loads the title's meta for the runtime, and for a series its episode list, then starts resolving
     /// the neighbouring episodes' streams.
     private func startSeasonPrefetch() async {
+        isMetaResolved = false
+        defer { isMetaResolved = true }
         guard ProcessInfo.processInfo.environment["MOCK_STREAMS"] != "1" else { return }
         // All of this exists only to build an Infuse hand-off; no other player reads any of it.
         guard preference.defaultPlayer == .infuse else { return }

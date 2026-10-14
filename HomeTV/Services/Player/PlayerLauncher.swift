@@ -24,6 +24,7 @@ enum PlayerLauncher {
         using player: ExternalPlayer,
         title: String? = nil,
         filename: String? = nil,
+        startPosition: Int? = nil,
         token: String? = nil
     ) async throws {
         guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
@@ -32,25 +33,44 @@ enum PlayerLauncher {
             using: player,
             title: title ?? stream.displayTitle,
             filename: filename,
+            startPosition: startPosition,
             token: token
         )
     }
 
     /// Hands an ordered season to the player. Infuse's `play` action takes repeated
     /// `url`/`position`/`filename` sets and plays them in order; every other scheme takes one URL, so
-    /// those get the selected episode alone.
+    /// those get the selected episode alone. `startPosition` applies to the selected episode only.
     static func play(
         queue: PlaybackQueue,
         using player: ExternalPlayer,
         title: String? = nil,
+        startPosition: Int? = nil,
         token: String? = nil
     ) async throws {
         guard let first = queue.first else { throw PlayerLaunchError.noPlayableURL }
-        if player == .infuse, queue.entries.count > 1, let target = infusePlaylistURL(queue: queue, token: token) {
+        if player == .infuse, queue.entries.count > 1,
+           let target = infusePlaylistURL(queue: queue, startPosition: startPosition, token: token) {
             // Refused: fall through to the single-URL launch rather than cost the chosen episode.
             if await tryOpen(target) { return }
         }
-        try await open(mediaURL: first.url, using: player, title: title, filename: first.filename, token: token)
+        try await open(
+            mediaURL: first.url,
+            using: player,
+            title: title,
+            filename: first.filename,
+            startPosition: startPosition,
+            token: token
+        )
+    }
+
+    /// Seconds to resume at, or nil to start from the beginning. Only a fraction inside
+    /// `LocalLibrary.resumeRange` resumes, and an unknown runtime never guesses.
+    static func resumePosition(fraction: Double?, runtimeSeconds: Int?) -> Int? {
+        guard let fraction, LocalLibrary.resumeRange.contains(fraction),
+              let runtimeSeconds, runtimeSeconds > 0 else { return nil }
+        let seconds = Int(fraction * Double(runtimeSeconds))
+        return seconds > 0 ? seconds : nil
     }
 
     static func open(
@@ -58,9 +78,17 @@ enum PlayerLauncher {
         using player: ExternalPlayer,
         title: String? = nil,
         filename: String? = nil,
+        startPosition: Int? = nil,
         token: String? = nil
     ) async throws {
-        let target = launchURL(for: mediaURL, player: player, title: title, filename: filename, token: token)
+        let target = launchURL(
+            for: mediaURL,
+            player: player,
+            title: title,
+            filename: filename,
+            startPosition: startPosition,
+            token: token
+        )
         guard let target else { throw PlayerLaunchError.playerUnavailable(player) }
         try await openTarget(target, player: player)
     }
@@ -84,11 +112,19 @@ enum PlayerLauncher {
         player: ExternalPlayer,
         title: String?,
         filename: String? = nil,
+        startPosition: Int? = nil,
         token: String? = nil
     ) -> URL? {
         switch player {
         case .infuse:
-            return infuseURL(media: mediaURL, title: title, filename: filename, token: token)
+            return infuseURL(
+                media: mediaURL,
+                title: title,
+                filename: filename,
+                startPosition: startPosition,
+                token: token
+            )
+        // Neither VLC's `stream` action nor a bare media URL takes a start time.
         case .vlc:
             return vlcURL(media: mediaURL)
         case .system:
@@ -97,9 +133,18 @@ enum PlayerLauncher {
     }
 
     /// A single-item `play` call. `filename` is what Infuse identifies the title by — its scheme has no
-    /// `name` parameter. `title` is kept for the players that do take one.
-    static func infuseURL(media: URL, title: String?, filename: String? = nil, token: String? = nil) -> URL? {
+    /// `name` parameter. `title` is kept for the players that do take one. `startPosition` is in seconds.
+    static func infuseURL(
+        media: URL,
+        title: String?,
+        filename: String? = nil,
+        startPosition: Int? = nil,
+        token: String? = nil
+    ) -> URL? {
         var pairs = ["url=\(strictlyEncoded(media.absoluteString))"]
+        if let startPosition, startPosition > 0 {
+            pairs.append("position=\(startPosition)")
+        }
         if let filename, !filename.isEmpty {
             pairs.append("filename=\(strictlyEncoded(filename))")
         } else if let title, !title.isEmpty {
@@ -119,11 +164,13 @@ enum PlayerLauncher {
     /// A multi-item `play` call. Infuse pairs the repeated keys positionally, so every item carries
     /// every key — omitting one would shift the rest of the list. The query is encoded by hand because
     /// `queryItems` leaves `&`, `=`, `+` and `?` raw inside a value, which corrupts the whole call.
-    static func infusePlaylistURL(queue: PlaybackQueue, token: String? = nil) -> URL? {
+    /// `startPosition` resumes the selected (first) entry; the rest start at 0.
+    static func infusePlaylistURL(queue: PlaybackQueue, startPosition: Int? = nil, token: String? = nil) -> URL? {
         var pairs: [String] = []
-        for entry in queue.entries {
+        for (index, entry) in queue.entries.enumerated() {
+            let position = index == 0 ? max(startPosition ?? 0, 0) : 0
             pairs.append("url=\(strictlyEncoded(entry.url.absoluteString))")
-            pairs.append("position=0")
+            pairs.append("position=\(position)")
             pairs.append("filename=\(strictlyEncoded(entry.filename))")
         }
         // Called once, when the playlist ends or the player closes — not per item. Routed by
