@@ -13,8 +13,7 @@ extension View {
     /// hero can stand its trailer down like Watch Now's does.
     func watchNowDestinations(
         path: Binding<[WatchNowRoute]>,
-        isStackVisible: Bool,
-        onPlay: @escaping (MetaPreview) -> Void
+        isStackVisible: Bool
     ) -> some View {
         navigationDestination(for: WatchNowRoute.self) { route in
             switch route {
@@ -27,8 +26,7 @@ extension View {
             case .channel(let channel):
                 ChannelView(
                     channel: channel,
-                    isActive: isStackVisible && path.wrappedValue.last == route,
-                    onPlay: onPlay
+                    isActive: isStackVisible && path.wrappedValue.last == route
                 ) { meta in
                     path.wrappedValue.append(.detail(meta))
                 }

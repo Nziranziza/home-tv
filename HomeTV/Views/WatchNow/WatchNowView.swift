@@ -10,6 +10,8 @@ struct WatchNowView: View {
     @State private var trakt = TraktService.shared
     @State private var path: [WatchNowRoute] = WatchNowView.initialPath()
     @State private var streamRequest: StreamRequest?
+    /// The pending hero Play lookup, cancelled by a newer Play or when the hero stands down.
+    @State private var playTask: Task<Void, Never>?
     @State private var router = DeepLinkRouter.shared
     /// Shared hero carousel state, read by the pinned backdrop and the scrolling overlay alike.
     @State private var heroModel = HeroCarouselModel()
@@ -111,6 +113,7 @@ struct WatchNowView: View {
             }
             .onChange(of: isHeroActive, initial: true) { _, active in
                 heroModel.isActive = active
+                if !active { playTask?.cancel() }
             }
             // Cold launch from a Top Shelf poster: the link may already be pending before the first
             // render, so onChange would miss it. Consume any waiting target on appear.
@@ -119,8 +122,7 @@ struct WatchNowView: View {
             .onChange(of: router.pendingDetail) { _, _ in consumePendingDetail() }
             .watchNowDestinations(
                 path: $path,
-                isStackVisible: isSelectedTab && streamRequest == nil,
-                onPlay: { meta in play(meta) }
+                isStackVisible: isSelectedTab && streamRequest == nil
             )
             .streamPickerCover(request: $streamRequest)
         }
@@ -144,24 +146,14 @@ struct WatchNowView: View {
         return history.finishedItems.map(RecentlyWatchedItem.init(finished:))
     }
 
-    /// Hero Play: record the title in history and open the stream picker directly (same flow as the
-    /// detail screen's Play button), instead of only navigating to the detail page.
+    /// Hero Play: opens the stream picker directly (same flow as the detail screen's Play button),
+    /// instead of only navigating to the detail page.
     private func play(_ meta: MetaPreview) {
-        history.record(
-            typeID: meta.type,
-            metaID: meta.id,
-            name: meta.name,
-            poster: meta.poster,
-            background: meta.background,
-            logo: meta.logo
-        )
-        streamRequest = StreamRequest(
-            type: meta.type,
-            contentID: meta.id,
-            title: meta.name,
-            backgroundURL: meta.background,
-            logoURL: meta.logo
-        )
+        playTask?.cancel()
+        playTask = Task {
+            guard let request = await MetaDetailModel.heroPlaybackRequest(for: meta) else { return }
+            streamRequest = request
+        }
     }
 
     /// Removes the gallery with the closed-on card as the page's only focusable, so tvOS's fallback for

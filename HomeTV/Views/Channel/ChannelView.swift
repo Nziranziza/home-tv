@@ -5,29 +5,30 @@ struct ChannelView: View {
     let channel: StreamingChannel
     /// False while something covers this screen, so the hero trailer stands down.
     let isActive: Bool
-    var onPlay: (MetaPreview) -> Void
     var onSelect: (MetaPreview) -> Void
 
     @State private var model: ChannelViewModel
     @State private var heroModel = HeroCarouselModel()
     /// One lookup at a time, so a second Select mid-lookup can't push two details.
     @State private var isSelecting = false
+    /// Owned here rather than by Watch Now: a cover on the stack's root can't present over a pushed screen.
+    @State private var streamRequest: StreamRequest?
+    /// The pending hero Play lookup, cancelled by a newer Play or when the hero stands down.
+    @State private var playTask: Task<Void, Never>?
 
     init(
         channel: StreamingChannel,
         isActive: Bool,
-        onPlay: @escaping (MetaPreview) -> Void,
         onSelect: @escaping (MetaPreview) -> Void
     ) {
         self.channel = channel
         self.isActive = isActive
-        self.onPlay = onPlay
         self.onSelect = onSelect
         _model = State(initialValue: ChannelViewModel(channel: channel))
     }
 
     var body: some View {
-        HeroSheetPage(heroModel: heroModel, onPlay: onPlay, onInfo: onSelect) {
+        HeroSheetPage(heroModel: heroModel, onPlay: play, onInfo: onSelect) {
             ChannelWordmark(
                 channel: channel,
                 logoURL: model.wordmarkURL,
@@ -51,8 +52,19 @@ struct ChannelView: View {
             await model.load()
             heroModel.items = model.heroItems
         }
-        .onChange(of: isActive, initial: true) { _, active in
+        .onChange(of: isActive && streamRequest == nil, initial: true) { _, active in
             heroModel.isActive = active
+            if !active { playTask?.cancel() }
+        }
+        .streamPickerCover(request: $streamRequest)
+    }
+
+    /// Hero Play: opens the stream picker, as Watch Now's hero does.
+    private func play(_ meta: MetaPreview) {
+        playTask?.cancel()
+        playTask = Task {
+            guard let request = await MetaDetailModel.heroPlaybackRequest(for: meta) else { return }
+            streamRequest = request
         }
     }
 

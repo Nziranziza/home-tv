@@ -283,13 +283,53 @@ final class MetaDetailModel {
     }
 
     func recordHistory() {
+        let preview = preview
         WatchHistory.shared.record(
             typeID: typeID,
             metaID: metaID,
-            name: meta?.name ?? fallbackTitle,
-            poster: meta?.poster,
-            background: meta?.background,
-            logo: meta?.logo
+            name: preview.name,
+            poster: preview.poster,
+            background: preview.background,
+            logo: preview.logo
         )
+    }
+
+    /// What Play opens the stream picker for: a series' up-next episode (stream addons key off the
+    /// `tt…:S:E` episode id), or the movie itself. Records the title in history.
+    func playbackRequest(_ upNext: MetaDetailViewModel.UpNext?) -> StreamRequest {
+        recordHistory()
+        let preview = preview
+        if let upNext {
+            return StreamRequest(
+                type: typeID,
+                contentID: upNext.video.id,
+                title: "\(preview.name) — \(vm.episodeLabel(upNext.video))",
+                backgroundURL: upNext.video.thumbnail ?? preview.background,
+                logoURL: preview.logo
+            )
+        }
+        return StreamRequest(
+            type: typeID,
+            contentID: metaID,
+            title: preview.name,
+            backgroundURL: preview.background,
+            logoURL: preview.logo
+        )
+    }
+
+    /// A hero's Play, without opening the detail screen: loads a series' episodes so Play targets the
+    /// same up-next episode the detail screen would. nil if cancelled mid-lookup, with no history written.
+    static func heroPlaybackRequest(for preview: MetaPreview) async -> StreamRequest? {
+        let model = MetaDetailModel(typeID: preview.type, metaID: preview.id, fallbackTitle: preview.name, seed: preview)
+        if preview.type == "series" {
+            for addon in AddonRegistry.shared.enabledAddons {
+                guard !Task.isCancelled else { return nil }
+                guard let response = try? await StremioClient.shared.meta(baseURL: addon.baseURL, type: preview.type, id: preview.id) else { continue }
+                model.meta = response.meta
+                break
+            }
+        }
+        guard !Task.isCancelled else { return nil }
+        return model.playbackRequest(model.upNext())
     }
 }
