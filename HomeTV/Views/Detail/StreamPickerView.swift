@@ -395,6 +395,7 @@ struct StreamPickerView: View {
         var sub: [String] = []
         if let codec = m.codec { sub.append(codec) }
         if let audio = m.audio { sub.append(audio) }
+        if let languages = m.languageSummary { sub.append(languages) }
         if let size = m.size { sub.append(size) }
         if selectedProvider == Self.allLabel { sub.append(item.addonName) }
 
@@ -447,9 +448,11 @@ struct StreamPickerView: View {
 
     @ViewBuilder
     private var detailPanel: some View {
+        let model = self.model
         VStack(alignment: .leading, spacing: 22) {
-            if let item = detailStream {
+            if let item = model.detailStream {
                 let m = item.meta
+                let compact = model.showsSubtitleRow
                 // The whole header block (eyebrow + resolution/HDR headline + release name) is a
                 // SINGLE fixed-height container. This guarantees the spec rows and Play button
                 // below never move as focus shifts between streams — regardless of whether the
@@ -483,20 +486,27 @@ struct StreamPickerView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(spacing: 0) {
-                    specRow("Video", videoSpec(m))
-                    specRow("Audio", m.audio ?? "—")
-                    specRow("Source", m.sourceTag ?? "—", warning: m.sourceIsWarning, last: false)
-                    specRow("File Size", m.size ?? "Unknown")
-                    specRow("Delivery", item.stream.infoHash != nil ? "Torrent" : "Direct")
+                    specRow("Video", model.videoSpec(m), compact: compact)
+                    specRow("Audio", m.audio ?? "—", compact: compact)
+                    // Always rendered, like Debrid below, so the block height holds across focus moves.
+                    specRow("Languages", m.languageDetail, compact: compact)
+                    // Shown for every stream once any loaded stream reports subtitles, for the same reason.
+                    if compact {
+                        specRow("Subtitles", m.subtitleDetail ?? "—", compact: compact)
+                    }
+                    specRow("Source", m.sourceTag ?? "—", warning: m.sourceIsWarning, compact: compact)
+                    specRow("File Size", m.size ?? "Unknown", compact: compact)
+                    specRow("Delivery", item.stream.infoHash != nil ? "Torrent" : "Direct", compact: compact)
                     // Always rendered (with a — fallback) so the spec block keeps a constant height
                     // as focus moves between debrid and non-debrid streams — otherwise the Play
                     // button below would jump by one row.
                     specRow(
                         "Debrid",
                         m.debrid.map { "\($0.service) · \($0.isCached ? "Cached" : "Download")" } ?? "—",
-                        valueColor: m.debrid.map { $0.isCached ? DebridBadge.cachedColor : DebridBadge.downloadColor }
+                        valueColor: m.debrid.map { $0.isCached ? DebridBadge.cachedColor : DebridBadge.downloadColor },
+                        compact: compact
                     )
-                    specRow("Provider", item.addonName, last: true)
+                    specRow("Provider", item.addonName, compact: compact, last: true)
                 }
 
                 Spacer(minLength: 0)
@@ -525,9 +535,9 @@ struct StreamPickerView: View {
         .focusSection()
     }
 
-    private func videoSpec(_ m: StreamMeta) -> String { model.videoSpec(m) }
-
-    private func specRow(_ label: String, _ value: String, warning: Bool = false, valueColor: Color? = nil, last: Bool = false) -> some View {
+    private func specRow(
+        _ label: String, _ value: String, warning: Bool = false, valueColor: Color? = nil, compact: Bool, last: Bool = false
+    ) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label)
@@ -541,7 +551,8 @@ struct StreamPickerView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .padding(.vertical, 11)
+            // Tightened from 11 so the Languages (and Subtitles) rows still clear the Play button.
+            .padding(.vertical, compact ? 4 : 7)
             if !last {
                 Rectangle()
                     .fill(.white.opacity(0.08))

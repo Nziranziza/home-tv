@@ -183,6 +183,8 @@ struct Stream: Codable, Hashable, Sendable, Identifiable {
     let fileIdx: Int?
     let sources: [String]?
     let behaviorHints: StreamBehaviorHints?
+    /// Subtitle tracks the add-on attached to this stream; only their languages are read.
+    var subtitles: [StreamSubtitle]? = nil
 
     var id: String {
         if let url { return url }
@@ -215,6 +217,13 @@ struct Stream: Codable, Hashable, Sendable, Identifiable {
         if let magnetURL { return magnetURL }
         return nil
     }
+}
+
+struct StreamSubtitle: Codable, Hashable, Sendable {
+    let id: String?
+    let url: String?
+    /// ISO 639 code, e.g. `eng` or `en`.
+    let lang: String?
 }
 
 struct StreamBehaviorHints: Codable, Hashable, Sendable {
