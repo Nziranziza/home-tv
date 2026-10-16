@@ -12,6 +12,10 @@ struct WatchNowView: View {
     @State private var streamRequest: StreamRequest?
     /// The pending hero Play lookup, cancelled by a newer Play or when the hero stands down.
     @State private var playTask: Task<Void, Never>?
+    /// Continue Watching's direct resume, which skips the picker when the last stream can be found again.
+    @State private var resumer = ContinueWatchingResumer()
+    /// The pending Continue Watching resume, cancelled when the user leaves Watch Now before it lands.
+    @State private var resumeTask: Task<Void, Never>?
     @State private var router = DeepLinkRouter.shared
     /// Shared hero carousel state, read by the pinned backdrop and the scrolling overlay alike.
     @State private var heroModel = HeroCarouselModel()
@@ -26,7 +30,8 @@ struct WatchNowView: View {
     private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil }
 
     /// Everything but the returning card is disabled while focus lands on it.
-    private var isFocusLocked: Bool { focusReturn != nil }
+    /// Also held while a Continue Watching card resolves its stream, so focus stays on that card.
+    private var isFocusLocked: Bool { focusReturn != nil || resumer.resumingID != nil }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -41,10 +46,17 @@ struct WatchNowView: View {
                     // Compute once — the guard and the row both read it.
                     let continueItems = continueWatchingItems
                     if !continueItems.isEmpty {
-                        ContinueWatchingRow(items: continueItems) { item in
-                            path.append(.detail(item.preview))
+                        ContinueWatchingRow(
+                            items: continueItems,
+                            resumingID: resumer.resumingID,
+                            onShowDetail: { item in
+                                resumeTask?.cancel()
+                                path.append(.detail(item.preview))
+                            }
+                        ) { item in
+                            resume(item)
                         }
-                        .disabled(isFocusLocked)
+                        .disabled(focusReturn != nil)
                     }
 
                     ForEach(model.rowSpecs) { spec in
@@ -113,7 +125,10 @@ struct WatchNowView: View {
             }
             .onChange(of: isHeroActive, initial: true) { _, active in
                 heroModel.isActive = active
-                if !active { playTask?.cancel() }
+                if !active {
+                    playTask?.cancel()
+                    resumeTask?.cancel()
+                }
             }
             // Cold launch from a Top Shelf poster: the link may already be pending before the first
             // render, so onChange would miss it. Consume any waiting target on appear.
@@ -152,6 +167,17 @@ struct WatchNowView: View {
         playTask?.cancel()
         playTask = Task {
             guard let request = await MetaDetailModel.heroPlaybackRequest(for: meta) else { return }
+            streamRequest = request
+        }
+    }
+
+    /// Continue Watching: plays with the stream last chosen for the title, else opens the picker for it.
+    private func resume(_ item: WatchHistoryItem) {
+        // A second click while one resolves is ignored by the resumer; don't let it cancel the first.
+        guard resumer.resumingID == nil else { return }
+        resumeTask = Task {
+            let outcome = await resumer.resume(item)
+            guard !Task.isCancelled, case .chooseStream(let request) = outcome else { return }
             streamRequest = request
         }
     }

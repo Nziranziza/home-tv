@@ -41,10 +41,14 @@ enum SeasonQueueBuilder {
     }
 
     static func identities(of stream: Stream) -> Set<ReleaseIdentity> {
+        identities(bingeGroup: stream.behaviorHints?.bingeGroup, infoHash: stream.infoHash)
+    }
+
+    static func identities(bingeGroup: String?, infoHash: String?) -> Set<ReleaseIdentity> {
         var result: Set<ReleaseIdentity> = []
-        let group = stream.behaviorHints?.bingeGroup?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = bingeGroup?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let group, !group.isEmpty { result.insert(.bingeGroup(group)) }
-        let hash = stream.infoHash?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hash = infoHash?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let hash, !hash.isEmpty { result.insert(.infoHash(hash.lowercased())) }
         return result
     }
@@ -123,9 +127,14 @@ enum SeasonQueueBuilder {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return false
         }
+        return !awaitsDebridDownload(stream)
+    }
+
+    /// A debrid link the service hasn't cached yet: it opens, but there is nothing to play.
+    static func awaitsDebridDownload(_ stream: Stream) -> Bool {
         let label = "\(stream.name ?? "") \(stream.title ?? "")"
-        if let debrid = DebridInfo.parse(from: label), !debrid.isCached { return false }
-        return true
+        guard let debrid = DebridInfo.parse(from: label) else { return false }
+        return !debrid.isCached
     }
 
     // MARK: - Assembly

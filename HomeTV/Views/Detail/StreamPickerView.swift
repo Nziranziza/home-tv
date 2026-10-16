@@ -36,21 +36,21 @@ struct StreamPickerView: View {
     /// Drives the loading-skeleton pulse (single source so all placeholders breathe in sync).
     @State private var skeletonPulse = false
 
-    /// Resolves the rest of the season in the background while the user browses. See `startSeasonPrefetch`.
-    @State private var queuePrefetcher = SeasonQueuePrefetcher()
-    /// The show's numbered episodes, in play order, once its meta has loaded.
-    @State private var seasonEpisodes: [SeasonQueueBuilder.Episode] = []
-    /// The show's own name. `title` is the episode label the launching screen passed, which would read
-    /// as "The Gentlemen — S1·E1 S01E01.mkv" in the player.
-    @State private var seasonShowName: String?
-    /// Runtime from the title's meta, for turning a reported position into a resume fraction.
-    @State private var runtimeSeconds: Int?
-    /// Release year from the title's meta, for a movie's `Name (Year).mkv` filename.
-    @State private var releaseYear: Int?
-    /// Set once the meta lookup has finished, found or not, so `play` doesn't launch without a runtime.
-    @State private var isMetaResolved = false
+    /// The launch path, which resolves the rest of the season in the background while the user browses.
+    @State private var session: PlaybackSession
+    /// Set while a launch waits on the season queue, so a second press can't hand off twice.
+    @State private var isLaunching = false
 
     @Environment(\.dismiss) private var dismiss
+
+    init(type: String, contentID: String, title: String, backgroundURL: String? = nil, logoURL: String? = nil) {
+        self.type = type
+        self.contentID = contentID
+        self.title = title
+        self.backgroundURL = backgroundURL
+        self.logoURL = logoURL
+        _session = State(initialValue: PlaybackSession(type: type, contentID: contentID, title: title))
+    }
 
     static let allLabel = "All"
 
@@ -120,9 +120,8 @@ struct StreamPickerView: View {
         .task(id: contentID) { await load() }
         // Resolves the rest of the season in the background, for a series headed to Infuse. Runs
         // alongside the picker's own load; `task` cancels it when the picker goes away.
-        .task(id: contentID) { await startSeasonPrefetch() }
-        // The prefetcher's work is unstructured, so closing the picker has to stop it explicitly.
-        .onDisappear { queuePrefetcher.cancel() }
+        .task(id: contentID) { await session.prepare() }
+        .onDisappear { session.cancel() }
         // Detail panel reflects the focused stream.
         .onChange(of: focus) { _, newValue in
             if case .stream(let id) = newValue { detailID = id }
@@ -883,188 +882,15 @@ struct StreamPickerView: View {
     }
 
     private func play(_ item: LabeledStream) async {
-        // Let the episodes ahead finish resolving, or the queue is only as long as whatever landed
-        // while the user read the stream list. Bounded, and usually already satisfied.
-        let expiry = ContinuousClock.now + SeasonQueuePrefetcher.coverageDeadline
-        // The resume position needs the runtime, and the queue needs the episode list.
-        while !isMetaResolved, ContinuousClock.now < expiry, !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        await queuePrefetcher.awaitResolution(
-            of: forwardEpisodeIDs,
-            within: expiry - ContinuousClock.now
-        )
-        let queue = seasonQueue(for: item)
-        queuePrefetcher.cancel()
-        // Every launch is registered, queue or not: the player's callback is how a movie or a single
-        // episode gets its resume point too, not only a season hand-off.
-        // Only Infuse's URL carries our callback: state left for any other player is never cleared, and
-        // a late callback would then land on the wrong title.
-        let token = PlaybackReturnCoordinator.makeToken()
-        // The same key the Resume label reads, so the button and the launch agree.
-        let startPosition = PlayerLauncher.resumePosition(
-            fraction: UserLibrary.progress(forKey: contentID),
-            runtimeSeconds: runtimeSeconds
-        )
-        let expectsCallback = preference.defaultPlayer == .infuse
-        PlaybackReturnCoordinator.shared.willLaunch(
-            expectsCallback
-                ? .init(
-                    token: token,
-                    type: type,
-                    contentID: contentID,
-                    showID: Self.showID(fromEpisodeID: contentID),
-                    runtimeSeconds: runtimeSeconds,
-                    queue: queue
-                )
-                : nil
-        )
+        guard !isLaunching else { return }
+        isLaunching = true
+        defer { isLaunching = false }
         do {
-            if let queue {
-                try await PlayerLauncher.play(
-                    queue: queue,
-                    using: preference.defaultPlayer,
-                    title: title,
-                    startPosition: startPosition,
-                    token: token
-                )
-            } else {
-                try await PlayerLauncher.play(
-                    item.stream,
-                    using: preference.defaultPlayer,
-                    title: title,
-                    filename: launchFilename(for: item),
-                    startPosition: startPosition,
-                    token: token
-                )
-            }
+            try await session.launch(item.stream, addonID: item.addonID)
             dismiss()
         } catch {
-            PlaybackReturnCoordinator.shared.willLaunch(nil)
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-
-    /// The episodes after the selected one, where the queue grows first and furthest.
-    private var forwardEpisodeIDs: [String] {
-        Self.prefetchEpisodeIDs(
-            episodes: seasonEpisodes,
-            selectedEpisodeID: contentID,
-            forwardOnly: true
-        )
-    }
-
-    /// The name Infuse identifies a single launch by: a movie, or an episode with no season queue.
-    private func launchFilename(for item: LabeledStream) -> String? {
-        guard let url = item.stream.playableURL else { return nil }
-        guard type == "series" else {
-            return PlayerFilename.movie(title: title, year: releaseYear, url: url)
-        }
-        let parts = contentID.split(separator: ":")
-        guard parts.count == 3, let season = Int(parts[1]), let episode = Int(parts[2]) else { return nil }
-        let episodeTitle = seasonEpisodes.first { $0.id == contentID }?.title
-        return PlayerFilename.episode(
-            showName: seasonShowName ?? title,
-            season: season,
-            episode: episode,
-            episodeTitle: episodeTitle,
-            url: url
-        )
-    }
-
-    /// The season hand-off for the chosen stream, or nil to launch the single episode exactly as before.
-    private func seasonQueue(for item: LabeledStream) -> PlaybackQueue? {
-        guard preference.defaultPlayer == .infuse, type == "series", !seasonEpisodes.isEmpty else { return nil }
-        return SeasonQueueBuilder.queue(
-            showID: Self.showID(fromEpisodeID: contentID),
-            showName: seasonShowName ?? title,
-            runtimeSeconds: runtimeSeconds,
-            episodes: seasonEpisodes,
-            selectedEpisodeID: contentID,
-            selectedStream: item.stream,
-            addonID: item.addonID,
-            candidates: queuePrefetcher.candidates
-        )
-    }
-
-    // MARK: - Season prefetch
-
-    /// A series episode id is `<show id>:<season>:<episode>`; the show's meta lives under the bare id.
-    static func showID(fromEpisodeID id: String) -> String {
-        String(id.split(separator: ":").first ?? "")
-    }
-
-    /// Seconds from an add-on's runtime string: `58 min`, `1h 2min`, or a bare number of minutes.
-    static func runtimeSeconds(from raw: String?) -> Int? {
-        guard let raw else { return nil }
-        let hours = raw.firstMatch(of: /(\d+)\s*h/.ignoresCase()).flatMap { Int($0.1) } ?? 0
-        let minutes = raw.firstMatch(of: /(\d+)\s*m/.ignoresCase()).flatMap { Int($0.1) }
-            ?? (hours == 0 ? raw.firstMatch(of: /(\d+)/).flatMap { Int($0.1) } : nil)
-            ?? 0
-        let total = hours * 3600 + minutes * 60
-        return total > 0 ? total : nil
-    }
-
-    /// The episodes worth resolving: only `maxEntries` either side of the selection can reach the queue.
-    static func prefetchEpisodeIDs(
-        episodes: [SeasonQueueBuilder.Episode],
-        selectedEpisodeID: String,
-        limit: Int = SeasonQueueBuilder.maxEntries,
-        forwardOnly: Bool = false
-    ) -> [String] {
-        guard let index = episodes.firstIndex(where: { $0.id == selectedEpisodeID }) else { return [] }
-        let forward = episodes[episodes.index(after: index)...].prefix(limit - 1).map(\.id)
-        guard !forwardOnly else { return Array(forward) }
-        let backward = episodes[..<index].suffix(limit - 1).reversed().map(\.id)
-        // Forward first, each direction outward: the queue grows contiguously from the selection.
-        return Array(forward) + backward
-    }
-
-    /// Loads the title's meta for the runtime, and for a series its episode list, then starts resolving
-    /// the neighbouring episodes' streams.
-    private func startSeasonPrefetch() async {
-        isMetaResolved = false
-        defer { isMetaResolved = true }
-        guard ProcessInfo.processInfo.environment["MOCK_STREAMS"] != "1" else { return }
-        // All of this exists only to build an Infuse hand-off; no other player reads any of it.
-        guard preference.defaultPlayer == .infuse else { return }
-        let showID = Self.showID(fromEpisodeID: contentID)
-        guard !showID.isEmpty else { return }
-
-        // Meta is cached in `StremioClient` for five minutes, so coming from the detail screen this is
-        // almost always a warm read rather than a fetch.
-        // Each add-on fills what the previous ones lacked. A series keeps looking until one returns an
-        // episode list, which is what the queue is built from.
-        var videos: [Video]?
-        for addon in registry.enabledAddons {
-            guard let response = try? await StremioClient.shared.meta(
-                baseURL: addon.baseURL, type: type, id: showID
-            ) else { continue }
-            let meta = response.meta
-            runtimeSeconds = runtimeSeconds ?? Self.runtimeSeconds(from: meta.runtime)
-            releaseYear = releaseYear ?? PlayerFilename.year(fromReleaseInfo: meta.releaseInfo)
-            // The show's own name, for the filenames Infuse matches on.
-            seasonShowName = seasonShowName ?? meta.name
-            if let found = meta.videos, !found.isEmpty { videos = found }
-            if type == "series" {
-                if videos?.isEmpty == false { break }
-            } else if runtimeSeconds != nil, releaseYear != nil {
-                break
-            }
-        }
-
-        guard type == "series", showID != contentID else { return }
-        let streamAddons = registry.enabledAddons.filter { addon in
-            (addon.manifest.resources ?? []).contains { $0.name == "stream" }
-        }
-        guard !streamAddons.isEmpty, let videos, !videos.isEmpty else { return }
-        let episodes = SeasonQueueBuilder.orderedEpisodes(from: videos)
-        seasonEpisodes = episodes
-        queuePrefetcher.start(
-            type: type,
-            episodeIDs: Self.prefetchEpisodeIDs(episodes: episodes, selectedEpisodeID: contentID),
-            addons: streamAddons
-        )
     }
 }
 
