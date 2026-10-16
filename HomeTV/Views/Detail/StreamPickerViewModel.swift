@@ -18,6 +18,8 @@ struct StreamPickerViewModel {
     let qualitySections: [(quality: String, items: [StreamPickerView.LabeledStream])]
     let firstStreamID: String?
     let detailStream: StreamPickerView.LabeledStream?
+    /// True when any loaded stream reports subtitle languages, so the details panel adds a Subtitles row.
+    let showsSubtitleRow: Bool
 
     /// Computes the whole filter/group cascade ONCE at construction and stores the results, so reading any
     /// derived property is O(1). Previously each was a computed property that re-ran the cascade on every
@@ -59,6 +61,7 @@ struct StreamPickerViewModel {
         self.qualitySections = sections
 
         self.firstStreamID = sections.first?.items.first?.id
+        self.showsSubtitleRow = streams.contains { $0.meta.subtitleDetail != nil }
 
         if let id = detailID, let match = filteredStreams.first(where: { $0.id == id }) {
             self.detailStream = match
