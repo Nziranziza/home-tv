@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ContinueWatchingRow: View {
     let items: [WatchHistoryItem]
+    /// The card resolving its stream. The others are disabled meanwhile, so focus stays put.
+    var resumingID: String? = nil
+    var onShowDetail: (WatchHistoryItem) -> Void = { _ in }
     var onSelect: (WatchHistoryItem) -> Void = { _ in }
 
     private var rowHeight: CGFloat {
@@ -15,7 +18,12 @@ struct ContinueWatchingRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: Theme.Row.continueWatchingCardSpacing) {
                     ForEach(items) { item in
-                        ContinueWatchingCard(item: item) { onSelect(item) }
+                        ContinueWatchingCard(
+                            item: item,
+                            isResuming: resumingID == item.id,
+                            onShowDetail: { onShowDetail(item) }
+                        ) { onSelect(item) }
+                        .disabled(resumingID != nil && resumingID != item.id)
                     }
                 }
                 .padding(.horizontal, Theme.Row.contentInset)
@@ -34,6 +42,8 @@ struct ContinueWatchingRow: View {
 /// overlay to match). A subtle bottom scrim keeps the title + controls legible on any artwork.
 private struct ContinueWatchingCard: View {
     let item: WatchHistoryItem
+    var isResuming = false
+    var onShowDetail: () -> Void = {}
     var action: () -> Void = {}
 
     @State private var trakt = TraktService.shared
@@ -77,6 +87,10 @@ private struct ContinueWatchingCard: View {
         }
         .buttonStyle(.card)
         .accessibilityLabel("Resume \(item.name)")
+        // Select plays straight away; long-press keeps the detail screen one step away.
+        .contextMenu {
+            Button(item.typeID == "series" ? "Go to Show" : "Go to Movie", systemImage: "info.circle", action: onShowDetail)
+        }
     }
 
     private var bottomContent: some View {
@@ -110,9 +124,12 @@ private struct ContinueWatchingCard: View {
 
     private var controlsRow: some View {
         HStack(spacing: Theme.Card.overlayControlSpacing) {
-            Image(systemName: "play.fill")
+            // While the stream resolves, the play glyph turns into a progress glyph in place.
+            Image(systemName: isResuming ? "progress.indicator" : "play.fill")
                 .font(Theme.Card.overlayGlyphFont)
                 .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, isActive: isResuming)
 
             ProgressBar(progress: storedProgress ?? placeholderProgress)
                 .frame(width: 56, height: 4)

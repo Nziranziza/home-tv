@@ -303,19 +303,19 @@ struct SeasonQueueBuilderTests {
 
     @Test func runtimeIsParsedFromWhateverShapeTheAddonUses() {
         // Cinemeta writes "58 min"; others use hours, or a bare number of minutes.
-        #expect(StreamPickerView.runtimeSeconds(from: "58 min") == 58 * 60)
-        #expect(StreamPickerView.runtimeSeconds(from: "1h 2min") == 3600 + 120)
-        #expect(StreamPickerView.runtimeSeconds(from: "2h") == 7200)
-        #expect(StreamPickerView.runtimeSeconds(from: "45") == 45 * 60)
-        #expect(StreamPickerView.runtimeSeconds(from: "unknown") == nil)
-        #expect(StreamPickerView.runtimeSeconds(from: nil) == nil)
+        #expect(PlaybackSession.runtimeSeconds(from: "58 min") == 58 * 60)
+        #expect(PlaybackSession.runtimeSeconds(from: "1h 2min") == 3600 + 120)
+        #expect(PlaybackSession.runtimeSeconds(from: "2h") == 7200)
+        #expect(PlaybackSession.runtimeSeconds(from: "45") == 45 * 60)
+        #expect(PlaybackSession.runtimeSeconds(from: "unknown") == nil)
+        #expect(PlaybackSession.runtimeSeconds(from: nil) == nil)
     }
 
     // MARK: - Prefetch window
 
     @Test func prefetchReachesOutwardFromTheSelectionInBothDirections() {
         let episodes = SeasonQueueBuilder.orderedEpisodes(from: Self.tenEpisodeSeason)
-        let ids = StreamPickerView.prefetchEpisodeIDs(
+        let ids = PlaybackSession.prefetchEpisodeIDs(
             episodes: episodes,
             selectedEpisodeID: "\(Self.show):1:4",
             limit: 4
@@ -331,7 +331,7 @@ struct SeasonQueueBuilderTests {
     @Test func theForwardWindowIsWhatALaunchWaitsFor() {
         // The queue grows forward first and furthest, so those are the episodes worth waiting on.
         let episodes = SeasonQueueBuilder.orderedEpisodes(from: Self.tenEpisodeSeason)
-        let ids = StreamPickerView.prefetchEpisodeIDs(
+        let ids = PlaybackSession.prefetchEpisodeIDs(
             episodes: episodes,
             selectedEpisodeID: "\(Self.show):1:8",
             forwardOnly: true
@@ -341,18 +341,18 @@ struct SeasonQueueBuilderTests {
 
     @Test func prefetchSkipsTheSelectedEpisodeItself() {
         let episodes = SeasonQueueBuilder.orderedEpisodes(from: Self.tenEpisodeSeason)
-        let ids = StreamPickerView.prefetchEpisodeIDs(episodes: episodes, selectedEpisodeID: "\(Self.show):1:1")
+        let ids = PlaybackSession.prefetchEpisodeIDs(episodes: episodes, selectedEpisodeID: "\(Self.show):1:1")
         #expect(!ids.contains("\(Self.show):1:1"))
         #expect(ids.count == 9)
     }
 
     @Test func anUnknownSelectionPrefetchesNothing() {
         let episodes = SeasonQueueBuilder.orderedEpisodes(from: Self.tenEpisodeSeason)
-        #expect(StreamPickerView.prefetchEpisodeIDs(episodes: episodes, selectedEpisodeID: "tt999:9:9").isEmpty)
+        #expect(PlaybackSession.prefetchEpisodeIDs(episodes: episodes, selectedEpisodeID: "tt999:9:9").isEmpty)
     }
 
     @Test func theShowIDIsTheBarePrefixOfAnEpisodeID() {
-        #expect(StreamPickerView.showID(fromEpisodeID: "tt0903747:1:4") == "tt0903747")
-        #expect(StreamPickerView.showID(fromEpisodeID: "tt0903747") == "tt0903747")
+        #expect(PlaybackSession.showID(fromEpisodeID: "tt0903747:1:4") == "tt0903747")
+        #expect(PlaybackSession.showID(fromEpisodeID: "tt0903747") == "tt0903747")
     }
 }

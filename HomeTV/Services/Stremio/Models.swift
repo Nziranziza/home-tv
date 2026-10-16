@@ -221,4 +221,6 @@ struct StreamBehaviorHints: Codable, Hashable, Sendable {
     let bingeGroup: String?
     let notWebReady: Bool?
     let proxyHeaders: [String: String]?
+    /// The file's own name, which add-ons keep stable across launches while the URL changes.
+    var filename: String? = nil
 }
