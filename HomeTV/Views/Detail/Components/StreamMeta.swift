@@ -13,10 +13,17 @@ struct StreamMeta: Hashable {
     let sourceIsWarning: Bool
     let size: String?
     let debrid: DebridInfo?
+    let languages: StreamLanguages
+    /// Display strings for `languages`, built once so rows don't hit `Locale` per render.
+    let languageSummary: String?
+    let languageDetail: String
+    let subtitleDetail: String?
     let releaseName: String
 
     static func make(from stream: Stream) -> StreamMeta {
         let haystack = "\(stream.title ?? "") \(stream.name ?? "") \(stream.description ?? "")"
+        // Same fields, line-separated, since language parsing reads each line on its own.
+        let haystackLines = [stream.title, stream.name, stream.description].compactMap { $0 }.joined(separator: "\n")
         func matches(_ pattern: String) -> Bool {
             haystack.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
         }
@@ -83,6 +90,11 @@ struct StreamMeta: Hashable {
         // or [RD download] (must be fetched into the debrid first).
         let debrid = DebridInfo.parse(from: haystack)
 
+        let languages = StreamLanguages.parse(
+            haystackLines,
+            subtitleCodes: stream.subtitles?.compactMap(\.lang) ?? []
+        )
+
         // Torrentio packs name + seeders + size across several lines (often with emoji);
         // keep just the first non-empty line as the title, with any debrid tag stripped off so
         // it reads cleanly.
@@ -105,6 +117,10 @@ struct StreamMeta: Hashable {
             sourceIsWarning: sourceIsWarning,
             size: size,
             debrid: debrid,
+            languages: languages,
+            languageSummary: languages.summary(),
+            languageDetail: languages.detail(),
+            subtitleDetail: languages.subtitleDetail(),
             releaseName: releaseName
         )
     }

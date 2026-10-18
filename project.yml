@@ -88,6 +88,7 @@ targets:
         excludes:
           - "**/.DS_Store"
       - path: HomeTV/Services/Stremio/Models.swift
+      - path: HomeTV/Services/Stremio/StreamSubtitle.swift
       - path: HomeTV/Services/Stremio/StremioClient.swift
       # Trailer autoplay, shared with the app: TrailerResolver fetches/ranks Trailerio's playable URLs
       # (with its model types), and TopShelfSharedState reads the Trailerio base URL the app mirrors
