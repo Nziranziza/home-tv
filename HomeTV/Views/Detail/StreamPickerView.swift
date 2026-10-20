@@ -49,7 +49,7 @@ struct StreamPickerView: View {
         self.title = title
         self.backgroundURL = backgroundURL
         self.logoURL = logoURL
-        _session = State(initialValue: PlaybackSession(type: type, contentID: contentID, title: title))
+        _session = State(initialValue: PlaybackSession(type: type, contentID: contentID, title: title, logoURL: logoURL))
     }
 
     static let allLabel = "All"
@@ -516,9 +516,11 @@ struct StreamPickerView: View {
                         Task { await play(item) }
                     }
                     .focused($focus, equals: .play)
-                    Text("Opens in \(preference.defaultPlayer.displayName)")
-                        .font(.callout)
-                        .foregroundStyle(Theme.Color.tertiaryText)
+                    if preference.defaultPlayer != .builtIn {
+                        Text("Opens in \(preference.defaultPlayer.displayName)")
+                            .font(.callout)
+                            .foregroundStyle(Theme.Color.tertiaryText)
+                    }
                 }
             }
         }
@@ -898,7 +900,8 @@ struct StreamPickerView: View {
         defer { isLaunching = false }
         do {
             try await session.launch(item.stream, addonID: item.addonID)
-            dismiss()
+            // The in-app player presents over the picker; Back from it lands here again.
+            if preference.defaultPlayer != .builtIn { dismiss() }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

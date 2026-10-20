@@ -23,3 +23,6 @@ ignore/
 
 # Secrets — real values live here; commit only Secrets.example.xcconfig
 Secrets.xcconfig
+
+# In-app player frameworks, fetched by scripts/fetch-player-frameworks.sh
+Vendor/

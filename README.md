@@ -7,12 +7,12 @@ An Apple TV streaming app. Browses Stremio addons, hands playback off to Infuse 
 - **Browse** — Watch Now shows a hero shelf and one row per addon catalog.
 - **Search** — Queries every installed addon that exposes a `search` extra.
 - **Detail** — Backdrop, synopsis, episode list for series.
-- **Play** — Picks a stream from all addons, opens it in Infuse (or VLC / system default).
+- **Play** — Picks a stream from all addons and plays it in HomeTV's own player (or hands it to Infuse, VLC or the system default).
 
 ## Stack
 
 - tvOS 26 target, Xcode 26.3, Swift 5.10, SwiftUI.
-- No third-party Swift dependencies.
+- In-app playback uses [KSPlayer](https://github.com/kingslay/KSPlayer)'s free GPL build (prebuilt, Apple TV only), fetched into `Vendor/` by a script.
 - [xcodegen](https://github.com/yonaskolb/XcodeGen) generates `HomeTV.xcodeproj` from `project.yml`.
 
 ## Build
@@ -21,9 +21,17 @@ Prereqs: Xcode 26.3 with the **tvOS platform** installed (`xcodebuild -downloadP
 
 ```sh
 cd ~/Desktop/HomeTV
+scripts/fetch-player-frameworks.sh   # once, and again after its pinned versions change
 xcodegen generate
 open HomeTV.xcodeproj
 ```
+
+The player frameworks only have an Apple TV slice, so device builds link them and simulator builds
+skip them and play through a plain AVPlayer stand-in (MP4 and HLS only). A device build without them
+fails with a message to run the script.
+In Debug builds, set the `PLAYER_TEST_URL` environment variable (scheme → Run → Arguments) to open the
+player on that URL at launch, e.g. Apple's sample HLS stream for checking player UI in the simulator.
+`PLAYER_TEST_TITLE` and `PLAYER_TEST_LOGO` (an image URL) fill its loading screen.
 
 Pick scheme **HomeTV**, destination **Apple TV 4K (3rd generation)** (any tvOS Simulator works), and ⌘R.
 
@@ -48,17 +56,16 @@ After adding or moving Swift files, re-run `xcodegen generate` before building.
 
 ## First-run setup
 
-1. Install **Infuse** on the Apple TV from the App Store.
-2. Launch HomeTV. Cinemeta is seeded automatically; if your Apple TV is offline at first launch, open Settings → Addons and tap Install on `https://v3-cinemeta.strem.io/manifest.json`.
-3. Add stream-providing addons in Settings → Addons. Manifest URLs end in `/manifest.json`.
+1. Launch HomeTV. Cinemeta is seeded automatically; if your Apple TV is offline at first launch, open Settings → Addons and tap Install on `https://v3-cinemeta.strem.io/manifest.json`.
+2. Add stream-providing addons in Settings → Addons. Manifest URLs end in `/manifest.json`.
 
 **Entering URLs is painful with the remote.** When the keyboard appears on the Apple TV, your iPhone should buzz with a Continuity Keyboard prompt — tap it and type from the phone.
 
 ## How playback works
 
-When you pick a stream, HomeTV builds an `infuse://x-callback-url/play?url=...` URL and asks tvOS to open it. Infuse takes over from there. For magnet links from torrent-providing addons, the magnet URI is passed through directly — Infuse handles those natively.
+When you pick a stream, HomeTV plays it in its own player, KSPlayer. MKV, AVI and WebM start on its FFmpeg decoder; everything else starts on AVPlayer, which keeps native Dolby Vision and Atmos, and moves to FFmpeg if AVPlayer can't play it. Direct HTTP streams only; magnet links need an external player.
 
-Switch the default player in Settings → Default Player. VLC handles direct HTTP streams; for magnet streams you need Infuse.
+Infuse and VLC are optional, chosen in Settings → Default Player. With Infuse (installed from the App Store), HomeTV builds an `infuse://x-callback-url/play?url=...` URL and hands the stream over, magnet links included. VLC handles direct HTTP streams only.
 
 ## Project layout
 

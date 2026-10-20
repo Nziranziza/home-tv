@@ -34,9 +34,10 @@ extension View {
         .metaDetailDestination()
     }
 
-    /// Presents the full-screen stream picker for a `StreamRequest`.
+    /// Presents the full-screen stream picker for a `StreamRequest`. Tells `PlayerPresenter` while it's
+    /// up, so in-app playback started from it presents over it and Back returns to it.
     func streamPickerCover(request: Binding<StreamRequest?>) -> some View {
-        fullScreenCover(item: request) { req in
+        fullScreenCover(item: request, onDismiss: { PlayerPresenter.shared.streamPickerDidDismiss() }) { req in
             StreamPickerView(
                 type: req.type,
                 contentID: req.contentID,
@@ -44,6 +45,10 @@ extension View {
                 backgroundURL: req.backgroundURL,
                 logoURL: req.logoURL
             )
+            .onAppear { PlayerPresenter.shared.streamPickerDidAppear() }
+            .fullScreenCover(item: Bindable(PlayerPresenter.shared).pickerRequest) { request in
+                PlayerScreen(request: request)
+            }
         }
     }
 

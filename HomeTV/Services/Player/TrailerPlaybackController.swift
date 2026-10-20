@@ -113,7 +113,7 @@ final class TrailerPlaybackController {
 
     private func startCurrentCandidate() {
         guard candidates.indices.contains(candidateIndex) else { return }
-        configureAudioSession()
+        PlaybackAudioSession.configure()
 
         let item = AVPlayerItem(url: candidates[candidateIndex].url)
         let player = AVPlayer(playerItem: item)
@@ -246,22 +246,5 @@ final class TrailerPlaybackController {
         player = nil
         isReady = false
         duration = nil
-    }
-
-    private static var audioConfigured = false
-
-    /// Set the playback category once per app session — re-activating it on every candidate caused
-    /// needless work (and can hitch). The category persists, so once is enough.
-    private func configureAudioSession() {
-        guard !TrailerPlaybackController.audioConfigured else { return }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .moviePlayback)
-            try session.setActive(true)
-            // Mark configured only after both calls succeed, so a failure leaves it retryable.
-            TrailerPlaybackController.audioConfigured = true
-        } catch {
-            // Leave audioConfigured false — a later candidate will retry.
-        }
     }
 }

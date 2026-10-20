@@ -17,7 +17,7 @@ final class PlayerPreference {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let raw = defaults.string(forKey: storageKey) ?? ExternalPlayer.infuse.rawValue
-        self.defaultPlayer = ExternalPlayer(rawValue: raw) ?? .infuse
+        let raw = defaults.string(forKey: storageKey) ?? ExternalPlayer.builtIn.rawValue
+        self.defaultPlayer = ExternalPlayer(rawValue: raw) ?? .builtIn
     }
 }

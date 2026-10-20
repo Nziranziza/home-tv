@@ -3,12 +3,14 @@ import UIKit
 
 enum PlayerLaunchError: Error, LocalizedError {
     case noPlayableURL
+    case unsupportedInApp
     case playerUnavailable(ExternalPlayer)
     case failedToOpen
 
     var errorDescription: String? {
         switch self {
         case .noPlayableURL: "This stream has no playable URL."
+        case .unsupportedInApp: "This stream can't play in HomeTV. Choose a direct stream, or switch players in Settings."
         case .playerUnavailable(let p): "\(p.displayName) is not installed on this Apple TV."
         case .failedToOpen: "Failed to hand off to the external player."
         }
@@ -129,6 +131,9 @@ enum PlayerLauncher {
             return vlcURL(media: mediaURL)
         case .system:
             return mediaURL
+        // Plays in-app through `PlayerPresenter`; there's no app to hand a URL to.
+        case .builtIn:
+            return nil
         }
     }
 
