@@ -19,6 +19,8 @@ final class PlaybackSession {
     /// The show's own name. `title` is the episode label, which would read as
     /// "The Gentlemen — S1·E1 S01E01.mkv" in the player.
     private var seasonShowName: String?
+    /// The episode's own title from the show's meta, for the in-app player.
+    private var episodeTitle: String?
     /// Runtime from the title's meta, for turning a reported position into a resume fraction.
     private var runtimeSeconds: Int?
     /// Release year from the title's meta, for a movie's `Name (Year).mkv` filename.
@@ -123,13 +125,20 @@ final class PlaybackSession {
     private func playInApp(_ stream: Stream, startPosition: Int?) throws {
         guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
         guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
-        PlayerPresenter.shared.present(PlayerRequest(
+        var request = PlayerRequest(
             url: url,
             title: title,
             logoURL: logoURL,
             headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
             startTime: TimeInterval(startPosition ?? 0)
-        ))
+        )
+        // `title` is the picker's episode label; split it into the show name and the episode line.
+        if type == "series", let showName = seasonShowName,
+           let (season, episode) = PlaybackReturnCoordinator.episodeNumbers(in: contentID) {
+            request.title = showName
+            request.episodeLabel = PlayerEpisodeLabel.text(season: season, episode: episode, title: episodeTitle)
+        }
+        PlayerPresenter.shared.present(request)
     }
 
     /// The episodes after the selected one, where the queue grows first and furthest.
@@ -242,6 +251,8 @@ final class PlaybackSession {
                 break
             }
         }
+
+        episodeTitle = videos?.first { $0.id == contentID }?.episodeTitle
 
         // Cancelled callers have already stopped the prefetcher; don't start it again behind them.
         guard player == .infuse, type == "series", showID != contentID, !Task.isCancelled else { return }
