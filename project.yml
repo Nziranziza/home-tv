@@ -167,6 +167,8 @@ targets:
         SUPPORTS_MACCATALYST: NO
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HomeTV.app/HomeTV"
         BUNDLE_LOADER: "$(TEST_HOST)"
+        # `@testable import HomeTV` needs KSPlayer's module on device builds.
+        "FRAMEWORK_SEARCH_PATHS[sdk=appletvos*]": "$(inherited) $(PROJECT_DIR)/Vendor/PlayerFrameworks"
     dependencies:
       - target: HomeTV
 

@@ -40,6 +40,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         let options = KSOptions()
         options.isAutoPlay = true
         options.startPlayTime = startTime
+        // `NowPlayingController` owns Now Playing and the remote commands for both engines.
+        options.registerRemoteControll = false
         if !source.headers.isEmpty { options.appendHeader(source.headers) }
         options.playerTypes = route == .ffmpeg ? [KSMEPlayer.self] : [KSAVPlayer.self]
         state = .loading

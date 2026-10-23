@@ -32,6 +32,7 @@ struct HomeTVApp: App {
                     PlayerPresenter.shared.present(PlayerRequest(
                         url: url,
                         title: environment["PLAYER_TEST_TITLE"] ?? "",
+                        episodeLabel: environment["PLAYER_TEST_EPISODE"],
                         logoURL: environment["PLAYER_TEST_LOGO"].flatMap(URL.init(string:))
                     ))
                 }
