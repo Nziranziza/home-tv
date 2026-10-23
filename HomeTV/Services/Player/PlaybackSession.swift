@@ -67,12 +67,13 @@ final class PlaybackSession {
         let token = PlaybackReturnCoordinator.makeToken()
         // The same key the Resume label reads, so the button and the launch agree.
         let startPosition = PlayerLauncher.resumePosition(
+            savedSeconds: UserLibrary.resumeSeconds(forKey: contentID),
             fraction: UserLibrary.progress(forKey: contentID),
             runtimeSeconds: runtimeSeconds
         )
         let showID = Self.showID(fromEpisodeID: contentID)
         if player == .builtIn {
-            try playInApp(stream, startPosition: startPosition)
+            try playInApp(stream, startPosition: startPosition, showID: showID)
             remember(stream, addonID: addonID, showID: showID)
             return
         }
@@ -122,7 +123,7 @@ final class PlaybackSession {
     }
 
     /// Opens the stream in HomeTV's own player. Only HTTP streams play in-app; magnets need an external app.
-    private func playInApp(_ stream: Stream, startPosition: Int?) throws {
+    private func playInApp(_ stream: Stream, startPosition: Int?, showID: String) throws {
         guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
         guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
         var request = PlayerRequest(
@@ -130,7 +131,8 @@ final class PlaybackSession {
             title: title,
             logoURL: logoURL,
             headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
-            startTime: TimeInterval(startPosition ?? 0)
+            startTime: TimeInterval(startPosition ?? 0),
+            item: PlaybackItem(contentID: contentID, showID: showID)
         )
         // `title` is the picker's episode label; split it into the show name and the episode line.
         if type == "series", let showName = seasonShowName,

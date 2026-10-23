@@ -14,6 +14,8 @@ final class LocalLibrary {
     private(set) var watchedIDs: Set<String> = []
     /// Fraction watched, 0...1, by content id — the same shape and keying as Trakt's playback progress.
     private(set) var progressByID: [String: Double] = [:]
+    /// Exact resume point in seconds, by content id. Kept beside the fraction, which the progress bars read.
+    private(set) var positionByID: [String: Int] = [:]
     /// Newest play activity by content id, which picks the show hero's episode.
     private(set) var activityByID: [String: PlayActivity] = [:]
     /// Saved titles, newest first. Whole previews rather than ids, so the row renders without fetching.
@@ -28,6 +30,8 @@ final class LocalLibrary {
         var watchlist: [MetaPreview]
         /// Optional so libraries saved before it existed still decode.
         var activity: [String: PlayActivity]?
+        /// Optional so libraries saved before it existed still decode.
+        var positions: [String: Int]?
     }
 
     private let storageKey = "hometv.localLibrary.v1"
@@ -41,6 +45,7 @@ final class LocalLibrary {
         progressByID = snapshot.progress
         watchlist = snapshot.watchlist
         activityByID = snapshot.activity ?? [:]
+        positionByID = snapshot.positions ?? [:]
     }
 
     /// The content id for a title, or one of its episodes. nil when unnumbered: coercing to 0 would
@@ -62,6 +67,7 @@ final class LocalLibrary {
             watchedIDs.insert(id)
             // Finishing clears the resume point, as Trakt drops the playback entry.
             progressByID[id] = nil
+            positionByID[id] = nil
             activityByID[id] = PlayActivity(date: .now, isFinished: true)
         } else {
             guard watchedIDs.remove(id) != nil else { return }
@@ -76,12 +82,17 @@ final class LocalLibrary {
 
     func progress(forKey key: String) -> Double? { progressByID[key] }
 
+    /// Seconds to resume at, when a player reported them.
+    func position(forKey key: String) -> Int? { positionByID[key] }
+
     /// How far into a title the user got. Outside the resume window the entry is dropped; past its end
     /// the title counts as finished. A barely-started play isn't activity, so a stray open can't take over
-    /// the hero.
-    func setProgress(_ fraction: Double, id: String) {
-        progressByID[id] = Self.resumeRange.contains(fraction) ? fraction : nil
-        if fraction >= Self.resumeRange.lowerBound {
+    /// the hero, but a deliberate restart is.
+    func setProgress(_ fraction: Double, seconds: Int? = nil, isRestart: Bool = false, id: String) {
+        let resumes = Self.resumeRange.contains(fraction)
+        progressByID[id] = resumes ? fraction : nil
+        positionByID[id] = resumes ? seconds : nil
+        if fraction >= Self.resumeRange.lowerBound || isRestart {
             activityByID[id] = PlayActivity(date: .now, isFinished: fraction > Self.resumeRange.upperBound)
         }
         save()
@@ -103,7 +114,13 @@ final class LocalLibrary {
     }
 
     private func save() {
-        let snapshot = Snapshot(watched: Array(watchedIDs), progress: progressByID, watchlist: watchlist, activity: activityByID)
+        let snapshot = Snapshot(
+            watched: Array(watchedIDs),
+            progress: progressByID,
+            watchlist: watchlist,
+            activity: activityByID,
+            positions: positionByID
+        )
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: storageKey)
     }

@@ -133,4 +133,55 @@ struct LocalLibraryTests {
         #expect(reloaded.lastPlayed(forKey: "tt0903747:1:5")?.isFinished == false)
         #expect(reloaded.watchlist.map(\.name) == ["Inception"])
     }
+
+    // MARK: - Exact position
+
+    @Test func theExactPositionIsKeptBesideTheFraction() {
+        let store = Self.makeStore()
+        store.setProgress(0.5, seconds: 1390, id: "a")
+        #expect(store.position(forKey: "a") == 1390)
+        #expect(store.progress(forKey: "a") == 0.5)
+        // Outside the resume window both go.
+        store.setProgress(0.97, seconds: 2740, id: "a")
+        #expect(store.position(forKey: "a") == nil)
+    }
+
+    @Test func markingWatchedClearsTheExactPosition() {
+        let store = Self.makeStore()
+        store.setProgress(0.5, seconds: 1390, id: "a")
+        store.setWatched(true, id: "a")
+        #expect(store.position(forKey: "a") == nil)
+    }
+
+    @Test func aRestartClearsTheResumePointAndCountsAsAPlay() throws {
+        let store = Self.makeStore()
+        store.setProgress(0.5, seconds: 1390, id: "a")
+        let paused = try #require(store.lastPlayed(forKey: "a"))
+        store.setProgress(0, seconds: 0, isRestart: true, id: "a")
+        #expect(store.position(forKey: "a") == nil)
+        #expect(store.progress(forKey: "a") == nil)
+        let restarted = try #require(store.lastPlayed(forKey: "a"))
+        #expect(restarted.date >= paused.date)
+        #expect(restarted.isFinished == false)
+        // A first play restarted at once still counts.
+        store.setProgress(0, seconds: 0, isRestart: true, id: "b")
+        #expect(store.lastPlayed(forKey: "b") != nil)
+    }
+
+    @Test func theExactPositionSurvivesARelaunch() {
+        let suite = UUID().uuidString
+        Self.makeStore(suite).setProgress(0.5, seconds: 1390, id: "a")
+        #expect(Self.makeStore(suite).position(forKey: "a") == 1390)
+    }
+
+    @Test func aLibrarySavedBeforePositionsStillDecodes() throws {
+        let suite = UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let old = #"{"watched":["b"],"progress":{"a":0.4},"watchlist":[]}"#
+        defaults.set(Data(old.utf8), forKey: "hometv.localLibrary.v1")
+        let store = Self.makeStore(suite)
+        #expect(store.progress(forKey: "a") == 0.4)
+        #expect(store.position(forKey: "a") == nil)
+        #expect(store.isWatched("b"))
+    }
 }

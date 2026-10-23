@@ -13,6 +13,8 @@ final class AVPlaybackEngine: PlaybackEngine {
     private(set) var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
+    @ObservationIgnored private(set) var isSeeking = false
+    @ObservationIgnored private var seekGeneration = 0
 
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var timeObserver: Any?
@@ -43,7 +45,14 @@ final class AVPlaybackEngine: PlaybackEngine {
     func pause() { player.pause() }
 
     func seek(to time: TimeInterval) {
-        player.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        seekGeneration += 1
+        let generation = seekGeneration
+        isSeeking = true
+        Task { [weak self, player] in
+            await player.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+            guard let self, generation == seekGeneration else { return }
+            isSeeking = false
+        }
     }
 
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] { [] }

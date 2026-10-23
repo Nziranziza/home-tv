@@ -14,6 +14,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     private(set) var seeks: [TimeInterval] = []
     /// False leaves the clock behind, like an engine still seeking.
     var seekLands = true
+    var isSeeking: Bool { !seekLands && !seeks.isEmpty }
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {}
     func play() { state = .playing }
