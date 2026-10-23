@@ -29,6 +29,12 @@ struct PlayerScreen: View {
             }
             // Only one focus layer is mounted at a time: overlapping full-screen focusables break
             // directional navigation. Keeping the bar mounted at zero opacity drops far more frames.
+            if model.subtitlesMenu == .style, let appearance = model.subtitles.appearance {
+                SubtitleStylePreview(appearance: appearance)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 182)
+                    .transition(.opacity)
+            }
             if model.bar.isVisible {
                 PlayerTransportBar(model: model, focus: $focus, onSelect: select, onMove: move)
                     .padding(.horizontal, 80)
@@ -45,6 +51,7 @@ struct PlayerScreen: View {
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.3), value: model.state)
         .animation(.easeInOut(duration: 0.3), value: model.bar.isVisible)
+        .animation(.easeInOut(duration: 0.2), value: model.subtitlesMenu == nil)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -71,6 +78,9 @@ struct PlayerScreen: View {
         }
         .onChange(of: model.bar.isVisible) { _, visible in
             focus = visible ? .scrubber : .surface
+        }
+        .onChange(of: model.subtitlesMenu == nil) { _, isClosed in
+            if isClosed, model.bar.isVisible { focus = .subtitles }
         }
         .onChange(of: focus) {
             model.noteActivity()
@@ -104,8 +114,11 @@ struct PlayerScreen: View {
         }
     }
 
-    /// The round buttons' menus and the tabs' panels arrive in #98–#108.
+    /// The other buttons' menus and the tabs' panels arrive in #98–#108.
     private func select(_ target: PlayerFocus) {
-        model.noteActivity()
+        switch target {
+        case .subtitles: model.openSubtitlesMenu()
+        default: model.noteActivity()
+        }
     }
 }
