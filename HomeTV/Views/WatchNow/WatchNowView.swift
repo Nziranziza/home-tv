@@ -27,7 +27,10 @@ struct WatchNowView: View {
 
     /// Inactive while a detail is pushed or the stream picker modal is up, so the hero trailer isn't
     /// left decoding underneath either.
-    private var isHeroActive: Bool { isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil }
+    private var isHeroActive: Bool {
+        isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil
+            && !PlayerPresenter.shared.isPresenting
+    }
 
     /// Everything but the returning card is disabled while focus lands on it.
     /// Also held while a Continue Watching card resolves its stream, so focus stays on that card.
@@ -112,7 +115,7 @@ struct WatchNowView: View {
                 if let rowPreview {
                     RowPreviewGallery(
                         model: rowPreview,
-                        isCovered: !path.isEmpty || streamRequest != nil,
+                        isCovered: !path.isEmpty || streamRequest != nil || PlayerPresenter.shared.isPresenting,
                         onPlay: { streamRequest = $0 },
                         onInfo: { meta in path.append(.detail(meta)) },
                         onClosed: { close(rowPreview) }

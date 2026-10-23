@@ -1,6 +1,6 @@
 import Foundation
 
-/// Launches one movie or episode in the external player: the resume position, the season hand-off, the
+/// Launches one movie or episode in the chosen player: the resume position, the season hand-off, the
 /// Infuse filename, and the return registration. Shared by the stream picker and Continue Watching's
 /// direct resume, so both launch exactly the same way.
 @MainActor
@@ -9,6 +9,8 @@ final class PlaybackSession {
     let contentID: String
     /// The label the launching screen passed, such as `The Gentlemen — S1·E1`.
     let title: String
+    /// The title's logo, for the in-app player's loading screen.
+    let logoURL: URL?
 
     /// Resolves the rest of the season in the background. See `prepare`.
     private let queuePrefetcher = SeasonQueuePrefetcher()
@@ -24,10 +26,11 @@ final class PlaybackSession {
     /// Set once the meta lookup has finished, found or not, so `launch` doesn't go without a runtime.
     private var isMetaResolved = false
 
-    init(type: String, contentID: String, title: String) {
+    init(type: String, contentID: String, title: String, logoURL: String? = nil) {
         self.type = type
         self.contentID = contentID
         self.title = title
+        self.logoURL = logoURL.flatMap(URL.init(string:))
     }
 
     /// Stops the season prefetch. Its work is unstructured, so closing the caller has to stop it explicitly.
@@ -66,6 +69,11 @@ final class PlaybackSession {
             runtimeSeconds: runtimeSeconds
         )
         let showID = Self.showID(fromEpisodeID: contentID)
+        if player == .builtIn {
+            try playInApp(stream, startPosition: startPosition)
+            remember(stream, addonID: addonID, showID: showID)
+            return
+        }
         PlaybackReturnCoordinator.shared.willLaunch(
             player == .infuse
                 ? .init(
@@ -101,10 +109,27 @@ final class PlaybackSession {
             PlaybackReturnCoordinator.shared.willLaunch(nil)
             throw error
         }
+        remember(stream, addonID: addonID, showID: showID)
+    }
+
+    private func remember(_ stream: Stream, addonID: String, showID: String) {
         StreamChoiceStore.shared.record(
             StreamChoice(stream: stream, addonID: addonID, contentID: contentID),
             forTitle: showID
         )
+    }
+
+    /// Opens the stream in HomeTV's own player. Only HTTP streams play in-app; magnets need an external app.
+    private func playInApp(_ stream: Stream, startPosition: Int?) throws {
+        guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
+        guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
+        PlayerPresenter.shared.present(PlayerRequest(
+            url: url,
+            title: title,
+            logoURL: logoURL,
+            headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
+            startTime: TimeInterval(startPosition ?? 0)
+        ))
     }
 
     /// The episodes after the selected one, where the queue grows first and furthest.
@@ -187,8 +212,10 @@ final class PlaybackSession {
         isMetaResolved = false
         defer { isMetaResolved = true }
         guard ProcessInfo.processInfo.environment["MOCK_STREAMS"] != "1" else { return }
-        // All of this exists only to build an Infuse hand-off; no other player reads any of it.
-        guard PlayerPreference.shared.defaultPlayer == .infuse else { return }
+        // The runtime feeds the resume position, which only Infuse and the in-app player take. The rest
+        // exists to build an Infuse hand-off.
+        let player = PlayerPreference.shared.defaultPlayer
+        guard player == .infuse || player == .builtIn else { return }
         let showID = Self.showID(fromEpisodeID: contentID)
         guard !showID.isEmpty else { return }
         let registry = AddonRegistry.shared
@@ -217,7 +244,7 @@ final class PlaybackSession {
         }
 
         // Cancelled callers have already stopped the prefetcher; don't start it again behind them.
-        guard type == "series", showID != contentID, !Task.isCancelled else { return }
+        guard player == .infuse, type == "series", showID != contentID, !Task.isCancelled else { return }
         let streamAddons = registry.enabledAddons.filter { addon in
             (addon.manifest.resources ?? []).contains { $0.name == "stream" }
         }

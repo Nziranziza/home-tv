@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @State private var selection: Int = Self.initialSelection()
     @State private var router = DeepLinkRouter.shared
+    @State private var playerPresenter = PlayerPresenter.shared
 
     var body: some View {
         TabView(selection: $selection) {
@@ -27,6 +28,10 @@ struct RootTabView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        // The in-app player when nothing else is presented (Continue Watching).
+        .fullScreenCover(item: $playerPresenter.rootRequest) { request in
+            PlayerScreen(request: request)
+        }
         // A deep link asked for a specific tab (Watch Now hosts detail navigation) — bring it forward.
         .onChange(of: router.requestedTab) { _, newValue in
             guard let newValue else { return }

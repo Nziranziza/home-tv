@@ -59,6 +59,34 @@ targets:
         SUPPORTED_PLATFORMS: "appletvos appletvsimulator"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        # In-app player engine (#106): KSPlayer's free GPL build ships an Apple TV slice only, so it's
+        # linked for device builds alone. scripts/fetch-player-frameworks.sh fills Vendor/. Without it,
+        # `canImport(KSPlayer)` is false and the AVPlayer stub engine builds instead.
+        "FRAMEWORK_SEARCH_PATHS[sdk=appletvos*]": "$(inherited) $(PROJECT_DIR)/Vendor/PlayerFrameworks"
+        "OTHER_LDFLAGS[sdk=appletvos*]": "$(inherited) -framework KSPlayer"
+        # The embed script copies whole framework folders, which the user-script sandbox can't grant.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Copies the player frameworks into device builds and signs them. KSPlayer loads the FFmpeg ones at
+    # runtime, so all of them ship, not only the one the app links.
+    postCompileScripts:
+      - name: Embed player frameworks
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          [ "$PLATFORM_NAME" = appletvos ] || exit 0
+          src="$PROJECT_DIR/Vendor/PlayerFrameworks"
+          # VERSION is written last by the fetch script, so its presence means the set is complete.
+          if [ ! -f "$src/VERSION" ]; then
+            echo "error: Player frameworks missing. Run scripts/fetch-player-frameworks.sh, then rebuild."
+            exit 1
+          fi
+          dst="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+          mkdir -p "$dst"
+          for framework in "$src"/*.framework; do
+            name=$(basename "$framework")
+            rsync -a --delete --exclude Headers --exclude Modules --exclude _CodeSignature "$framework/" "$dst/$name/"
+            codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$dst/$name"
+          done
     # App Group shared with the Top Shelf extension. The app mirrors the enabled Trailerio addon's
     # base URL here (see TopShelfSharedState) so the extension can resolve trailer autoplay URLs.
     entitlements:
@@ -89,6 +117,7 @@ targets:
           - "**/.DS_Store"
       - path: HomeTV/Services/Stremio/Models.swift
       - path: HomeTV/Services/Stremio/StreamSubtitle.swift
+      - path: HomeTV/Services/Stremio/StreamProxyHeaders.swift
       - path: HomeTV/Services/Stremio/StremioClient.swift
       # Trailer autoplay, shared with the app: TrailerResolver fetches/ranks Trailerio's playable URLs
       # (with its model types), and TopShelfSharedState reads the Trailerio base URL the app mirrors

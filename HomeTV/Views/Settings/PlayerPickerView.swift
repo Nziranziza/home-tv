@@ -12,7 +12,7 @@ struct PlayerPickerView: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     ScreenTitle(
                         title: "Default Player",
-                        subtitle: "Choose which app receives the stream handoff. Infuse handles HTTP and magnet links; VLC handles direct HTTP only."
+                        subtitle: "Choose where streams play. HomeTV plays them here; Infuse and VLC take the stream in their own app."
                     )
 
                     VStack(spacing: 12) {
@@ -83,7 +83,8 @@ private struct PlayerRow: View {
 
     private func detail(for player: ExternalPlayer) -> String {
         switch player {
-        case .infuse: "Recommended. Handles HTTP and magnet links, and resumes where you left off."
+        case .builtIn: "Recommended. Plays direct streams right here, in any format."
+        case .infuse: "Handles HTTP and magnet links, and resumes where you left off."
         case .vlc: "Direct HTTP streams only. No magnet support. Always starts from the beginning."
         case .system: "Open with the system's default handler. Always starts from the beginning."
         }

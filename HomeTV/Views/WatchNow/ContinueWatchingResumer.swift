@@ -29,7 +29,9 @@ final class ContinueWatchingResumer {
         else { return .chooseStream(request) }
 
         // Meta loads alongside the stream lookup; `launch` waits for it only up to its own deadline.
-        let session = PlaybackSession(type: request.type, contentID: request.contentID, title: request.title)
+        let session = PlaybackSession(
+            type: request.type, contentID: request.contentID, title: request.title, logoURL: request.logoURL
+        )
         let preparation = Task { await session.prepare() }
         defer {
             preparation.cancel()

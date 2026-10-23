@@ -52,7 +52,7 @@ struct ChannelView: View {
             await model.load()
             heroModel.items = model.heroItems
         }
-        .onChange(of: isActive && streamRequest == nil, initial: true) { _, active in
+        .onChange(of: isActive && streamRequest == nil && !PlayerPresenter.shared.isPresenting, initial: true) { _, active in
             heroModel.isActive = active
             if !active { playTask?.cancel() }
         }
