@@ -4,6 +4,7 @@ import SwiftUI
 struct PlayerGlassButton<S: Shape>: View {
     let configuration: ButtonStyleConfiguration
     let shape: S
+    let isHighlighted: Bool
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
@@ -13,6 +14,8 @@ struct PlayerGlassButton<S: Shape>: View {
                 if isFocused {
                     shape.fill(.white)
                         .shadow(color: .black.opacity(0.35), radius: 12, y: 8)
+                } else if isHighlighted {
+                    Color.clear.glassEffect(.regular.tint(.white.opacity(0.3)), in: shape)
                 } else {
                     Color.clear.glassEffect(.regular, in: shape)
                 }

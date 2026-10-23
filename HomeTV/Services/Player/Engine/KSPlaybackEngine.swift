@@ -1,6 +1,7 @@
 #if canImport(KSPlayer)
 import AVFoundation
 import KSPlayer
+import Libavformat
 import Observation
 import UIKit
 
@@ -17,6 +18,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         didSet { layer?.subtitleModel.subtitleDelay = subtitleDelay }
     }
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
+    @ObservationIgnored var onTracksReady: (() -> Void)?
 
     @ObservationIgnored private var layer: KSPlayerLayer?
     @ObservationIgnored private var source: (url: URL, headers: [String: String], startTime: TimeInterval)?
@@ -29,6 +31,13 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     init() {
         videoView.backgroundColor = .black
+        Self.configureSubtitles()
+    }
+
+    /// Text subtitles take the system caption style. ASS draws through libass, keeping its own styling.
+    private static func configureSubtitles() {
+        KSOptions.useMACaptionAppearance = true
+        KSOptions.isASSUseImageRender = true
     }
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {
@@ -51,6 +60,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         options.isAccurateSeek = pendingStart != nil
         // `NowPlayingController` owns Now Playing and the remote commands for both engines.
         options.registerRemoteControll = false
+        // `PlayerSubtitles` picks the track once `onTracksReady` fires.
+        options.autoSelectEmbedSubtitle = false
         if !source.headers.isEmpty { options.appendHeader(source.headers) }
         options.playerTypes = route == .ffmpeg ? [KSMEPlayer.self] : [KSAVPlayer.self]
         state = .loading
@@ -84,6 +95,7 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
         guard let player = layer?.player else { return [] }
+        if kind == .subtitle { return player.subtitlesTracks.map(Self.subtitleTrack) }
         return player.tracks(mediaType: kind.mediaType).map { track in
             PlaybackTrack(
                 id: track.trackID,
@@ -102,8 +114,35 @@ final class KSPlaybackEngine: PlaybackEngine {
         player.select(track: match)
     }
 
+    func selectSubtitle(_ track: PlaybackTrack?) {
+        guard let layer else { return }
+        let info = track.flatMap { track in layer.player.subtitlesTracks.first { Self.trackID($0) == track.id } }
+        layer.select(subtitleInfo: info)
+    }
+
+    private static func subtitleTrack(_ info: any SubtitleInfo) -> PlaybackTrack {
+        let ffmpeg = info as? FFmpegAssetTrack
+        let disposition = ffmpeg?.stream?.pointee.disposition ?? 0
+        let name = info.name.lowercased()
+        return PlaybackTrack(
+            id: trackID(info),
+            kind: .subtitle,
+            name: info.name,
+            languageCode: info.languageCode,
+            isSelected: info.isSelected,
+            isForced: ffmpeg?.isForced == true || name.contains("forced"),
+            isSDH: disposition & AV_DISPOSITION_HEARING_IMPAIRED != 0 || name.contains("sdh")
+        )
+    }
+
+    /// Embedded tracks carry their stream's id; anything else is told apart by its subtitle id.
+    private static func trackID(_ info: any SubtitleInfo) -> Int32 {
+        (info as? any MediaPlayerTrack)?.trackID ?? Int32(truncatingIfNeeded: info.subtitleID.hashValue)
+    }
+
     func stop() {
         onFinish = nil
+        onTracksReady = nil
         tearDownLayer()
     }
 
@@ -125,6 +164,10 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
             layer.seek(time: start, autoPlay: true) { [weak self] _ in
                 self?.videoView.subviews.forEach { $0.isHidden = false }
             }
+        }
+        if state == .readyToPlay {
+            // A turn later, so the layer has finished its own ready handling and listed the tracks.
+            Task { @MainActor [weak self] in self?.onTracksReady?() }
         }
         self.state = switch state {
         case .initialized, .preparing, .readyToPlay: .loading
@@ -157,7 +200,7 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
 }
 
 private extension PlaybackTrack.Kind {
-    var mediaType: AVMediaType {
+    var mediaType: AVFoundation.AVMediaType {
         switch self {
         case .audio: .audio
         case .subtitle: .subtitle

@@ -13,6 +13,7 @@ final class AVPlaybackEngine: PlaybackEngine {
     private(set) var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
+    @ObservationIgnored var onTracksReady: (() -> Void)?
     @ObservationIgnored private(set) var isSeeking = false
     @ObservationIgnored private var seekGeneration = 0
 
@@ -20,12 +21,16 @@ final class AVPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var endToken: (any NSObjectProtocol)?
+    @ObservationIgnored private var legible: AVMediaSelectionGroup?
+    @ObservationIgnored private var audible: AVMediaSelectionGroup?
 
     init() {
         let view = TrailerVideoLayer.PlayerLayerView()
         view.playerLayer.videoGravity = .resizeAspect
         view.playerLayer.player = player
         videoView = view
+        // `PlayerSubtitles` picks the subtitles, not the system's criteria.
+        player.appliesMediaSelectionCriteriaAutomatically = false
     }
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {
@@ -55,9 +60,44 @@ final class AVPlaybackEngine: PlaybackEngine {
         }
     }
 
-    func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] { [] }
+    /// Track ids are the option's index in its selection group.
+    func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
+        guard let item = player.currentItem, let group = group(for: kind) else { return [] }
+        let selected = item.currentMediaSelection.selectedMediaOption(in: group)
+        return group.options.enumerated().map { index, option in
+            PlaybackTrack(
+                id: Int32(index),
+                kind: kind,
+                name: option.displayName,
+                languageCode: option.extendedLanguageTag ?? option.locale?.identifier,
+                isSelected: option == selected,
+                isForced: option.hasMediaCharacteristic(.containsOnlyForcedSubtitles),
+                isSDH: option.hasMediaCharacteristic(.describesMusicAndSoundForAccessibility)
+            )
+        }
+    }
 
-    func select(_ track: PlaybackTrack) {}
+    func select(_ track: PlaybackTrack) {
+        guard let item = player.currentItem, let group = group(for: track.kind),
+              group.options.indices.contains(Int(track.id)) else { return }
+        item.select(group.options[Int(track.id)], in: group)
+    }
+
+    func selectSubtitle(_ track: PlaybackTrack?) {
+        guard let track else {
+            if let legible { player.currentItem?.select(nil, in: legible) }
+            return
+        }
+        select(track)
+    }
+
+    private func group(for kind: PlaybackTrack.Kind) -> AVMediaSelectionGroup? {
+        switch kind {
+        case .audio: audible
+        case .subtitle: legible
+        case .video: nil
+        }
+    }
 
     func stop() {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
@@ -69,6 +109,7 @@ final class AVPlaybackEngine: PlaybackEngine {
         player.pause()
         player.replaceCurrentItem(with: nil)
         onFinish = nil
+        onTracksReady = nil
     }
 
     // `.main` queue callbacks, so `assumeIsolated` is safe.
@@ -80,7 +121,10 @@ final class AVPlaybackEngine: PlaybackEngine {
         }
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             if item.status == .readyToPlay {
-                Task { @MainActor [weak self] in await self?.checkVideoIsPlayable(item) }
+                Task { @MainActor [weak self] in
+                    await self?.loadSelectionGroups(item)
+                    await self?.checkVideoIsPlayable(item)
+                }
                 return
             }
             guard item.status == .failed else { return }
@@ -91,6 +135,15 @@ final class AVPlaybackEngine: PlaybackEngine {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.finish(nil) }
         }
+    }
+
+    private func loadSelectionGroups(_ item: AVPlayerItem) async {
+        let legible = try? await item.asset.loadMediaSelectionGroup(for: .legible)
+        let audible = try? await item.asset.loadMediaSelectionGroup(for: .audible)
+        guard item === player.currentItem else { return }
+        self.legible = legible
+        self.audible = audible
+        onTracksReady?()
     }
 
     /// The simulator "plays" video it can't decode (4K Dolby Vision, say) as a black screen with no error.

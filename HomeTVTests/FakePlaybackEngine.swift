@@ -11,6 +11,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
     var onFinish: ((Error?) -> Void)?
+    var onTracksReady: (() -> Void)?
+    var audioTracks: [PlaybackTrack] = []
+    var subtitleTracks: [PlaybackTrack] = []
+    /// Every subtitle selection, nil for off.
+    private(set) var subtitleSelections: [PlaybackTrack?] = []
     private(set) var seeks: [TimeInterval] = []
     /// False leaves the clock behind, like an engine still seeking.
     var seekLands = true
@@ -25,7 +30,15 @@ final class FakePlaybackEngine: PlaybackEngine {
         if seekLands { currentTime = time }
     }
 
-    func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] { [] }
+    func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
+        switch kind {
+        case .audio: audioTracks
+        case .subtitle: subtitleTracks
+        case .video: []
+        }
+    }
+
     func select(_ track: PlaybackTrack) {}
+    func selectSubtitle(_ track: PlaybackTrack?) { subtitleSelections.append(track) }
     func stop() {}
 }
