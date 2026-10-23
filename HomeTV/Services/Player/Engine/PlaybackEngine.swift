@@ -9,6 +9,8 @@ protocol PlaybackEngine: AnyObject {
     var state: PlaybackState { get }
     var currentTime: TimeInterval { get }
     var duration: TimeInterval { get }
+    /// True from `seek(to:)` until the engine lands there.
+    var isSeeking: Bool { get }
     /// Seconds subtitles are shifted by. Positive shows them later.
     var subtitleDelay: TimeInterval { get set }
     /// Called once when playback ends, with the error if it failed.

@@ -13,4 +13,6 @@ struct PlayerRequest: Identifiable, Sendable {
     var headers: [String: String] = [:]
     /// Seconds to start at; 0 plays from the beginning.
     var startTime: TimeInterval = 0
+    /// What to save the position against. nil plays without saving.
+    var item: PlaybackItem?
 }

@@ -66,9 +66,10 @@ enum PlayerLauncher {
         )
     }
 
-    /// Seconds to resume at, or nil to start from the beginning. Only a fraction inside
-    /// `LocalLibrary.resumeRange` resumes, and an unknown runtime never guesses.
-    static func resumePosition(fraction: Double?, runtimeSeconds: Int?) -> Int? {
+    /// Seconds to resume at, or nil to start from the beginning. Saved seconds win; otherwise only a
+    /// fraction inside `LocalLibrary.resumeRange` resumes, and an unknown runtime never guesses.
+    static func resumePosition(savedSeconds: Int? = nil, fraction: Double?, runtimeSeconds: Int?) -> Int? {
+        if let savedSeconds, savedSeconds > 0 { return savedSeconds }
         guard let fraction, LocalLibrary.resumeRange.contains(fraction),
               let runtimeSeconds, runtimeSeconds > 0 else { return nil }
         let seconds = Int(fraction * Double(runtimeSeconds))

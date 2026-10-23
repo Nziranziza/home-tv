@@ -61,21 +61,37 @@ enum UserLibrary {
 
     /// Playback progress (0...1) for a content id — `tt0903747` or `tt0903747:1:4`.
     static func progress(forKey key: String) -> Double? {
-        trakt.isSignedIn ? trakt.progress(forKey: key) : local.progress(forKey: key)
+        prefersLocalProgress(forKey: key) ? local.progress(forKey: key) : trakt.progress(forKey: key)
+    }
+
+    /// Exact seconds to resume at, from the same store `progress` reads.
+    static func resumeSeconds(forKey key: String) -> Int? {
+        prefersLocalProgress(forKey: key) ? local.position(forKey: key) : nil
+    }
+
+    /// The in-app player saves only locally (#130), so the newer of the local and Trakt plays wins. A newer
+    /// local finish has no progress, which correctly hides Trakt's older resume point.
+    private static func prefersLocalProgress(forKey key: String) -> Bool {
+        guard trakt.isSignedIn else { return true }
+        guard let localPlay = local.lastPlayed(forKey: key) else { return false }
+        guard let traktPlay = trakt.lastPlayed(forKey: key) else { return true }
+        return localPlay.date >= traktPlay.date
     }
 
     /// Where a player left off. Always local: there is no client-side Trakt write for playback progress.
-    static func recordProgress(_ fraction: Double, id: String) {
-        local.setProgress(fraction, id: id)
+    static func recordProgress(_ fraction: Double, seconds: Int? = nil, isRestart: Bool = false, id: String) {
+        local.setProgress(fraction, seconds: seconds, isRestart: isRestart, id: id)
     }
 
     // MARK: - Last played
 
-    /// An episode's newest play activity, when known. Unnumbered videos have none.
+    /// An episode's newest play activity, when known. Unnumbered videos have none. Signed in, local plays
+    /// count too: the in-app player records only locally (#130).
     static func lastPlayed(showID: String, season: Int?, episode: Int?) -> PlayActivity? {
         guard let season, let episode,
               let key = LocalLibrary.id(show: showID, season: season, episode: episode) else { return nil }
-        return trakt.isSignedIn ? trakt.lastPlayed(forKey: key) : local.lastPlayed(forKey: key)
+        guard trakt.isSignedIn else { return local.lastPlayed(forKey: key) }
+        return PlayActivity.newest(trakt.lastPlayed(forKey: key), local.lastPlayed(forKey: key))
     }
 
     // MARK: - Watchlist

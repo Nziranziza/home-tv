@@ -89,17 +89,18 @@ final class PlaybackReturnCoordinator {
             return      // a queue we could not place the return in — better to record nothing
         }
 
-        guard let position, let runtime, runtime > 0 else { return }
-        let fraction = Double(position) / Double(runtime)
-        UserLibrary.recordProgress(fraction, id: returned)
-        // Played to the end: finished, not just a resume point.
-        if fraction > LocalLibrary.resumeRange.upperBound, runtimeIsOwn, let returnedEpisode {
-            UserLibrary.markEpisodeWatched(showID: launch.showID, season: returnedEpisode.season, episode: returnedEpisode.episode)
-        }
-        // Continue Watching cards are keyed by the show, so the resume point is recorded there too.
-        if returned != launch.showID, !launch.showID.isEmpty {
-            UserLibrary.recordProgress(fraction, id: launch.showID)
-        }
+        guard let position, let runtime else { return }
+        PlaybackProgress.record(
+            position: position,
+            runtime: runtime,
+            item: PlaybackItem(
+                contentID: returned,
+                showID: launch.showID,
+                season: returnedEpisode?.season,
+                episode: returnedEpisode?.episode
+            ),
+            runtimeIsOwn: runtimeIsOwn
+        )
     }
 
     /// Parameter names Infuse uses; its docs describe the behaviour but not the spelling. Compared
@@ -122,7 +123,7 @@ final class PlaybackReturnCoordinator {
     }
 
     /// Season and episode from an episode content id (`tt0903747:1:4`), nil for a movie or show.
-    static func episodeNumbers(in contentID: String) -> (season: Int, episode: Int)? {
+    nonisolated static func episodeNumbers(in contentID: String) -> (season: Int, episode: Int)? {
         let parts = contentID.split(separator: ":")
         guard parts.count == 3, let season = Int(parts[1]), let episode = Int(parts[2]) else { return nil }
         return (season, episode)

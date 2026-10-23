@@ -30,7 +30,8 @@ final class TraktService {
     private(set) var watchedEpisodeKeys: Set<String> = []  // "showImdb:season:episode"
     private(set) var watchlistIDs: Set<String> = []        // imdb ids (movies + shows)
     private(set) var playbackProgress: [String: Double] = [:]  // key → 0...1
-    /// Newest episode activity from playback `paused_at` and history `watched_at`, by episode key.
+    /// Newest episode activity from playback `paused_at` and history `watched_at`, by episode key, plus
+    /// movies' playback `paused_at` by movie id.
     private(set) var episodeActivity: [String: PlayActivity] = [:]
     /// Per-episode `last_watched_at` from the show progress endpoint, which reaches past the history
     /// fetch limit. Loaded per show with `watchedEpisodeKeys`.
@@ -423,6 +424,10 @@ final class TraktService {
         for item in merged {
             if item.type == "movie", let id = item.movie?.ids.imdb {
                 progress[id] = item.progress / 100.0
+                // Lets a local resume point be compared against Trakt's.
+                if let pausedAt = date(fromISO8601: item.pausedAt) {
+                    activity[id] = PlayActivity.newest(activity[id], PlayActivity(date: pausedAt, isFinished: false))
+                }
             } else if let showID = item.show?.ids.imdb,
                       let season = item.episode?.season,
                       let number = item.episode?.number {
@@ -444,12 +449,20 @@ final class TraktService {
         let continueEpisodeKeys = Set(continueItems.compactMap(\.episodeKey))
         var recentItems: [RecentlyWatchedItem] = []
         var watchedSeen = Set<String>()
-        for entry in history where entry.type == "episode" {
-            guard let showID = entry.show?.ids.imdb,
-                  let season = entry.episode?.season,
-                  let number = entry.episode?.number,
-                  let watchedAt = date(fromISO8601: entry.watchedAt) else { continue }
-            let key = "\(showID):\(season):\(number)"
+        for entry in history {
+            guard let watchedAt = date(fromISO8601: entry.watchedAt) else { continue }
+            let key: String
+            if entry.type == "movie", let id = entry.movie?.ids.imdb {
+                // Lets a movie finished elsewhere beat an older local resume point.
+                key = id
+            } else if entry.type == "episode",
+                      let showID = entry.show?.ids.imdb,
+                      let season = entry.episode?.season,
+                      let number = entry.episode?.number {
+                key = "\(showID):\(season):\(number)"
+            } else {
+                continue
+            }
             activity[key] = PlayActivity.newest(activity[key], PlayActivity(date: watchedAt, isFinished: true))
         }
         for entry in history {

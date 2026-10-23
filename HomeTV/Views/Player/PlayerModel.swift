@@ -8,6 +8,8 @@ import UIKit
 final class PlayerModel {
     /// The remote's Left/Right skip.
     static let skipInterval: TimeInterval = 10
+    /// How often the position is saved while playing; a force quit loses at most this much.
+    static let saveInterval: Duration = .seconds(10)
 
     let request: PlayerRequest
     let bar: PlayerBarController
@@ -22,17 +24,27 @@ final class PlayerModel {
     /// The last seek, shown until the engine's clock reaches it, so quick repeated skips add up.
     private var lastSeek: (time: TimeInterval, at: ContinuousClock.Instant)?
     @ObservationIgnored private var isStarted = false
+    /// Saves a position (seconds) and runtime (seconds) for the request's item.
+    @ObservationIgnored private let recordProgress: @MainActor (Int, Int, PlaybackItem) -> Void
+    /// Set once the engine has played, so a stream that never started can't overwrite the resume point.
+    @ObservationIgnored private var hasPlayed = false
+    @ObservationIgnored private var lastSavedPosition: Int?
 
     init(
         request: PlayerRequest,
         engine: (any PlaybackEngine)? = nil,
         bar: PlayerBarController? = nil,
-        publishesNowPlaying: Bool = true
+        publishesNowPlaying: Bool = true,
+        recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil
     ) {
         self.request = request
         self.engine = engine ?? PlaybackEngines.make()
         self.bar = bar ?? PlayerBarController()
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
+        self.recordProgress = recordProgress ?? { position, runtime, item in
+            // A 0 only gets through after a seek back to the start.
+            PlaybackProgress.record(position: position, runtime: runtime, item: item, isRestart: position == 0)
+        }
     }
 
     var state: PlaybackState { engine.state }
@@ -44,9 +56,11 @@ final class PlayerModel {
     var displayTime: TimeInterval { scrubTime ?? playheadTime }
 
     /// The engine's clock, or the last seek until the clock reaches it. Given up after a second, in case
-    /// the engine snapped to a keyframe elsewhere.
+    /// the engine snapped to a keyframe elsewhere. The start time until the clock starts, so a resume
+    /// never shows 00:00 first.
     private var playheadTime: TimeInterval {
         let time = currentTime
+        if !hasPlayed, time == 0 { return request.startTime }
         if let lastSeek, abs(time - lastSeek.time) >= 1, ContinuousClock.now - lastSeek.at < .seconds(1) {
             return lastSeek.time
         }
@@ -60,6 +74,7 @@ final class PlayerModel {
         engine.onFinish = { [weak self] error in
             guard let self else { return }
             if error == nil {
+                saveProgress(atEnd: true)
                 didFinish = true
             } else {
                 errorMessage = Self.message(for: error)
@@ -144,6 +159,8 @@ final class PlayerModel {
 
     /// Keeps the bar's countdown and Now Playing in step with the engine.
     func playbackDidChange() {
+        if engine.state == .playing { hasPlayed = true }
+        if engine.state == .paused { saveProgress() }
         if isPlaying {
             bar.noteActivity(isPlaying: true)
         } else if engine.state == .paused {
@@ -156,7 +173,23 @@ final class PlayerModel {
         nowPlaying?.update(elapsed: playheadTime, duration: duration, isPlaying: isPlaying)
     }
 
+    /// Saves where playback is, or the end once it played through. Repeats of the last save are skipped.
+    func saveProgress(atEnd: Bool = false) {
+        if engine.state == .playing { hasPlayed = true }
+        guard let item = request.item, hasPlayed, !didFinish, duration > 0 else { return }
+        let runtime = Int(duration)
+        // A seek still in flight, however slow, is where the user is.
+        let time = engine.isSeeking ? lastSeek?.time ?? playheadTime : playheadTime
+        let position = atEnd ? runtime : Int(time)
+        // An unseeked 0 is a clock that hasn't caught up with the start time; after a seek it's a restart.
+        guard position > 0 || lastSeek != nil, position != lastSavedPosition else { return }
+        lastSavedPosition = position
+        PlaybackDiagnostics.log("save \(position)/\(runtime)s \(item.contentID)")
+        recordProgress(position, runtime, item)
+    }
+
     func stop() {
+        saveProgress()
         nowPlaying?.deactivate()
         bar.hide()
         engine.stop()

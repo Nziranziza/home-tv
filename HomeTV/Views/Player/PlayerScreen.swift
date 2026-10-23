@@ -8,6 +8,7 @@ struct PlayerScreen: View {
     @State private var swipes = RemoteSwipeTracker()
     @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     init(request: PlayerRequest) {
         _model = State(initialValue: PlayerModel(request: request))
@@ -74,11 +75,20 @@ struct PlayerScreen: View {
         .onChange(of: focus) {
             model.noteActivity()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model.saveProgress() }
+        }
         .task(id: model.isPlaying) {
             // Keeps Control Center's clock in step; it extrapolates between updates.
             while !Task.isCancelled {
                 model.publishNowPlaying()
                 try? await Task.sleep(for: .seconds(5))
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: PlayerModel.saveInterval)
+                model.saveProgress()
             }
         }
     }

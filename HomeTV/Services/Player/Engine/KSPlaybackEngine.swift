@@ -21,6 +21,11 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var layer: KSPlayerLayer?
     @ObservationIgnored private var source: (url: URL, headers: [String: String], startTime: TimeInterval)?
     @ObservationIgnored private var route: PlaybackRoute = .native
+    /// A start time the native route still has to seek to; KSAVPlayer ignores `startPlayTime`.
+    @ObservationIgnored private var pendingStart: TimeInterval?
+    @ObservationIgnored private(set) var isSeeking = false
+    /// Tells a finished seek from one superseded by a newer seek.
+    @ObservationIgnored private var seekGeneration = 0
 
     init() {
         videoView.backgroundColor = .black
@@ -38,8 +43,12 @@ final class KSPlaybackEngine: PlaybackEngine {
         tearDownLayer()
         self.route = route
         let options = KSOptions()
-        options.isAutoPlay = true
         options.startPlayTime = startTime
+        // Held until `readyToPlay` seeks there, so the first frame is already at the start time.
+        pendingStart = route == .native && startTime > 0 ? startTime : nil
+        options.isAutoPlay = pendingStart == nil
+        // On the exact second, not the keyframe before it.
+        options.isAccurateSeek = pendingStart != nil
         // `NowPlayingController` owns Now Playing and the remote commands for both engines.
         options.registerRemoteControll = false
         if !source.headers.isEmpty { options.appendHeader(source.headers) }
@@ -48,9 +57,13 @@ final class KSPlaybackEngine: PlaybackEngine {
         PlaybackDiagnostics.log("load \(route) \(source.url.lastPathComponent) start=\(startTime)")
         let layer = KSPlayerLayer(url: source.url, options: options, delegate: self)
         self.layer = layer
+        // Without autoplay the layer doesn't load on its own.
+        if !options.isAutoPlay { layer.prepareToPlay() }
         let surface = layer.makeUIView()
         surface.frame = videoView.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // A held start shows frame 0 until the seek lands.
+        surface.isHidden = pendingStart != nil
         videoView.addSubview(surface)
     }
 
@@ -59,7 +72,14 @@ final class KSPlaybackEngine: PlaybackEngine {
     func pause() { layer?.pause() }
 
     func seek(to time: TimeInterval) {
-        layer?.seek(time: time, autoPlay: state != .paused)
+        guard let layer else { return }
+        seekGeneration += 1
+        let generation = seekGeneration
+        isSeeking = true
+        layer.seek(time: time, autoPlay: state != .paused) { [weak self] _ in
+            guard let self, generation == seekGeneration else { return }
+            isSeeking = false
+        }
     }
 
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
@@ -92,12 +112,20 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer?.delegate = nil
         layer?.stop()
         layer = nil
+        isSeeking = false
         videoView.subviews.forEach { $0.removeFromSuperview() }
     }
 }
 
 extension KSPlaybackEngine: KSPlayerLayerDelegate {
     func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        if state == .readyToPlay, let start = pendingStart {
+            pendingStart = nil
+            PlaybackDiagnostics.log("native start seek to \(start)")
+            layer.seek(time: start, autoPlay: true) { [weak self] _ in
+                self?.videoView.subviews.forEach { $0.isHidden = false }
+            }
+        }
         self.state = switch state {
         case .initialized, .preparing, .readyToPlay: .loading
         case .buffering: .buffering

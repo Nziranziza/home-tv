@@ -32,6 +32,13 @@ struct ResumePositionTests {
         #expect(PlayerLauncher.resumePosition(fraction: 0.97, runtimeSeconds: 3600) == nil)
     }
 
+    @Test func savedSecondsWinOverTheFraction() {
+        #expect(PlayerLauncher.resumePosition(savedSeconds: 1390, fraction: 0.5, runtimeSeconds: 3600) == 1390)
+        // No runtime needed: the metadata lookup can be slow or fail.
+        #expect(PlayerLauncher.resumePosition(savedSeconds: 1390, fraction: nil, runtimeSeconds: nil) == 1390)
+        #expect(PlayerLauncher.resumePosition(savedSeconds: 0, fraction: 0.5, runtimeSeconds: 3600) == 1800)
+    }
+
     // MARK: - Single launch
 
     @Test func aSingleLaunchCarriesTheStartPosition() throws {
