@@ -32,11 +32,14 @@ struct PlayerTransportBar: View {
                     .padding(.leading, 4)
                     .padding(.top, 12)
                 Spacer(minLength: 40)
-                PlayerControlButtons(focus: focus, onSelect: onSelect)
+                PlayerControlButtons(model: model, focus: focus, onSelect: onSelect)
             }
+            // Out of focus's reach while a menu is open, so it can't leave the menu.
             PlayerScrubberButton(model: model, focus: focus, onMove: onMove)
+                .disabled(model.subtitlesMenu != nil)
                 .padding(.top, 32)
             PlayerTabs(focus: focus, onSelect: onSelect)
+                .disabled(model.subtitlesMenu != nil)
                 .padding(.top, 17)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

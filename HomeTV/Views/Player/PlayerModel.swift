@@ -13,6 +13,9 @@ final class PlayerModel {
 
     let request: PlayerRequest
     let bar: PlayerBarController
+    let subtitles: PlayerSubtitles
+    /// The open level of the Subtitles menu, nil while it's closed.
+    private(set) var subtitlesMenu: SubtitlesMenuPage?
     @ObservationIgnored private let engine: any PlaybackEngine
     @ObservationIgnored private let nowPlaying: NowPlayingController?
     /// Set when the stream can't play, for the screen to show.
@@ -29,17 +32,26 @@ final class PlayerModel {
     /// Set once the engine has played, so a stream that never started can't overwrite the resume point.
     @ObservationIgnored private var hasPlayed = false
     @ObservationIgnored private var lastSavedPosition: Int?
+    /// Manage Styles was chosen before playback started; pauses once it does.
+    @ObservationIgnored private var pausesOnStart = false
 
     init(
         request: PlayerRequest,
         engine: (any PlaybackEngine)? = nil,
         bar: PlayerBarController? = nil,
         publishesNowPlaying: Bool = true,
-        recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil
+        recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
+        subtitleChoices: SubtitleChoiceStore = .shared
     ) {
         self.request = request
-        self.engine = engine ?? PlaybackEngines.make()
+        let engine = engine ?? PlaybackEngines.make()
+        self.engine = engine
         self.bar = bar ?? PlayerBarController()
+        subtitles = PlayerSubtitles(
+            engine: engine,
+            showID: request.item.map { SubtitleChoiceStore.showKey(forContentID: $0.contentID) },
+            store: subtitleChoices
+        )
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
@@ -80,6 +92,7 @@ final class PlayerModel {
                 errorMessage = Self.message(for: error)
             }
         }
+        engine.onTracksReady = { [weak self] in self?.subtitles.tracksDidLoad() }
         engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
         nowPlaying?.activate(title: request.title, commands: self)
     }
@@ -143,9 +156,35 @@ final class PlayerModel {
         bar.show(isPlaying: false)
     }
 
-    /// Menu: hides the bar, dropping any scrub. Returns false when the bar was already hidden, so the
-    /// screen closes.
+    func openSubtitlesMenu() {
+        subtitles.loadStyles()
+        subtitlesMenu = .root
+        bar.hold()
+    }
+
+    func showSubtitlesMenu(_ page: SubtitlesMenuPage) {
+        subtitlesMenu = page
+    }
+
+    func closeSubtitlesMenu() {
+        subtitlesMenu = nil
+        bar.release(isPlaying: isPlaying)
+    }
+
+    /// Manage Styles: the system's caption styles are edited in Settings, which takes over the screen.
+    func pauseForSettings() {
+        if engine.state == .loading || engine.state == .idle { pausesOnStart = true }
+        pause()
+        closeSubtitlesMenu()
+    }
+
+    /// Menu: backs out of an open menu one level, else hides the bar, dropping any scrub. Returns false
+    /// when the bar was already hidden, so the screen closes.
     func handleExit() -> Bool {
+        if let page = subtitlesMenu {
+            if page == .root { closeSubtitlesMenu() } else { subtitlesMenu = .root }
+            return true
+        }
         guard bar.isVisible else { return false }
         scrubTime = nil
         bar.hide()
@@ -160,6 +199,11 @@ final class PlayerModel {
     /// Keeps the bar's countdown and Now Playing in step with the engine.
     func playbackDidChange() {
         if engine.state == .playing { hasPlayed = true }
+        if pausesOnStart, isPlaying {
+            pausesOnStart = false
+            pause()
+            return
+        }
         if engine.state == .paused { saveProgress() }
         if isPlaying {
             bar.noteActivity(isPlaying: true)
@@ -189,6 +233,8 @@ final class PlayerModel {
     }
 
     func stop() {
+        pausesOnStart = false
+        subtitlesMenu = nil
         saveProgress()
         nowPlaying?.deactivate()
         bar.hide()

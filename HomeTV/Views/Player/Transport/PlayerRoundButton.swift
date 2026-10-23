@@ -4,9 +4,10 @@ import SwiftUI
 struct PlayerRoundButton: View {
     let title: String
     let systemImage: String
+    var isHighlighted = false
     let action: () -> Void
 
-    private static let diameter: CGFloat = 70
+    static let diameter: CGFloat = 70
 
     var body: some View {
         Button(action: action) {
@@ -15,6 +16,6 @@ struct PlayerRoundButton: View {
                 .font(.body)
                 .frame(width: Self.diameter, height: Self.diameter)
         }
-        .buttonStyle(.playerRound)
+        .buttonStyle(.playerRound(isHighlighted: isHighlighted))
     }
 }
