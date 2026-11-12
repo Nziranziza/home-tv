@@ -26,6 +26,16 @@ struct PlayerTransportTests {
         return (model, engine)
     }
 
+    // MARK: - Settings
+
+    @Test func manageStylesWhileLoadingPausesOncePlaybackStarts() throws {
+        let (model, engine) = try Self.model(state: .loading)
+        model.pauseForSettings()
+        engine.state = .playing
+        model.playbackDidChange()
+        #expect(engine.state == .paused)
+    }
+
     // MARK: - Clock
 
     @Test func timesUnderAnHourPadMinutes() {

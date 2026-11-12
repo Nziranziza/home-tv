@@ -15,6 +15,8 @@ protocol PlaybackEngine: AnyObject {
     var subtitleDelay: TimeInterval { get set }
     /// Called once when playback ends, with the error if it failed.
     var onFinish: ((Error?) -> Void)? { get set }
+    /// Called each time the stream's tracks become known, including after a decoder restart.
+    var onTracksReady: (() -> Void)? { get set }
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval)
     func play()
@@ -22,6 +24,8 @@ protocol PlaybackEngine: AnyObject {
     func seek(to time: TimeInterval)
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack]
     func select(_ track: PlaybackTrack)
+    /// Shows `track`'s subtitles, or none for nil.
+    func selectSubtitle(_ track: PlaybackTrack?)
     /// Stops playback and releases the decoder. The engine can't be reused.
     func stop()
 }
