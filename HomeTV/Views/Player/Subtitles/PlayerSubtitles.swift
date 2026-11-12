@@ -47,13 +47,14 @@ final class PlayerSubtitles {
         styles.first { $0.id == activeStyleID }?.name
     }
 
-    /// The engine has listed the stream's tracks: picks the opening subtitles.
-    func tracksDidLoad() {
+    /// The engine has listed the stream's tracks: picks the opening subtitles. `audioTrack` is the audio
+    /// being switched to, else the engine's selected track counts.
+    func tracksDidLoad(audioTrack: PlaybackTrack? = nil) {
         let tracks = engine.tracks(of: .subtitle)
         let regular = tracks.filter { !$0.isForced }
         options = zip(regular, SubtitleTrackName.names(for: regular)).map(SubtitleTrackOption.init)
         let audio = engine.tracks(of: .audio)
-        let audioLanguage = (audio.first(where: \.isSelected) ?? audio.first)?.languageCode
+        let audioLanguage = (audioTrack ?? audio.first(where: \.isSelected) ?? audio.first)?.languageCode
         var selection = SubtitleDefaults.selection(
             for: tracks,
             audioLanguage: audioLanguage,

@@ -14,8 +14,10 @@ final class PlayerModel {
     let request: PlayerRequest
     let bar: PlayerBarController
     let subtitles: PlayerSubtitles
+    let audio: PlayerAudio
     /// The open level of the Subtitles menu, nil while it's closed.
     private(set) var subtitlesMenu: SubtitlesMenuPage?
+    private(set) var isAudioMenuOpen = false
     @ObservationIgnored private let engine: any PlaybackEngine
     @ObservationIgnored private let nowPlaying: NowPlayingController?
     /// Set when the stream can't play, for the screen to show.
@@ -41,17 +43,16 @@ final class PlayerModel {
         bar: PlayerBarController? = nil,
         publishesNowPlaying: Bool = true,
         recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
-        subtitleChoices: SubtitleChoiceStore = .shared
+        subtitleChoices: SubtitleChoiceStore = .shared,
+        audioChoices: AudioChoiceStore = .shared
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
         self.engine = engine
         self.bar = bar ?? PlayerBarController()
-        subtitles = PlayerSubtitles(
-            engine: engine,
-            showID: request.item.map { SubtitleChoiceStore.showKey(forContentID: $0.contentID) },
-            store: subtitleChoices
-        )
+        let showID = request.item.map { SubtitleChoiceStore.showKey(forContentID: $0.contentID) }
+        subtitles = PlayerSubtitles(engine: engine, showID: showID, store: subtitleChoices)
+        audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
@@ -92,7 +93,12 @@ final class PlayerModel {
                 errorMessage = Self.message(for: error)
             }
         }
-        engine.onTracksReady = { [weak self] in self?.subtitles.tracksDidLoad() }
+        engine.onTracksReady = { [weak self] in
+            guard let self else { return }
+            // Audio first: the subtitles' default depends on the audio's language.
+            audio.tracksDidLoad()
+            subtitles.tracksDidLoad(audioTrack: audio.track)
+        }
         engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
         nowPlaying?.activate(title: request.title, commands: self)
     }
@@ -171,6 +177,16 @@ final class PlayerModel {
         bar.release(isPlaying: isPlaying)
     }
 
+    func openAudioMenu() {
+        isAudioMenuOpen = true
+        bar.hold()
+    }
+
+    func closeAudioMenu() {
+        isAudioMenuOpen = false
+        bar.release(isPlaying: isPlaying)
+    }
+
     /// Manage Styles: the system's caption styles are edited in Settings, which takes over the screen.
     func pauseForSettings() {
         if engine.state == .loading || engine.state == .idle { pausesOnStart = true }
@@ -181,6 +197,10 @@ final class PlayerModel {
     /// Menu: backs out of an open menu one level, else hides the bar, dropping any scrub. Returns false
     /// when the bar was already hidden, so the screen closes.
     func handleExit() -> Bool {
+        if isAudioMenuOpen {
+            closeAudioMenu()
+            return true
+        }
         if let page = subtitlesMenu {
             if page == .root { closeSubtitlesMenu() } else { subtitlesMenu = .root }
             return true
@@ -235,6 +255,7 @@ final class PlayerModel {
     func stop() {
         pausesOnStart = false
         subtitlesMenu = nil
+        isAudioMenuOpen = false
         saveProgress()
         nowPlaying?.deactivate()
         bar.hide()

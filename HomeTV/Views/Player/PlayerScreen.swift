@@ -52,6 +52,7 @@ struct PlayerScreen: View {
         .animation(.easeInOut(duration: 0.3), value: model.state)
         .animation(.easeInOut(duration: 0.3), value: model.bar.isVisible)
         .animation(.easeInOut(duration: 0.2), value: model.subtitlesMenu == nil)
+        .animation(.easeInOut(duration: 0.2), value: model.isAudioMenuOpen)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -81,6 +82,9 @@ struct PlayerScreen: View {
         }
         .onChange(of: model.subtitlesMenu == nil) { _, isClosed in
             if isClosed, model.bar.isVisible { focus = .subtitles }
+        }
+        .onChange(of: model.isAudioMenuOpen) { _, isOpen in
+            if !isOpen, model.bar.isVisible { focus = .audio }
         }
         .onChange(of: focus) {
             model.noteActivity()
@@ -118,6 +122,7 @@ struct PlayerScreen: View {
     private func select(_ target: PlayerFocus) {
         switch target {
         case .subtitles: model.openSubtitlesMenu()
+        case .audio: model.openAudioMenu()
         default: model.noteActivity()
         }
     }
