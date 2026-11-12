@@ -29,13 +29,20 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var route: PlaybackRoute = .native
     /// A start time the native route still has to seek to; KSAVPlayer ignores `startPlayTime`.
     @ObservationIgnored private var pendingStart: TimeInterval?
+    /// The native start's seek is in flight; it plays when it lands.
+    @ObservationIgnored private var isSeekingToStart = false
     @ObservationIgnored private(set) var isSeeking = false
     /// Tells a finished seek from one superseded by a newer seek.
     @ObservationIgnored private var seekGeneration = 0
+    @ObservationIgnored private let displaySwitch = DisplayModeSwitch()
+    /// Playback waits while the TV blacks out to change mode, instead of playing unseen.
+    @ObservationIgnored private var isHoldingForDisplaySwitch = false
 
     init() {
         videoView.backgroundColor = .black
         Self.configureSubtitles()
+        displaySwitch.onStart = { [weak self] in self?.holdForDisplaySwitch() }
+        displaySwitch.onEnd = { [weak self] in self?.releaseDisplaySwitchHold() }
     }
 
     /// Text subtitles take the system caption style. ASS draws through libass, keeping its own styling.
@@ -46,6 +53,8 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {
         source = (url, headers, startTime)
+        // Before the layer opens, so the switch its first frame triggers is caught.
+        displaySwitch.startObserving()
         start(on: PlaybackRoute.forURL(url), at: startTime)
     }
 
@@ -83,6 +92,26 @@ final class KSPlaybackEngine: PlaybackEngine {
         // A held start shows frame 0 until the seek lands.
         surface.isHidden = pendingStart != nil
         videoView.addSubview(surface)
+        // A FFmpeg retry can start mid-switch.
+        if displaySwitch.isInProgress { holdForDisplaySwitch() }
+    }
+
+    private func holdForDisplaySwitch() {
+        guard let layer, let options, !isHoldingForDisplaySwitch else { return }
+        isHoldingForDisplaySwitch = true
+        PlaybackDiagnostics.log("hold for display mode switch")
+        options.isAutoPlay = false
+        if layer.state.isPlaying { layer.pause() }
+        state = .loading
+    }
+
+    private func releaseDisplaySwitchHold() {
+        guard isHoldingForDisplaySwitch, let layer, let options else { return }
+        isHoldingForDisplaySwitch = false
+        PlaybackDiagnostics.log("display mode switch done")
+        // A held native start plays once its seek lands.
+        guard pendingStart == nil, !isSeekingToStart else { return }
+        if layer.player.isReadyToPlay { layer.play() } else { options.isAutoPlay = true }
     }
 
     func play() { layer?.play() }
@@ -220,6 +249,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         onFinish = nil
         onTracksReady = nil
         tearDownLayer()
+        displaySwitch.reset()
     }
 
     private func tearDownLayer() {
@@ -229,6 +259,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer = nil
         options = nil
         isSeeking = false
+        isHoldingForDisplaySwitch = false
+        isSeekingToStart = false
         videoView.subviews.forEach { $0.removeFromSuperview() }
     }
 }
@@ -238,13 +270,23 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
         if state == .readyToPlay, let start = pendingStart {
             pendingStart = nil
             PlaybackDiagnostics.log("native start seek to \(start)")
-            layer.seek(time: start, autoPlay: true) { [weak self] _ in
-                self?.videoView.subviews.forEach { $0.isHidden = false }
+            isSeekingToStart = true
+            // Played here rather than by the seek, since a mode switch can start while it's in flight.
+            layer.seek(time: start, autoPlay: false) { [weak self, weak layer] _ in
+                guard let self, let layer, layer === self.layer else { return }
+                isSeekingToStart = false
+                videoView.subviews.forEach { $0.isHidden = false }
+                if !isHoldingForDisplaySwitch { layer.play() }
             }
         }
         if state == .readyToPlay {
             // A turn later, so the layer has finished its own ready handling and listed the tracks.
             Task { @MainActor [weak self] in self?.onTracksReady?() }
+        }
+        // The hold's own pause isn't the viewer's, so the player keeps showing it as loading.
+        if isHoldingForDisplaySwitch, state != .error, state != .playedToTheEnd {
+            self.state = .loading
+            return
         }
         self.state = switch state {
         case .initialized, .preparing, .readyToPlay: .loading
