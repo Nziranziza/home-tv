@@ -11,6 +11,8 @@ protocol PlaybackEngine: AnyObject {
     var duration: TimeInterval { get }
     /// True from `seek(to:)` until the engine lands there.
     var isSeeking: Bool { get }
+    /// The video track's size and dynamic range, once `onTracksReady` has fired.
+    var videoFormat: VideoFormat? { get }
     /// Seconds subtitles are shifted by. Positive shows them later.
     var subtitleDelay: TimeInterval { get set }
     /// Called once when playback ends, with the error if it failed.

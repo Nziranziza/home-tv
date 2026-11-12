@@ -18,6 +18,12 @@ final class PlayerModel {
     /// The open level of the Subtitles menu, nil while it's closed.
     private(set) var subtitlesMenu: SubtitlesMenuPage?
     private(set) var isAudioMenuOpen = false
+    /// The Info tab's panel is up, in place of the track.
+    private(set) var isInfoOpen = false
+    /// The Info tab's poster, synopsis and genre, once loaded.
+    private(set) var titleInfo: PlayerTitleInfo?
+    /// The stream's quality badges, once its tracks are known.
+    private(set) var badges: [PlayerBadge] = []
     @ObservationIgnored private let engine: any PlaybackEngine
     @ObservationIgnored private let nowPlaying: NowPlayingController?
     /// Set when the stream can't play, for the screen to show.
@@ -36,6 +42,8 @@ final class PlayerModel {
     @ObservationIgnored private var lastSavedPosition: Int?
     /// Manage Styles was chosen before playback started; pauses once it does.
     @ObservationIgnored private var pausesOnStart = false
+    @ObservationIgnored private let loadTitleInfo: @MainActor (String, PlaybackItem) async -> PlayerTitleInfo?
+    @ObservationIgnored private var titleInfoTask: Task<Void, Never>?
 
     init(
         request: PlayerRequest,
@@ -44,7 +52,8 @@ final class PlayerModel {
         publishesNowPlaying: Bool = true,
         recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
         subtitleChoices: SubtitleChoiceStore = .shared,
-        audioChoices: AudioChoiceStore = .shared
+        audioChoices: AudioChoiceStore = .shared,
+        loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
@@ -54,6 +63,7 @@ final class PlayerModel {
         subtitles = PlayerSubtitles(engine: engine, showID: showID, store: subtitleChoices)
         audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
+        self.loadTitleInfo = loadTitleInfo ?? PlayerTitleInfoLoader.load
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
             PlaybackProgress.record(position: position, runtime: runtime, item: item, isRestart: position == 0)
@@ -65,6 +75,18 @@ final class PlayerModel {
     var currentTime: TimeInterval { engine.currentTime }
     var duration: TimeInterval { engine.duration }
     var isPlaying: Bool { engine.state == .playing || engine.state == .buffering }
+    /// The detail screen Go to Movie / Go to Show opens; nil for a play that isn't a library title.
+    var detail: MetaPreview? {
+        guard let item = request.item else { return nil }
+        return titleInfo?.detail ?? .placeholder(type: request.type, id: item.showID, name: request.title)
+    }
+
+    /// The Info tab's genre and runtime; the stream's own length once known.
+    var infoLine: String? {
+        let runtime = duration > 0 ? duration : titleInfo?.runtimeSeconds.map(TimeInterval.init)
+        return PlayerInfoLine.text(genre: titleInfo?.genre, runtimeSeconds: runtime)
+    }
+
     /// The time the bar shows: the scrub position while scrubbing.
     var displayTime: TimeInterval { scrubTime ?? playheadTime }
 
@@ -98,6 +120,18 @@ final class PlayerModel {
             // Audio first: the subtitles' default depends on the audio's language.
             audio.tracksDidLoad()
             subtitles.tracksDidLoad(audioTrack: audio.track)
+            badges = PlayerBadge.badges(
+                video: engine.videoFormat,
+                audio: engine.tracks(of: .audio),
+                subtitles: engine.tracks(of: .subtitle)
+            )
+        }
+        if let item = request.item {
+            titleInfoTask = Task { [weak self, type = request.type, loadTitleInfo] in
+                let info = await loadTitleInfo(type, item)
+                guard !Task.isCancelled else { return }
+                self?.titleInfo = info
+            }
         }
         engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
         nowPlaying?.activate(title: request.title, commands: self)
@@ -187,6 +221,26 @@ final class PlayerModel {
         bar.release(isPlaying: isPlaying)
     }
 
+    /// Focus moved: the Info panel is up while focus is on its tab or its buttons.
+    func focusDidChange(to target: PlayerFocus?) {
+        if let target { isInfoOpen = target.isInInfo }
+        noteActivity()
+    }
+
+    func closeInfo() {
+        isInfoOpen = false
+    }
+
+    /// From Beginning: plays from 00:00 and hides the bar.
+    func playFromBeginning() {
+        guard canSeek else { return }
+        scrubTime = nil
+        isInfoOpen = false
+        seekEngine(to: 0)
+        engine.play()
+        bar.hide()
+    }
+
     /// Manage Styles: the system's caption styles are edited in Settings, which takes over the screen.
     func pauseForSettings() {
         if engine.state == .loading || engine.state == .idle { pausesOnStart = true }
@@ -203,6 +257,10 @@ final class PlayerModel {
         }
         if let page = subtitlesMenu {
             if page == .root { closeSubtitlesMenu() } else { subtitlesMenu = .root }
+            return true
+        }
+        if isInfoOpen {
+            closeInfo()
             return true
         }
         guard bar.isVisible else { return false }
@@ -256,6 +314,8 @@ final class PlayerModel {
         pausesOnStart = false
         subtitlesMenu = nil
         isAudioMenuOpen = false
+        isInfoOpen = false
+        titleInfoTask?.cancel()
         saveProgress()
         nowPlaying?.deactivate()
         bar.hide()

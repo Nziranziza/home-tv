@@ -145,6 +145,22 @@ final class KSPlaybackEngine: PlaybackEngine {
         }
     }
 
+    var videoFormat: VideoFormat? {
+        guard let tracks = layer?.player.tracks(mediaType: .video),
+              let track = tracks.first(where: \.isEnabled) ?? tracks.first else { return nil }
+        let range: VideoFormat.DynamicRange = if track.isDovi {
+            .dolbyVision
+        } else {
+            switch track.dynamicRange {
+            case .dolbyVision: .dolbyVision
+            case .hdr10: .hdr10
+            case .hlg: .hlg
+            default: .sdr
+            }
+        }
+        return VideoFormat(size: track.naturalSize, dynamicRange: range)
+    }
+
     func select(_ track: PlaybackTrack) {
         guard let player = layer?.player,
               let match = player.tracks(mediaType: track.kind.mediaType).first(where: { $0.trackID == track.id })

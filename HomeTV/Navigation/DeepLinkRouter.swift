@@ -26,7 +26,12 @@ final class DeepLinkRouter {
         guard let type = items.first(where: { $0.name == "type" })?.value,
               let id = items.first(where: { $0.name == "id" })?.value else { return }
         let name = items.first(where: { $0.name == "name" })?.value ?? "Loading…"
+        openDetail(.placeholder(type: type, id: id, name: name))
+    }
+
+    /// Opens `meta`'s detail screen on Watch Now, replacing its stack.
+    func openDetail(_ meta: MetaPreview) {
         requestedTab = 0
-        pendingDetail = .placeholder(type: type, id: id, name: name)
+        pendingDetail = meta
     }
 }

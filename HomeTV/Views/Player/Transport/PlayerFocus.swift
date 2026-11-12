@@ -7,4 +7,14 @@ enum PlayerFocus: Hashable {
     case pictureInPicture
     case info
     case continueWatching
+    case fromBeginning
+    case goToDetail
+
+    /// The Info tab and its panel's buttons, which keep the panel up.
+    var isInInfo: Bool {
+        switch self {
+        case .info, .fromBeginning, .goToDetail: true
+        default: false
+        }
+    }
 }

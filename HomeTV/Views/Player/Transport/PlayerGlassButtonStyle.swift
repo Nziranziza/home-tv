@@ -22,4 +22,8 @@ extension ButtonStyle where Self == PlayerGlassButtonStyle<Circle> {
 
 extension ButtonStyle where Self == PlayerGlassButtonStyle<Capsule> {
     static var playerTab: Self { PlayerGlassButtonStyle(shape: .capsule) }
+
+    static func playerTab(isHighlighted: Bool) -> Self {
+        PlayerGlassButtonStyle(shape: .capsule, isHighlighted: isHighlighted)
+    }
 }

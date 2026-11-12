@@ -5,6 +5,8 @@ import Foundation
 struct PlayerRequest: Identifiable, Sendable {
     let id = UUID()
     let url: URL
+    /// The Stremio type, `movie` or `series`, for the Info tab's meta and its Go to button.
+    var type = "movie"
     /// The movie's or the show's name.
     var title = ""
     /// For an episode, `S2, E1 • The Engineer`, shown above `title`.

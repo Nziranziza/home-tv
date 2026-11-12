@@ -53,6 +53,7 @@ struct PlayerScreen: View {
         .animation(.easeInOut(duration: 0.3), value: model.bar.isVisible)
         .animation(.easeInOut(duration: 0.2), value: model.subtitlesMenu == nil)
         .animation(.easeInOut(duration: 0.2), value: model.isAudioMenuOpen)
+        .animation(.easeInOut(duration: 0.3), value: model.isInfoOpen)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -86,8 +87,12 @@ struct PlayerScreen: View {
         .onChange(of: model.isAudioMenuOpen) { _, isOpen in
             if !isOpen, model.bar.isVisible { focus = .audio }
         }
-        .onChange(of: focus) {
-            model.noteActivity()
+        .onChange(of: model.isInfoOpen) { _, isOpen in
+            // Menu or Up closed the panel from inside it.
+            if !isOpen, model.bar.isVisible, focus?.isInInfo == true { focus = .scrubber }
+        }
+        .onChange(of: focus) { _, target in
+            model.focusDidChange(to: target)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { model.saveProgress() }
@@ -118,11 +123,15 @@ struct PlayerScreen: View {
         }
     }
 
-    /// The other buttons' menus and the tabs' panels arrive in #98–#108.
     private func select(_ target: PlayerFocus) {
         switch target {
         case .subtitles: model.openSubtitlesMenu()
         case .audio: model.openAudioMenu()
+        case .fromBeginning: model.playFromBeginning()
+        case .goToDetail:
+            guard let detail = model.detail else { return }
+            model.saveProgress()
+            PlayerPresenter.shared.goToDetail(detail)
         default: model.noteActivity()
         }
     }
