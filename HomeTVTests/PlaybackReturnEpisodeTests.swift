@@ -15,6 +15,15 @@ struct PlaybackReturnEpisodeTests {
         #expect(PlaybackReturnCoordinator.episodeNumbers(in: "tt0903747:x:5") == nil)
     }
 
+    @Test func namespacedIDsYieldTheirNumbers() {
+        let numbers = PlaybackReturnCoordinator.episodeNumbers(in: "tmdb:tv:1396:2:5")
+        #expect(numbers?.season == 2)
+        #expect(numbers?.episode == 5)
+        // Only an episode number: the season isn't in the id.
+        #expect(PlaybackReturnCoordinator.episodeNumbers(in: "kitsu:1234:5") == nil)
+        #expect(PlaybackReturnCoordinator.episodeNumbers(in: "kitsu:1234") == nil)
+    }
+
     @Test func givenEpisodeNumbersWinOverTheID() {
         let item = PlaybackItem(contentID: "kitsu:1234:5", showID: "kitsu:1234", season: 1, episode: 5)
         #expect(item.season == 1)
