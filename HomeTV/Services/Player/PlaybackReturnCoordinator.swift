@@ -122,10 +122,13 @@ final class PlaybackReturnCoordinator {
         return nil
     }
 
-    /// Season and episode from an episode content id (`tt0903747:1:4`), nil for a movie or show.
+    /// Season and episode from an episode content id (`tt0903747:1:4`), nil for a movie, a show, or an id
+    /// with only an episode number (`kitsu:1234:5`).
     nonisolated static func episodeNumbers(in contentID: String) -> (season: Int, episode: Int)? {
-        let parts = contentID.split(separator: ":")
-        guard parts.count == 3, let season = Int(parts[1]), let episode = Int(parts[2]) else { return nil }
+        let showID = PlaybackSession.showID(fromEpisodeID: contentID)
+        guard contentID.hasPrefix(showID) else { return nil }
+        let parts = contentID.dropFirst(showID.count).split(separator: ":")
+        guard parts.count == 2, let season = Int(parts[0]), let episode = Int(parts[1]) else { return nil }
         return (season, episode)
     }
 

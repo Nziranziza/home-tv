@@ -355,4 +355,10 @@ struct SeasonQueueBuilderTests {
         #expect(PlaybackSession.showID(fromEpisodeID: "tt0903747:1:4") == "tt0903747")
         #expect(PlaybackSession.showID(fromEpisodeID: "tt0903747") == "tt0903747")
     }
+
+    @Test func namespacedShowIDsKeepTheirID() {
+        #expect(PlaybackSession.showID(fromEpisodeID: "kitsu:1234:5") == "kitsu:1234")
+        #expect(PlaybackSession.showID(fromEpisodeID: "kitsu:1234") == "kitsu:1234")
+        #expect(PlaybackSession.showID(fromEpisodeID: "tmdb:tv:1396:2:5") == "tmdb:tv:1396")
+    }
 }

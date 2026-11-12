@@ -186,9 +186,12 @@ final class PlaybackSession {
 
     // MARK: - Season prefetch
 
-    /// A series episode id is `<show id>:<season>:<episode>`; the show's meta lives under the bare id.
+    /// A series episode id is `<show id>:<season>:<episode>`; the show's meta lives under the bare id. The
+    /// show id ends at its first part with a digit: `tt0903747`, `kitsu:1234`, `tmdb:tv:1396`.
     nonisolated static func showID(fromEpisodeID id: String) -> String {
-        String(id.split(separator: ":").first ?? "")
+        let parts = id.split(separator: ":")
+        guard let end = parts.firstIndex(where: { $0.contains(where: \.isNumber) }) else { return id }
+        return parts[...end].joined(separator: ":")
     }
 
     /// Seconds from an add-on's runtime string: `58 min`, `1h 2min`, or a bare number of minutes.
