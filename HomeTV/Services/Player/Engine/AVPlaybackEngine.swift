@@ -14,6 +14,8 @@ final class AVPlaybackEngine: PlaybackEngine {
     var subtitleDelay: TimeInterval = 0
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
+    /// Unused: `PlayerAudio` switches to its pick once the tracks are listed.
+    @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
     @ObservationIgnored private(set) var isSeeking = false
     @ObservationIgnored private var seekGeneration = 0
 
@@ -72,7 +74,9 @@ final class AVPlaybackEngine: PlaybackEngine {
                 languageCode: option.extendedLanguageTag ?? option.locale?.identifier,
                 isSelected: option == selected,
                 isForced: option.hasMediaCharacteristic(.containsOnlyForcedSubtitles),
-                isSDH: option.hasMediaCharacteristic(.describesMusicAndSoundForAccessibility)
+                isSDH: option.hasMediaCharacteristic(.describesMusicAndSoundForAccessibility),
+                isOriginal: option.hasMediaCharacteristic(.isOriginalContent),
+                isAudioDescription: option.hasMediaCharacteristic(.describesVideoForAccessibility)
             )
         }
     }

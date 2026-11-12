@@ -29,7 +29,10 @@ struct HomeTVApp: App {
                 // `PLAYER_TEST_ID` (a content id) saves and resumes the position like a real title.
                 .task {
                     let environment = ProcessInfo.processInfo.environment
-                    guard let raw = environment["PLAYER_TEST_URL"], let url = URL(string: raw) else { return }
+                    guard let raw = environment["PLAYER_TEST_URL"] else { return }
+                    // A bare file name plays from Caches, where `devicectl device copy to` puts test files.
+                    guard let url = raw.contains("://") ? URL(string: raw) : URL.cachesDirectory.appending(path: raw)
+                    else { return }
                     let contentID = environment["PLAYER_TEST_ID"]
                     let resume = contentID.flatMap(UserLibrary.resumeSeconds(forKey:)) ?? 0
                     PlayerPresenter.shared.present(PlayerRequest(

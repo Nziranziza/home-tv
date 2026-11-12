@@ -17,6 +17,8 @@ protocol PlaybackEngine: AnyObject {
     var onFinish: ((Error?) -> Void)? { get set }
     /// Called each time the stream's tracks become known, including after a decoder restart.
     var onTracksReady: (() -> Void)? { get set }
+    /// Picks the audio track a stream opens with. May be called off the main actor.
+    var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)? { get set }
 
     func load(url: URL, headers: [String: String], startTime: TimeInterval)
     func play()

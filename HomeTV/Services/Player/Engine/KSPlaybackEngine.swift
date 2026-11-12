@@ -6,7 +6,7 @@ import Observation
 import UIKit
 
 /// KSPlayer engine: AVPlayer for MP4/MOV/HLS (native Dolby Vision and Atmos), FFmpeg for the rest, and
-/// FFmpeg again for any native start that fails. KSPlayer's types stay in this file.
+/// FFmpeg again for any native start that fails. KSPlayer's types stay in the engine files.
 @MainActor
 @Observable
 final class KSPlaybackEngine: PlaybackEngine {
@@ -19,8 +19,12 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
+    @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
 
     @ObservationIgnored private var layer: KSPlayerLayer?
+    @ObservationIgnored private var options: KSPlaybackOptions?
+    /// The layer's own accurate-seek setting, which an audio switch overrides until the next seek.
+    @ObservationIgnored private var seeksAccurately = false
     @ObservationIgnored private var source: (url: URL, headers: [String: String], startTime: TimeInterval)?
     @ObservationIgnored private var route: PlaybackRoute = .native
     /// A start time the native route still has to seek to; KSAVPlayer ignores `startPlayTime`.
@@ -51,13 +55,16 @@ final class KSPlaybackEngine: PlaybackEngine {
         guard let source else { return }
         tearDownLayer()
         self.route = route
-        let options = KSOptions()
+        let options = KSPlaybackOptions()
+        options.audioPicker = audioPicker
         options.startPlayTime = startTime
         // Held until `readyToPlay` seeks there, so the first frame is already at the start time.
         pendingStart = route == .native && startTime > 0 ? startTime : nil
         options.isAutoPlay = pendingStart == nil
         // On the exact second, not the keyframe before it.
         options.isAccurateSeek = pendingStart != nil
+        seeksAccurately = options.isAccurateSeek
+        self.options = options
         // `NowPlayingController` owns Now Playing and the remote commands for both engines.
         options.registerRemoteControll = false
         // `PlayerSubtitles` picks the track once `onTracksReady` fires.
@@ -87,6 +94,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         seekGeneration += 1
         let generation = seekGeneration
         isSeeking = true
+        options?.isAccurateSeek = seeksAccurately
         layer.seek(time: time, autoPlay: state != .paused) { [weak self] _ in
             guard let self, generation == seekGeneration else { return }
             isSeeking = false
@@ -96,6 +104,7 @@ final class KSPlaybackEngine: PlaybackEngine {
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
         guard let player = layer?.player else { return [] }
         if kind == .subtitle { return player.subtitlesTracks.map(Self.subtitleTrack) }
+        if kind == .audio { return player.tracks(mediaType: .audio).map { Self.audioTrack($0) } }
         return player.tracks(mediaType: kind.mediaType).map { track in
             PlaybackTrack(
                 id: track.trackID,
@@ -111,6 +120,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         guard let player = layer?.player,
               let match = player.tracks(mediaType: track.kind.mediaType).first(where: { $0.trackID == track.id })
         else { return }
+        // FFmpeg reseeks to pick up the new stream; inexact, that jumps back to the previous keyframe.
+        if track.kind == .audio, route == .ffmpeg { options?.isAccurateSeek = true }
         player.select(track: match)
     }
 
@@ -140,8 +151,50 @@ final class KSPlaybackEngine: PlaybackEngine {
         )
     }
 
+    /// Off the main actor too: `KSPlaybackOptions.wantedAudio` maps tracks on the demuxer's thread.
+    nonisolated static func audioTrack(_ track: any MediaPlayerTrack) -> PlaybackTrack {
+        let ffmpeg = track as? FFmpegAssetTrack
+        let disposition = ffmpeg?.stream?.pointee.disposition ?? 0
+        let native = nativeOption(track)
+        let name = track.name.lowercased()
+        let channels = ffmpeg.map { Int($0.codecpar.pointee.ch_layout.nb_channels) }
+            ?? track.audioStreamBasicDescription.map { Int($0.mChannelsPerFrame) }
+        return PlaybackTrack(
+            id: track.trackID,
+            kind: .audio,
+            name: track.name,
+            languageCode: track.languageCode,
+            isSelected: track.isEnabled,
+            isDefault: ffmpeg?.isDefault == true,
+            isOriginal: disposition & AV_DISPOSITION_ORIGINAL != 0
+                || native?.hasMediaCharacteristic(.isOriginalContent) == true,
+            isDub: disposition & AV_DISPOSITION_DUB != 0,
+            isAudioDescription: disposition & AV_DISPOSITION_VISUAL_IMPAIRED != 0
+                || native?.hasMediaCharacteristic(.describesVideoForAccessibility) == true
+                || nameHas("ad", name) || nameHas("description", name) || nameHas("descriptive", name),
+            codec: ffmpeg?.codecName ?? nativeCodec(track.mediaSubType.rawValue),
+            codecProfile: ffmpeg?.profileName,
+            channelCount: channels.flatMap { $0 > 0 ? $0 : nil }
+        )
+    }
+
+    /// FFmpeg's name for a native track's audio format.
+    private nonisolated static func nativeCodec(_ fourCC: FourCharCode) -> String? {
+        switch fourCC {
+        case kAudioFormatAC3: "ac3"
+        case kAudioFormatEnhancedAC3: "eac3"
+        case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2: "aac"
+        case kAudioFormatAppleLossless: "alac"
+        case kAudioFormatFLAC: "flac"
+        case kAudioFormatOpus: "opus"
+        case kAudioFormatMPEGLayer3: "mp3"
+        case kAudioFormatLinearPCM: "pcm"
+        default: nil
+        }
+    }
+
     /// An AVPlayer track's selection option, found by its name and language since KSPlayer doesn't expose it.
-    private static func nativeOption(_ info: any SubtitleInfo) -> AVMediaSelectionOption? {
+    private nonisolated static func nativeOption(_ info: Any) -> AVMediaSelectionOption? {
         guard let track = info as? AVMediaSelectionTrack, let options = track.group?.options else { return nil }
         let matches = options.filter {
             $0.displayName == track.name
@@ -151,7 +204,7 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
 
     /// Whether a lowercased title tags the track with `word`, not counting `Non-Forced` or `not SDH`.
-    private static func nameHas(_ word: String, _ name: String) -> Bool {
+    private nonisolated static func nameHas(_ word: String, _ name: String) -> Bool {
         let words = name.split { !$0.isLetter && !$0.isNumber }
         return words.indices.contains { index in
             words[index] == word && (index == 0 || !["non", "not", "no"].contains(words[index - 1]))
@@ -174,6 +227,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer?.delegate = nil
         layer?.stop()
         layer = nil
+        options = nil
         isSeeking = false
         videoView.subviews.forEach { $0.removeFromSuperview() }
     }

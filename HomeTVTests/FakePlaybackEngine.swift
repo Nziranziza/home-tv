@@ -12,7 +12,10 @@ final class FakePlaybackEngine: PlaybackEngine {
     var subtitleDelay: TimeInterval = 0
     var onFinish: ((Error?) -> Void)?
     var onTracksReady: (() -> Void)?
+    var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
     var audioTracks: [PlaybackTrack] = []
+    /// Every audio or video selection.
+    private(set) var selections: [PlaybackTrack] = []
     var subtitleTracks: [PlaybackTrack] = []
     /// Every subtitle selection, nil for off.
     private(set) var subtitleSelections: [PlaybackTrack?] = []
@@ -38,7 +41,7 @@ final class FakePlaybackEngine: PlaybackEngine {
         }
     }
 
-    func select(_ track: PlaybackTrack) {}
+    func select(_ track: PlaybackTrack) { selections.append(track) }
     func selectSubtitle(_ track: PlaybackTrack?) { subtitleSelections.append(track) }
     func stop() {}
 }
