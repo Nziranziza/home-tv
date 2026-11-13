@@ -6,9 +6,8 @@ import Observation
 /// the device-code sign-in flow, and in-memory caches of watched / watchlist / playback state that
 /// the views read synchronously. Network plumbing is delegated to `TraktClient`.
 ///
-/// Watched is a *manual* action (HomeTV plays via external players and never learns of completion),
-/// so nothing is auto-marked. Playback progress is *read* from Trakt (scrobbled by other connected
-/// players) to drive Continue Watching — we display it, we don't write it.
+/// Playback progress is read from Trakt to drive Continue Watching. External players scrobble it
+/// themselves; the in-app player reports through `scrobble(_:)`.
 @Observable
 @MainActor
 final class TraktService {
@@ -655,6 +654,49 @@ final class TraktService {
             }
             await resyncContinueWatching()
         }
+    }
+
+    // MARK: - Scrobble (in-app player)
+
+    /// Reports the in-app player to Trakt. The caches update first, so Continue Watching and the Resume
+    /// label follow as soon as the player closes; a failed call is dropped and the next sync corrects them.
+    func scrobble(_ scrobble: TraktScrobble) {
+        guard isSignedIn, let body = scrobble.body else { return }
+        // A stray open isn't worth a Continue Watching card, here or on other clients.
+        if scrobble.action == .pause, scrobble.fraction < LocalLibrary.resumeRange.lowerBound { return }
+        applyScrobble(scrobble)
+        Task {
+            guard let token = await validAccessToken() else { return }
+            do {
+                try await TraktClient.shared.scrobble(scrobble.action, body: body, token: token)
+            } catch {
+                return
+            }
+            // Trakt added the history entry; the show's card moves on to its next episode.
+            if scrobble.action == .stop, !scrobble.isMovie { await resyncContinueWatching() }
+        }
+    }
+
+    private func applyScrobble(_ scrobble: TraktScrobble) {
+        let item = scrobble.item
+        let key = scrobble.progressKey
+        switch scrobble.action {
+        case .start:
+            return
+        case .pause:
+            playbackProgress[key] = scrobble.fraction
+            if !scrobble.isMovie { playbackProgress[item.showID] = scrobble.fraction }
+        case .stop:
+            playbackProgress[key] = nil
+            episodeActivity[key] = PlayActivity(date: .now, isFinished: true)
+            if scrobble.isMovie {
+                watchedMovieIDs.insert(key)
+            } else {
+                watchedEpisodeKeys.insert(key)
+                watchedShowIDs.insert(item.showID)
+            }
+        }
+        continueWatchingItems = Self.continueWatchingItems(continueWatchingItems, after: scrobble)
     }
 
     // MARK: - Private helpers

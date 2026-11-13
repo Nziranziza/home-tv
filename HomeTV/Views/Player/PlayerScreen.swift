@@ -95,7 +95,7 @@ struct PlayerScreen: View {
             model.focusDidChange(to: target)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { model.saveProgress() }
+            model.sceneDidChange(isActive: phase == .active)
         }
         .task(id: model.isPlaying) {
             // Keeps Control Center's clock in step; it extrapolates between updates.

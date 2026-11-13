@@ -168,6 +168,31 @@ extension TraktService {
         return items.sorted { $0.viewedAt > $1.viewedAt }
     }
 
+    /// The row right after an in-app scrobble, ahead of the next sync: a pause puts its title first on
+    /// the paused episode, a finished movie leaves. A finished episode stays until the sync brings up next.
+    nonisolated static func continueWatchingItems(
+        _ items: [WatchHistoryItem],
+        after scrobble: TraktScrobble,
+        at date: Date = .now
+    ) -> [WatchHistoryItem] {
+        let showID = scrobble.item.showID
+        switch scrobble.action {
+        case .start:
+            return items
+        case .stop:
+            return scrobble.isMovie ? items.filter { $0.metaID != showID } : items
+        case .pause:
+            let existing = items.first { $0.metaID == showID }
+            var card = WatchHistoryItem(
+                preview: existing?.preview ?? preview(imdb: showID, type: scrobble.type, name: scrobble.title),
+                viewedAt: date
+            )
+            card.season = scrobble.item.season
+            card.episode = scrobble.item.episode
+            return [card] + items.filter { $0.metaID != showID }
+        }
+    }
+
     nonisolated private static func lastWatchedDates(_ watchedShows: [TraktWatchedShow]) -> [String: Date] {
         var result: [String: Date] = [:]
         for watched in watchedShows {
