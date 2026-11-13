@@ -35,17 +35,24 @@ struct HomeTVApp: App {
                     else { return }
                     let contentID = environment["PLAYER_TEST_ID"]
                     let resume = contentID.flatMap(UserLibrary.resumeSeconds(forKey:)) ?? 0
-                    PlayerPresenter.shared.present(PlayerRequest(
+                    let request = PlayerRequest(
                         url: url,
                         type: environment["PLAYER_TEST_TYPE"] ?? "movie",
                         title: environment["PLAYER_TEST_TITLE"] ?? "",
                         episodeLabel: environment["PLAYER_TEST_EPISODE"],
                         logoURL: environment["PLAYER_TEST_LOGO"].flatMap(URL.init(string:)),
-                        startTime: TimeInterval(resume),
+                        startTime: environment["PLAYER_TEST_START"].flatMap(TimeInterval.init) ?? TimeInterval(resume),
                         item: contentID.map {
                             PlaybackItem(contentID: $0, showID: PlaybackSession.showID(fromEpisodeID: $0))
                         }
-                    ))
+                    )
+                    // `PLAYER_TEST_PREWARM_MS` opens it as a focused picker row would, that long before Select.
+                    if let dwell = environment["PLAYER_TEST_PREWARM_MS"].flatMap(Int.init) {
+                        PlayerPrewarmer.shared.prewarm(request)
+                        try? await Task.sleep(for: .milliseconds(dwell))
+                    }
+                    PlaybackDiagnostics.markSelect()
+                    PlayerPresenter.shared.present(request)
                 }
                 #endif
                 // Returning to HomeTV re-syncs the watched/watchlist/playback caches. Playback hands off

@@ -17,4 +17,11 @@ struct PlayerRequest: Identifiable, Sendable {
     var startTime: TimeInterval = 0
     /// What to save the position against. nil plays without saving.
     var item: PlaybackItem?
+
+    /// The same playback, whichever launch built it.
+    func isSamePlay(as other: PlayerRequest) -> Bool {
+        url == other.url && type == other.type && title == other.title && episodeLabel == other.episodeLabel
+            && logoURL == other.logoURL && headers == other.headers && startTime == other.startTime
+            && item == other.item
+    }
 }

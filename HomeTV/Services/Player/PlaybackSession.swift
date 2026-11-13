@@ -45,6 +45,10 @@ final class PlaybackSession {
     /// Hands `stream` to the default player and remembers it as the title's choice.
     func launch(_ stream: Stream, addonID: String) async throws {
         let player = PlayerPreference.shared.defaultPlayer
+        if player == .builtIn {
+            try await launchInApp(stream, addonID: addonID)
+            return
+        }
         // Let the episodes ahead finish resolving, or the queue is only as long as whatever landed
         // while the user read the stream list. Bounded, and usually already satisfied.
         let expiry = ContinuousClock.now + SeasonQueuePrefetcher.coverageDeadline
@@ -65,18 +69,8 @@ final class PlaybackSession {
         // Only Infuse's URL carries our callback: state left for any other player is never cleared, and
         // a late callback would then land on the wrong title.
         let token = PlaybackReturnCoordinator.makeToken()
-        // The same key the Resume label reads, so the button and the launch agree.
-        let startPosition = PlayerLauncher.resumePosition(
-            savedSeconds: UserLibrary.resumeSeconds(forKey: contentID),
-            fraction: UserLibrary.progress(forKey: contentID),
-            runtimeSeconds: runtimeSeconds
-        )
+        let startPosition = resumePosition
         let showID = Self.showID(fromEpisodeID: contentID)
-        if player == .builtIn {
-            try playInApp(stream, startPosition: startPosition, showID: showID)
-            remember(stream, addonID: addonID, showID: showID)
-            return
-        }
         PlaybackReturnCoordinator.shared.willLaunch(
             player == .infuse
                 ? .init(
@@ -122,8 +116,48 @@ final class PlaybackSession {
         )
     }
 
-    /// Opens the stream in HomeTV's own player. Only HTTP streams play in-app; magnets need an external app.
-    private func playInApp(_ stream: Stream, startPosition: Int?, showID: String) throws {
+    /// Where to resume, from the same key the Resume label reads, so the button and the launch agree.
+    private var resumePosition: Int? {
+        PlayerLauncher.resumePosition(
+            savedSeconds: UserLibrary.resumeSeconds(forKey: contentID),
+            fraction: UserLibrary.progress(forKey: contentID),
+            runtimeSeconds: runtimeSeconds
+        )
+    }
+
+    /// True while the resume point is a fraction of a runtime the meta hasn't delivered yet.
+    private var resumeAwaitsRuntime: Bool {
+        guard !isMetaResolved, runtimeSeconds == nil,
+              (UserLibrary.resumeSeconds(forKey: contentID) ?? 0) <= 0,
+              let fraction = UserLibrary.progress(forKey: contentID) else { return false }
+        return LocalLibrary.resumeRange.contains(fraction)
+    }
+
+    /// Presents the in-app player at once. Waits on the meta only when the resume point needs its runtime.
+    private func launchInApp(_ stream: Stream, addonID: String) async throws {
+        PlaybackDiagnostics.markSelect()
+        let expiry = ContinuousClock.now + SeasonQueuePrefetcher.coverageDeadline
+        while resumeAwaitsRuntime, ContinuousClock.now < expiry, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        try Task.checkCancellation()
+        PlayerPresenter.shared.present(try inAppRequest(for: stream))
+        remember(stream, addonID: addonID, showID: Self.showID(fromEpisodeID: contentID))
+    }
+
+    /// Opens `stream` in the in-app player ahead of Select, once the meta is in, so the request matches
+    /// the one Select builds.
+    func prewarm(_ stream: Stream) async {
+        guard PlayerPreference.shared.defaultPlayer == .builtIn else { return }
+        while !isMetaResolved {
+            guard (try? await Task.sleep(for: .milliseconds(50))) != nil else { return }
+        }
+        guard let request = try? inAppRequest(for: stream) else { return }
+        PlayerPrewarmer.shared.prewarm(request)
+    }
+
+    /// The in-app player's request. Only HTTP streams play in-app; magnets need an external app.
+    private func inAppRequest(for stream: Stream) throws -> PlayerRequest {
         guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
         guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
         var request = PlayerRequest(
@@ -132,8 +166,8 @@ final class PlaybackSession {
             title: title,
             logoURL: logoURL,
             headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
-            startTime: TimeInterval(startPosition ?? 0),
-            item: PlaybackItem(contentID: contentID, showID: showID)
+            startTime: TimeInterval(resumePosition ?? 0),
+            item: PlaybackItem(contentID: contentID, showID: Self.showID(fromEpisodeID: contentID))
         )
         // `title` is the picker's episode label; split it into the show name and the episode line.
         if type == "series", let showName = seasonShowName,
@@ -141,7 +175,7 @@ final class PlaybackSession {
             request.title = showName
             request.episodeLabel = PlayerEpisodeLabel.text(season: season, episode: episode, title: episodeTitle)
         }
-        PlayerPresenter.shared.present(request)
+        return request
     }
 
     /// The episodes after the selected one, where the queue grows first and furthest.

@@ -37,6 +37,15 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private let displaySwitch = DisplayModeSwitch()
     /// Playback waits while the TV blacks out to change mode, instead of playing unseen.
     @ObservationIgnored private var isHoldingForDisplaySwitch = false
+    /// Prepared ahead of Select: buffering, but not playing or switching the TV's mode until `load`.
+    @ObservationIgnored private var isAwaitingLoad = false
+    /// Released before `readyToPlay`; the layer ignores `isAutoPlay` set after it opens.
+    @ObservationIgnored private var playsWhenReady = false
+    /// The FFmpeg route's redirect-free URL, once resolved.
+    @ObservationIgnored private var openURL: URL?
+    @ObservationIgnored private var resolveTask: Task<Void, Never>?
+    /// First-frame timing for the debug log.
+    @ObservationIgnored private var hasReportedFirstFrame = false
 
     init() {
         videoView.backgroundColor = .black
@@ -51,11 +60,55 @@ final class KSPlaybackEngine: PlaybackEngine {
         KSOptions.isASSUseImageRender = true
     }
 
-    func load(url: URL, headers: [String: String], startTime: TimeInterval) {
+    func prepare(url: URL, headers: [String: String], startTime: TimeInterval) {
         source = (url, headers, startTime)
-        // Before the layer opens, so the switch its first frame triggers is caught.
+        isAwaitingLoad = true
+        begin(at: startTime)
+    }
+
+    func load(url: URL, headers: [String: String], startTime: TimeInterval) {
+        // Before the layer opens or the held mode switch applies, so the switch is caught.
         displaySwitch.startObserving()
-        start(on: PlaybackRoute.forURL(url), at: startTime)
+        if isAwaitingLoad, let source, source.url == url, source.headers == headers, source.startTime == startTime {
+            releasePreparedStart()
+            return
+        }
+        isAwaitingLoad = false
+        source = (url, headers, startTime)
+        begin(at: startTime)
+    }
+
+    /// The FFmpeg route opens the stream's final URL, so its range requests skip the redirects.
+    private func begin(at startTime: TimeInterval) {
+        guard let source else { return }
+        let route = PlaybackRoute.forURL(source.url)
+        openURL = nil
+        resolveTask?.cancel()
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PLAYER_NO_RESOLVE"] == "1" { return start(on: route, at: startTime) }
+        #endif
+        guard route == .ffmpeg else { return start(on: route, at: startTime) }
+        tearDownLayer()
+        state = .loading
+        resolveTask = Task { [weak self, url = source.url, headers = source.headers] in
+            let final = await StreamRedirect.finalURL(of: url, headers: headers)
+            guard let self, !Task.isCancelled else { return }
+            resolveTask = nil
+            openURL = final == url ? nil : final
+            start(on: .ffmpeg, at: startTime)
+        }
+    }
+
+    /// Select on a prepared stream: switches the TV's mode and plays from what's buffered.
+    private func releasePreparedStart() {
+        isAwaitingLoad = false
+        guard let layer, let options else { return }
+        PlaybackDiagnostics.log("load prepared, ready=\(layer.player.isReadyToPlay)")
+        options.applyDeferredDisplayCriteria()
+        if displaySwitch.isInProgress { holdForDisplaySwitch() }
+        // A held native start plays once its seek lands; a held switch once it ends.
+        guard pendingStart == nil, !isSeekingToStart, !isHoldingForDisplaySwitch else { return }
+        if layer.player.isReadyToPlay { layer.play() } else { playsWhenReady = true }
     }
 
     /// KSPlayerLayer's own native-to-FFmpeg fallback doesn't fire (an MP4 whose video AVPlayer can't
@@ -69,7 +122,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         options.startPlayTime = startTime
         // Held until `readyToPlay` seeks there, so the first frame is already at the start time.
         pendingStart = route == .native && startTime > 0 ? startTime : nil
-        options.isAutoPlay = pendingStart == nil
+        options.isAutoPlay = pendingStart == nil && !isAwaitingLoad
+        options.defersDisplayCriteria = isAwaitingLoad
         // On the exact second, not the keyframe before it.
         options.isAccurateSeek = pendingStart != nil
         seeksAccurately = options.isAccurateSeek
@@ -81,8 +135,11 @@ final class KSPlaybackEngine: PlaybackEngine {
         if !source.headers.isEmpty { options.appendHeader(source.headers) }
         options.playerTypes = route == .ffmpeg ? [KSMEPlayer.self] : [KSAVPlayer.self]
         state = .loading
-        PlaybackDiagnostics.log("load \(route) \(source.url.lastPathComponent) start=\(startTime)")
-        let layer = KSPlayerLayer(url: source.url, options: options, delegate: self)
+        let url = route == .ffmpeg ? openURL ?? source.url : source.url
+        PlaybackDiagnostics.log(
+            "load \(route) \(source.url.lastPathComponent) start=\(startTime) resolved=\(url != source.url)"
+        )
+        let layer = KSPlayerLayer(url: url, options: options, delegate: self)
         self.layer = layer
         // Without autoplay the layer doesn't load on its own.
         if !options.isAutoPlay { layer.prepareToPlay() }
@@ -101,22 +158,27 @@ final class KSPlaybackEngine: PlaybackEngine {
         isHoldingForDisplaySwitch = true
         PlaybackDiagnostics.log("hold for display mode switch")
         options.isAutoPlay = false
+        playsWhenReady = false
         if layer.state.isPlaying { layer.pause() }
         state = .loading
     }
 
     private func releaseDisplaySwitchHold() {
-        guard isHoldingForDisplaySwitch, let layer, let options else { return }
+        guard isHoldingForDisplaySwitch, let layer else { return }
         isHoldingForDisplaySwitch = false
         PlaybackDiagnostics.log("display mode switch done")
         // A held native start plays once its seek lands.
         guard pendingStart == nil, !isSeekingToStart else { return }
-        if layer.player.isReadyToPlay { layer.play() } else { options.isAutoPlay = true }
+        if layer.player.isReadyToPlay { layer.play() } else { playsWhenReady = true }
     }
 
     func play() { layer?.play() }
 
-    func pause() { layer?.pause() }
+    func pause() {
+        // A start still waiting on `readyToPlay` stays paused.
+        playsWhenReady = false
+        layer?.pause()
+    }
 
     func seek(to time: TimeInterval) {
         guard let layer else { return }
@@ -262,6 +324,8 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        resolveTask?.cancel()
+        resolveTask = nil
         onFinish = nil
         onTracksReady = nil
         tearDownLayer()
@@ -277,12 +341,14 @@ final class KSPlaybackEngine: PlaybackEngine {
         isSeeking = false
         isHoldingForDisplaySwitch = false
         isSeekingToStart = false
+        playsWhenReady = false
         videoView.subviews.forEach { $0.removeFromSuperview() }
     }
 }
 
 extension KSPlaybackEngine: KSPlayerLayerDelegate {
     func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        PlaybackDiagnostics.log("state \(state)")
         if state == .readyToPlay, let start = pendingStart {
             pendingStart = nil
             PlaybackDiagnostics.log("native start seek to \(start)")
@@ -292,15 +358,26 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
                 guard let self, let layer, layer === self.layer else { return }
                 isSeekingToStart = false
                 videoView.subviews.forEach { $0.isHidden = false }
-                if !isHoldingForDisplaySwitch { layer.play() }
+                if !isHoldingForDisplaySwitch, !isAwaitingLoad { layer.play() }
             }
+        }
+        if state == .readyToPlay, playsWhenReady, pendingStart == nil, !isSeekingToStart {
+            playsWhenReady = false
+            layer.play()
         }
         if state == .readyToPlay {
             // A turn later, so the layer has finished its own ready handling and listed the tracks.
             Task { @MainActor [weak self] in self?.onTracksReady?() }
         }
-        // The hold's own pause isn't the viewer's, so the player keeps showing it as loading.
-        if isHoldingForDisplaySwitch, state != .error, state != .playedToTheEnd {
+        if state == .bufferFinished, !hasReportedFirstFrame {
+            hasReportedFirstFrame = true
+            PlaybackDiagnostics.log("stages \(options?.timeLog.description ?? "-")")
+            PlaybackDiagnostics.firstFrame(route: "\(route)")
+        } else if state == .buffering, hasReportedFirstFrame {
+            PlaybackDiagnostics.log("stall at \(Int(currentTime))s")
+        }
+        // A hold's own pause isn't the viewer's, so the player keeps showing it as loading.
+        if isHoldingForDisplaySwitch || isAwaitingLoad, state != .error, state != .playedToTheEnd {
             self.state = .loading
             return
         }
@@ -322,7 +399,9 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
 
     func player(layer: KSPlayerLayer, finish error: Error?) {
         PlaybackDiagnostics.log("finish on \(route): \(error.map { String(describing: $0) } ?? "end")")
-        if error != nil, route == .native, let source {
+        if error != nil, let source, route == .native || openURL != nil {
+            // The resolved link may have expired; the original redirects to a fresh one.
+            openURL = nil
             start(on: .ffmpeg, at: currentTime > 0 ? currentTime : source.startTime)
             return
         }

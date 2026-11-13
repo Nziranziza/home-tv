@@ -22,6 +22,9 @@ protocol PlaybackEngine: AnyObject {
     /// Picks the audio track a stream opens with. May be called off the main actor.
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)? { get set }
 
+    /// Opens and buffers the stream ahead of Select, without playing it or switching the TV's mode.
+    func prepare(url: URL, headers: [String: String], startTime: TimeInterval)
+    /// Starts playback. Starts from the buffer when `prepare` opened the same stream.
     func load(url: URL, headers: [String: String], startTime: TimeInterval)
     func play()
     func pause()

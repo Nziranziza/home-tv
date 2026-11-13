@@ -11,7 +11,8 @@ struct PlayerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     init(request: PlayerRequest) {
-        _model = State(initialValue: PlayerModel(request: request))
+        // The stream picker may have opened this stream already, on focus.
+        _model = State(initialValue: PlayerPrewarmer.shared.take(for: request) ?? PlayerModel(request: request))
     }
 
     var body: some View {
