@@ -37,6 +37,7 @@ final class PlayerModel {
     /// The last seek, shown until the engine's clock reaches it, so quick repeated skips add up.
     private var lastSeek: (time: TimeInterval, at: ContinuousClock.Instant)?
     @ObservationIgnored private var isStarted = false
+    @ObservationIgnored private var isPrepared = false
     /// Saves a position (seconds) and runtime (seconds) for the request's item.
     @ObservationIgnored private let recordProgress: @MainActor (Int, Int, PlaybackItem) -> Void
     /// Set once the engine has played, so a stream that never started can't overwrite the resume point.
@@ -127,10 +128,37 @@ final class PlayerModel {
         return time
     }
 
+    /// Opens the stream ahead of Select, its tracks already picked, so `start` only has to play it.
+    func prepare() {
+        guard !isPrepared, !isStarted else { return }
+        isPrepared = true
+        attachEngine()
+        engine.prepare(url: request.url, headers: request.headers, startTime: request.startTime)
+    }
+
+    /// A prepared play the viewer moved on from before Select.
+    func discard() {
+        guard !isStarted else { return }
+        engine.stop()
+    }
+
     func start() {
         guard !isStarted else { return }
         isStarted = true
         PlaybackAudioSession.configure()
+        if !isPrepared { attachEngine() }
+        if let item = request.item {
+            titleInfoTask = Task { [weak self, type = request.type, loadTitleInfo] in
+                let info = await loadTitleInfo(type, item)
+                guard !Task.isCancelled else { return }
+                self?.titleInfo = info
+            }
+        }
+        engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
+        nowPlaying?.activate(title: request.title, commands: self)
+    }
+
+    private func attachEngine() {
         engine.onFinish = { [weak self] error in
             guard let self else { return }
             if error == nil {
@@ -152,15 +180,6 @@ final class PlayerModel {
                 subtitles: engine.tracks(of: .subtitle)
             )
         }
-        if let item = request.item {
-            titleInfoTask = Task { [weak self, type = request.type, loadTitleInfo] in
-                let info = await loadTitleInfo(type, item)
-                guard !Task.isCancelled else { return }
-                self?.titleInfo = info
-            }
-        }
-        engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
-        nowPlaying?.activate(title: request.title, commands: self)
     }
 
     /// Click and Play/Pause: toggles playback, or plays from the scrub position, and shows the bar.

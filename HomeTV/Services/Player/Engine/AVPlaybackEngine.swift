@@ -19,6 +19,8 @@ final class AVPlaybackEngine: PlaybackEngine {
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
     @ObservationIgnored private(set) var isSeeking = false
     @ObservationIgnored private var seekGeneration = 0
+    /// Opened by `prepare` and paused until `load`.
+    @ObservationIgnored private var preparedURL: URL?
 
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var timeObserver: Any?
@@ -36,7 +38,18 @@ final class AVPlaybackEngine: PlaybackEngine {
         player.appliesMediaSelectionCriteriaAutomatically = false
     }
 
+    func prepare(url: URL, headers: [String: String], startTime: TimeInterval) {
+        open(url, startTime: startTime)
+        preparedURL = url
+    }
+
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {
+        if preparedURL != url { open(url, startTime: startTime) }
+        preparedURL = nil
+        player.play()
+    }
+
+    private func open(_ url: URL, startTime: TimeInterval) {
         PlaybackDiagnostics.log("load stub \(url.lastPathComponent) start=\(startTime)")
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
@@ -45,7 +58,6 @@ final class AVPlaybackEngine: PlaybackEngine {
             player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
         }
         observe(item)
-        player.play()
     }
 
     func play() { player.play() }
@@ -205,13 +217,14 @@ final class AVPlaybackEngine: PlaybackEngine {
         if let itemDuration = player.currentItem?.duration, itemDuration.isNumeric {
             duration = itemDuration.seconds
         }
-        guard state != .ended, state != .failed else { return }
+        guard state != .ended, state != .failed, preparedURL == nil else { return }
         state = switch player.timeControlStatus {
         case .playing: .playing
         case .paused: currentTime > 0 ? .paused : .loading
         case .waitingToPlayAtSpecifiedRate: .buffering
         @unknown default: state
         }
+        if state == .playing { PlaybackDiagnostics.firstFrame(route: "stub") }
     }
 
     private func finish(_ error: Error?) {

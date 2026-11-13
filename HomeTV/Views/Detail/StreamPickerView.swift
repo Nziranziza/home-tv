@@ -121,7 +121,11 @@ struct StreamPickerView: View {
         // Resolves the rest of the season in the background, for a series headed to Infuse. Runs
         // alongside the picker's own load; `task` cancels it when the picker goes away.
         .task(id: contentID) { await session.prepare() }
-        .onDisappear { session.cancel() }
+        .onDisappear {
+            session.cancel()
+            if !PlayerPresenter.shared.isPresenting { PlayerPrewarmer.shared.cancel() }
+        }
+        .task(id: prewarmID) { await prewarm(prewarmID) }
         // Detail panel reflects the focused stream.
         .onChange(of: focus) { _, newValue in
             if case .stream(let id) = newValue { detailID = id }
@@ -892,6 +896,27 @@ struct StreamPickerView: View {
         case "AUTO": 1
         default: 0
         }
+    }
+
+    /// The row whose stream opens ahead of Select: the focused row, or the panel's while Play has focus.
+    private var prewarmID: String? {
+        switch focus {
+        case .stream(let id): id
+        case .play: detailID
+        default: nil
+        }
+    }
+
+    private func prewarm(_ id: String?) async {
+        // Select hands focus to the player, which takes the prepared stream; that isn't moving on.
+        guard !PlayerPresenter.shared.isPresenting else { return }
+        // Focus moved on: the last row's stream closes now, not after the next dwell.
+        PlayerPrewarmer.shared.cancel()
+        guard let id else { return }
+        // A short dwell, so rows scrolled past aren't opened.
+        guard (try? await Task.sleep(for: .milliseconds(300))) != nil,
+              let item = streams.first(where: { $0.id == id }) else { return }
+        await session.prewarm(item.stream)
     }
 
     private func play(_ item: LabeledStream) async {

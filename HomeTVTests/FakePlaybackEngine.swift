@@ -25,7 +25,11 @@ final class FakePlaybackEngine: PlaybackEngine {
     var seekLands = true
     var isSeeking: Bool { !seekLands && !seeks.isEmpty }
 
-    func load(url: URL, headers: [String: String], startTime: TimeInterval) {}
+    private(set) var prepares: [URL] = []
+    private(set) var loads: [URL] = []
+
+    func prepare(url: URL, headers: [String: String], startTime: TimeInterval) { prepares.append(url) }
+    func load(url: URL, headers: [String: String], startTime: TimeInterval) { loads.append(url) }
     func play() { state = .playing }
     func pause() { state = .paused }
 
@@ -44,5 +48,6 @@ final class FakePlaybackEngine: PlaybackEngine {
 
     func select(_ track: PlaybackTrack) { selections.append(track) }
     func selectSubtitle(_ track: PlaybackTrack?) { subtitleSelections.append(track) }
-    func stop() {}
+    private(set) var isStopped = false
+    func stop() { isStopped = true }
 }
