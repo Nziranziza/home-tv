@@ -10,6 +10,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
+    var externalSubtitles: [ExternalSubtitle] = []
     var videoFormat: VideoFormat?
     var onFinish: ((Error?) -> Void)?
     var onTracksReady: (() -> Void)?
@@ -41,7 +42,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
         switch kind {
         case .audio: audioTracks
-        case .subtitle: subtitleTracks
+        case .subtitle: subtitleTracks + externalSubtitles.enumerated().map { $1.track(at: $0, isSelected: false) }
         case .video: []
         }
     }

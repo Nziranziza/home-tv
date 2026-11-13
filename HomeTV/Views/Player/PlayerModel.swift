@@ -61,16 +61,24 @@ final class PlayerModel {
         recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
         scrobble: (@MainActor (TraktScrobble) -> Void)? = nil,
         subtitleChoices: SubtitleChoiceStore = .shared,
+        subtitleDelays: SubtitleDelayStore = .shared,
         audioChoices: AudioChoiceStore = .shared,
         loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil,
         loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
+        engine.externalSubtitles = request.subtitles
         self.engine = engine
         self.bar = bar ?? PlayerBarController()
         let showID = request.item.map { SubtitleChoiceStore.showKey(forContentID: $0.contentID) }
-        subtitles = PlayerSubtitles(engine: engine, showID: showID, store: subtitleChoices)
+        subtitles = PlayerSubtitles(
+            engine: engine,
+            showID: showID,
+            store: subtitleChoices,
+            delayKey: request.subtitleDelayKey,
+            delays: subtitleDelays
+        )
         audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.loadTitleInfo = loadTitleInfo ?? PlayerTitleInfoLoader.load

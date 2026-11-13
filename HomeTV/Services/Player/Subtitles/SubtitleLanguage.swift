@@ -24,6 +24,25 @@ enum SubtitleLanguage {
         return Locale.LanguageCode(language).identifier(.alpha2) ?? language
     }
 
+    /// Codes subtitle add-ons use that aren't ISO 639.
+    private static let addonAliases: [String: String] = ["pob": "pt-BR", "pb": "pt-BR"]
+
+    /// The code with its language as two letters where one exists, region and script kept: `fr` for
+    /// `fre`, `zh-TW` as is. nil when it names no language.
+    static func normalized(_ code: String?) -> String? {
+        guard let code else { return nil }
+        let trimmed = code.trimmingCharacters(in: .whitespaces)
+        if let alias = addonAliases[trimmed.lowercased()] { return alias }
+        guard let base = base(trimmed) else { return nil }
+        let rest = trimmed.split(whereSeparator: { $0 == "-" || $0 == "_" }).dropFirst().map(String.init)
+        return ([base] + rest).joined(separator: "-")
+    }
+
+    /// The same language in the same script: `zh-Hans` and `zh-Hant` differ, `en-US` and `en-GB` don't.
+    static func sameWritten(_ lhs: String?, _ rhs: String?) -> Bool {
+        matches(lhs, rhs) && scriptAndRegion(lhs).script == scriptAndRegion(rhs).script
+    }
+
     /// Whether the two codes name the same language, ignoring region and script.
     static func matches(_ lhs: String?, _ rhs: String?) -> Bool {
         guard let lhs = base(lhs) else { return false }
