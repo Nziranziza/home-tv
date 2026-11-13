@@ -105,6 +105,13 @@ actor TraktClient {
         _ = try await perform(request("sync/watchlist/remove", method: "POST", body: body, token: token))
     }
 
+    // MARK: - Scrobble
+
+    /// `/scrobble/start|pause|stop`. A 409 means Trakt already took this stop; callers drop it like any failure.
+    func scrobble(_ action: TraktScrobble.Action, body: Data, token: String) async throws {
+        _ = try await perform(request("scrobble/\(action.rawValue)", method: "POST", body: body, token: token))
+    }
+
     // MARK: - Sync reads
 
     func watchedMovies(token: String) async throws -> [TraktWatchedMovie] {

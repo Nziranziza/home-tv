@@ -6,12 +6,15 @@ enum PlaybackProgress {
     ///   - runtimeIsOwn: whether `runtime` is this item's own. A borrowed one is too rough to call the
     ///     item finished.
     ///   - isRestart: the user went back to the start on purpose, which is a play, not a stray open.
+    ///   - scrobblesToTrakt: the player reports to Trakt itself, whose `stop` adds the history entry, so
+    ///     marking the episode watched stays local.
     static func record(
         position: Int,
         runtime: Int,
         item: PlaybackItem,
         runtimeIsOwn: Bool = true,
-        isRestart: Bool = false
+        isRestart: Bool = false,
+        scrobblesToTrakt: Bool = false
     ) {
         guard runtime > 0 else { return }
         let fraction = Double(position) / Double(runtime)
@@ -19,7 +22,12 @@ enum PlaybackProgress {
         // Played to the end: finished, not just a resume point.
         if fraction > LocalLibrary.resumeRange.upperBound, runtimeIsOwn,
            let season = item.season, let episode = item.episode {
-            UserLibrary.markEpisodeWatched(showID: item.showID, season: season, episode: episode)
+            UserLibrary.markEpisodeWatched(
+                showID: item.showID,
+                season: season,
+                episode: episode,
+                syncsToTrakt: !scrobblesToTrakt
+            )
         }
         // Continue Watching cards are keyed by the show, so the resume point is recorded there too.
         if item.contentID != item.showID, !item.showID.isEmpty {

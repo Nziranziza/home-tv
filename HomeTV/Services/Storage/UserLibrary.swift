@@ -49,10 +49,11 @@ enum UserLibrary {
 
     /// Something a player reported having played. Only ever sets, so revisiting a season cannot
     /// un-watch it. Recorded locally even with Trakt connected, so it survives signing out.
-    static func markEpisodeWatched(showID: String, season: Int, episode: Int) {
+    /// - Parameter syncsToTrakt: false when the player's own scrobble already adds the Trakt history entry.
+    static func markEpisodeWatched(showID: String, season: Int, episode: Int, syncsToTrakt: Bool = true) {
         guard let key = LocalLibrary.id(show: showID, season: season, episode: episode) else { return }
         local.setWatched(true, id: key)
-        guard trakt.isSignedIn,
+        guard syncsToTrakt, trakt.isSignedIn,
               !trakt.isWatched(type: "series", imdb: showID, season: season, episode: episode) else { return }
         trakt.toggleEpisodeWatched(showIMDB: showID, season: season, episode: episode)
     }
@@ -69,16 +70,20 @@ enum UserLibrary {
         prefersLocalProgress(forKey: key) ? local.position(forKey: key) : nil
     }
 
-    /// The in-app player saves only locally (#130), so the newer of the local and Trakt plays wins. A newer
-    /// local finish has no progress, which correctly hides Trakt's older resume point.
+    /// The newer of the local and Trakt plays wins. A newer local finish has no progress, which correctly
+    /// hides Trakt's older resume point. Local wins a near tie: that's the in-app player's own scrobble
+    /// landing just after its save, and only local has the exact seconds.
     private static func prefersLocalProgress(forKey key: String) -> Bool {
         guard trakt.isSignedIn else { return true }
         guard let localPlay = local.lastPlayed(forKey: key) else { return false }
         guard let traktPlay = trakt.lastPlayed(forKey: key) else { return true }
-        return localPlay.date >= traktPlay.date
+        return localPlay.date >= traktPlay.date.addingTimeInterval(-scrobbleTolerance)
     }
 
-    /// Where a player left off. Always local: there is no client-side Trakt write for playback progress.
+    /// How much later than the local save Trakt may stamp the same play: network time plus clock skew.
+    private static let scrobbleTolerance: TimeInterval = 120
+
+    /// Where a player left off. Always local; the in-app player also scrobbles it to Trakt.
     static func recordProgress(_ fraction: Double, seconds: Int? = nil, isRestart: Bool = false, id: String) {
         local.setProgress(fraction, seconds: seconds, isRestart: isRestart, id: id)
     }
@@ -86,7 +91,7 @@ enum UserLibrary {
     // MARK: - Last played
 
     /// An episode's newest play activity, when known. Unnumbered videos have none. Signed in, local plays
-    /// count too: the in-app player records only locally (#130).
+    /// count too, ahead of the next Trakt sync.
     static func lastPlayed(showID: String, season: Int?, episode: Int?) -> PlayActivity? {
         guard let season, let episode,
               let key = LocalLibrary.id(show: showID, season: season, episode: episode) else { return nil }

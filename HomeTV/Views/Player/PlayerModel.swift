@@ -42,6 +42,9 @@ final class PlayerModel {
     /// Set once the engine has played, so a stream that never started can't overwrite the resume point.
     @ObservationIgnored private var hasPlayed = false
     @ObservationIgnored private var lastSavedPosition: Int?
+    /// Reports play, pause and finish to Trakt; a no-op while signed out.
+    @ObservationIgnored private let scrobble: @MainActor (TraktScrobble) -> Void
+    @ObservationIgnored private var lastScrobble: (action: TraktScrobble.Action, fraction: Double)?
     /// Manage Styles was chosen before playback started; pauses once it does.
     @ObservationIgnored private var pausesOnStart = false
     @ObservationIgnored private let loadTitleInfo: @MainActor (String, PlaybackItem) async -> PlayerTitleInfo?
@@ -55,6 +58,7 @@ final class PlayerModel {
         bar: PlayerBarController? = nil,
         publishesNowPlaying: Bool = true,
         recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
+        scrobble: (@MainActor (TraktScrobble) -> Void)? = nil,
         subtitleChoices: SubtitleChoiceStore = .shared,
         audioChoices: AudioChoiceStore = .shared,
         loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil,
@@ -72,8 +76,15 @@ final class PlayerModel {
         self.loadContinueWatching = loadContinueWatching ?? { UserLibrary.continueWatchingItems }
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
-            PlaybackProgress.record(position: position, runtime: runtime, item: item, isRestart: position == 0)
+            PlaybackProgress.record(
+                position: position,
+                runtime: runtime,
+                item: item,
+                isRestart: position == 0,
+                scrobblesToTrakt: true
+            )
         }
+        self.scrobble = scrobble ?? { TraktService.shared.scrobble($0) }
     }
 
     var state: PlaybackState { engine.state }
@@ -124,6 +135,7 @@ final class PlayerModel {
             guard let self else { return }
             if error == nil {
                 saveProgress(atEnd: true)
+                report(.stop, atEnd: true)
                 didFinish = true
             } else {
                 errorMessage = Self.message(for: error)
@@ -323,7 +335,12 @@ final class PlayerModel {
             pause()
             return
         }
-        if engine.state == .paused { saveProgress() }
+        if engine.state == .paused {
+            saveProgress()
+            report(.pause)
+        } else if engine.state == .playing {
+            report(.start)
+        }
         if isPlaying {
             bar.noteActivity(isPlaying: true)
         } else if engine.state == .paused {
@@ -341,9 +358,7 @@ final class PlayerModel {
         if engine.state == .playing { hasPlayed = true }
         guard let item = request.item, hasPlayed, !didFinish, duration > 0 else { return }
         let runtime = Int(duration)
-        // A seek still in flight, however slow, is where the user is.
-        let time = engine.isSeeking ? lastSeek?.time ?? playheadTime : playheadTime
-        let position = atEnd ? runtime : Int(time)
+        let position = atEnd ? runtime : Int(savedTime)
         // An unseeked 0 is a clock that hasn't caught up with the start time; after a seek it's a restart.
         guard position > 0 || lastSeek != nil, position != lastSavedPosition else { return }
         lastSavedPosition = position
@@ -359,9 +374,43 @@ final class PlayerModel {
         titleInfoTask?.cancel()
         resumeTask?.cancel()
         saveProgress()
+        reportEnd()
         nowPlaying?.deactivate()
         bar.hide()
         engine.stop()
+    }
+
+    /// The app left or regained the foreground: a backgrounded play is paused on Trakt, and resumed when
+    /// the app comes back still playing.
+    func sceneDidChange(isActive: Bool) {
+        if isActive {
+            if engine.state == .playing { report(.start) }
+        } else {
+            saveProgress()
+            report(.pause)
+        }
+    }
+
+    /// The playhead to save. A seek still in flight, however slow, is where the user is.
+    private var savedTime: TimeInterval {
+        engine.isSeeking ? lastSeek?.time ?? playheadTime : playheadTime
+    }
+
+    /// Ends the play on Trakt: `stop` if it's finished, otherwise `pause`.
+    private func reportEnd() {
+        guard duration > 0 else { return }
+        report(TraktScrobble.endAction(forFraction: savedTime / duration))
+    }
+
+    /// Sends one scrobble for what's playing. Nothing before the stream has played, nothing after a
+    /// `stop`, and no repeat of the last report.
+    private func report(_ action: TraktScrobble.Action, atEnd: Bool = false) {
+        guard let item = request.item, hasPlayed, duration > 0, lastScrobble?.action != .stop else { return }
+        let fraction = atEnd ? 1 : min(max(savedTime / duration, 0), 1)
+        if let lastScrobble, lastScrobble.action == action,
+           action == .start || abs(lastScrobble.fraction - fraction) < 0.0001 { return }
+        lastScrobble = (action, fraction)
+        scrobble(TraktScrobble(action: action, item: item, type: request.type, title: request.title, fraction: fraction))
     }
 
     private func seekEngine(to time: TimeInterval) {
