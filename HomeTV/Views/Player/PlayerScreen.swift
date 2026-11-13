@@ -53,7 +53,7 @@ struct PlayerScreen: View {
         .animation(.easeInOut(duration: 0.3), value: model.bar.isVisible)
         .animation(.easeInOut(duration: 0.2), value: model.subtitlesMenu == nil)
         .animation(.easeInOut(duration: 0.2), value: model.isAudioMenuOpen)
-        .animation(.easeInOut(duration: 0.3), value: model.isInfoOpen)
+        .animation(.easeInOut(duration: 0.3), value: model.panel)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -87,9 +87,9 @@ struct PlayerScreen: View {
         .onChange(of: model.isAudioMenuOpen) { _, isOpen in
             if !isOpen, model.bar.isVisible { focus = .audio }
         }
-        .onChange(of: model.isInfoOpen) { _, isOpen in
+        .onChange(of: model.panel) { _, panel in
             // Menu or Up closed the panel from inside it.
-            if !isOpen, model.bar.isVisible, focus?.isInInfo == true { focus = .scrubber }
+            if panel == nil, model.bar.isVisible, focus?.panel != nil { focus = .scrubber }
         }
         .onChange(of: focus) { _, target in
             model.focusDidChange(to: target)
@@ -130,8 +130,7 @@ struct PlayerScreen: View {
         case .fromBeginning: model.playFromBeginning()
         case .goToDetail:
             guard let detail = model.detail else { return }
-            model.saveProgress()
-            PlayerPresenter.shared.goToDetail(detail)
+            model.goToDetail(detail)
         default: model.noteActivity()
         }
     }

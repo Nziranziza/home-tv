@@ -18,8 +18,10 @@ final class PlayerModel {
     /// The open level of the Subtitles menu, nil while it's closed.
     private(set) var subtitlesMenu: SubtitlesMenuPage?
     private(set) var isAudioMenuOpen = false
-    /// The Info tab's panel is up, in place of the track.
-    private(set) var isInfoOpen = false
+    /// The tab panel up in place of the track, nil while the track shows.
+    private(set) var panel: PlayerPanel?
+    /// Continue Watching's one-click resume; its `resumingID` marks the card resolving.
+    let resumer = ContinueWatchingResumer()
     /// The Info tab's poster, synopsis and genre, once loaded.
     private(set) var titleInfo: PlayerTitleInfo?
     /// The stream's quality badges, once its tracks are known.
@@ -44,6 +46,8 @@ final class PlayerModel {
     @ObservationIgnored private var pausesOnStart = false
     @ObservationIgnored private let loadTitleInfo: @MainActor (String, PlaybackItem) async -> PlayerTitleInfo?
     @ObservationIgnored private var titleInfoTask: Task<Void, Never>?
+    @ObservationIgnored private let loadContinueWatching: @MainActor () -> [WatchHistoryItem]
+    @ObservationIgnored private var resumeTask: Task<Void, Never>?
 
     init(
         request: PlayerRequest,
@@ -53,7 +57,8 @@ final class PlayerModel {
         recordProgress: (@MainActor (Int, Int, PlaybackItem) -> Void)? = nil,
         subtitleChoices: SubtitleChoiceStore = .shared,
         audioChoices: AudioChoiceStore = .shared,
-        loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil
+        loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil,
+        loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
@@ -64,6 +69,7 @@ final class PlayerModel {
         audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.loadTitleInfo = loadTitleInfo ?? PlayerTitleInfoLoader.load
+        self.loadContinueWatching = loadContinueWatching ?? { UserLibrary.continueWatchingItems }
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
             PlaybackProgress.record(position: position, runtime: runtime, item: item, isRestart: position == 0)
@@ -75,6 +81,14 @@ final class PlayerModel {
     var currentTime: TimeInterval { engine.currentTime }
     var duration: TimeInterval { engine.duration }
     var isPlaying: Bool { engine.state == .playing || engine.state == .buffering }
+    var isInfoOpen: Bool { panel == .info }
+
+    /// The Continue Watching tab's cards: everything in progress except what's playing.
+    var continueWatchingItems: [WatchHistoryItem] {
+        let items = loadContinueWatching()
+        guard let showID = request.item?.showID else { return items }
+        return items.filter { $0.metaID != showID }
+    }
     /// The detail screen Go to Movie / Go to Show opens; nil for a play that isn't a library title.
     var detail: MetaPreview? {
         guard let item = request.item else { return nil }
@@ -221,21 +235,48 @@ final class PlayerModel {
         bar.release(isPlaying: isPlaying)
     }
 
-    /// Focus moved: the Info panel is up while focus is on its tab or its buttons.
+    /// Focus moved: a panel is up while focus is on its tab or inside it.
     func focusDidChange(to target: PlayerFocus?) {
-        if let target { isInfoOpen = target.isInInfo }
+        if let target { panel = target.panel }
         noteActivity()
     }
 
-    func closeInfo() {
-        isInfoOpen = false
+    func closePanel() {
+        panel = nil
+    }
+
+    /// Go to Movie / Go to Show, here or on a Continue Watching card: closes the player on the title's page.
+    func goToDetail(_ meta: MetaPreview) {
+        saveProgress()
+        PlayerPresenter.shared.goToDetail(meta)
+    }
+
+    /// A Continue Watching card: saves this title's position, then plays the card's with its last stream
+    /// in place of this one. With no stream to reuse, opens the title's page to pick one.
+    func resume(_ item: WatchHistoryItem) {
+        guard resumeTask == nil else { return }
+        saveProgress()
+        bar.hold()
+        resumeTask = Task { [weak self, resumer] in
+            let outcome = await resumer.resume(item)
+            guard let self, !Task.isCancelled else { return }
+            resumeTask = nil
+            switch outcome {
+            case .launched:
+                break
+            case .chooseStream:
+                goToDetail(item.preview)
+            case .cancelled:
+                bar.release(isPlaying: isPlaying)
+            }
+        }
     }
 
     /// From Beginning: plays from 00:00 and hides the bar.
     func playFromBeginning() {
         guard canSeek else { return }
         scrubTime = nil
-        isInfoOpen = false
+        panel = nil
         seekEngine(to: 0)
         engine.play()
         bar.hide()
@@ -259,8 +300,8 @@ final class PlayerModel {
             if page == .root { closeSubtitlesMenu() } else { subtitlesMenu = .root }
             return true
         }
-        if isInfoOpen {
-            closeInfo()
+        if panel != nil {
+            closePanel()
             return true
         }
         guard bar.isVisible else { return false }
@@ -314,8 +355,9 @@ final class PlayerModel {
         pausesOnStart = false
         subtitlesMenu = nil
         isAudioMenuOpen = false
-        isInfoOpen = false
+        panel = nil
         titleInfoTask?.cancel()
+        resumeTask?.cancel()
         saveProgress()
         nowPlaying?.deactivate()
         bar.hide()

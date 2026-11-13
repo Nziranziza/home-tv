@@ -1,21 +1,27 @@
 import SwiftUI
 
-/// The Info and Continue Watching tabs under the track, or above the Info panel.
+/// The Info and Continue Watching tabs under the track, or above the open panel.
 struct PlayerTabs: View {
     let focus: FocusState<PlayerFocus?>.Binding
-    let isInfoOpen: Bool
+    let panel: PlayerPanel?
+    /// Continue Watching is left out when nothing else is in progress.
+    let showsContinueWatching: Bool
     let onSelect: (PlayerFocus) -> Void
-    /// Up from a tab while the panel is up, with nothing above to move to.
+    /// Up from a tab while a panel is up, with nothing above to move to.
     let onExitUp: () -> Void
 
     var body: some View {
         HStack(spacing: 24) {
-            PlayerTab(title: "Info", isHighlighted: isInfoOpen) { onSelect(.info) }
+            PlayerTab(title: "Info", isHighlighted: panel == .info) { onSelect(.info) }
                 .focused(focus, equals: .info)
                 .onMoveCommand(perform: exitUp)
-            PlayerTab(title: "Continue Watching") { onSelect(.continueWatching) }
+            if showsContinueWatching {
+                PlayerTab(title: "Continue Watching", isHighlighted: panel == .continueWatching) {
+                    onSelect(.continueWatching)
+                }
                 .focused(focus, equals: .continueWatching)
                 .onMoveCommand(perform: exitUp)
+            }
         }
         .focusSection()
     }

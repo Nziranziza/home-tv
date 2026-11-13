@@ -29,6 +29,18 @@ final class PlayerPresenter {
         set { request = newValue }
     }
 
+    /// Where a player cover is attached: over the whole app, or over the stream picker.
+    enum Site {
+        case root
+        case picker
+    }
+
+    /// The playback the cover at `site` shows.
+    func request(at site: Site) -> PlayerRequest? {
+        site == .root ? rootRequest : pickerRequest
+    }
+
+    /// Replaces what's on screen, in place when the player is already up.
     func present(_ request: PlayerRequest) {
         self.request = request
     }

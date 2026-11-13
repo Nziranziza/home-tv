@@ -146,14 +146,7 @@ struct WatchNowView: View {
         }
     }
 
-    /// Continue Watching source: Trakt's playback progress when signed in (authoritative across
-    /// devices), otherwise the local watch history recorded when you tap Play in HomeTV.
-    private var continueWatchingItems: [WatchHistoryItem] {
-        if trakt.isSignedIn {
-            return trakt.continueWatchingItems
-        }
-        return history.inProgressItems
-    }
+    private var continueWatchingItems: [WatchHistoryItem] { UserLibrary.continueWatchingItems }
 
     /// Recently Watched source, mirroring Continue Watching above: Trakt's finished history when signed
     /// in (episode-level, with real runtimes), otherwise the local history's finished items.
