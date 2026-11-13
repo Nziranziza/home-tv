@@ -49,11 +49,9 @@ extension View {
                 logoURL: req.logoURL
             )
             .onAppear { PlayerPresenter.shared.streamPickerDidAppear() }
-            .fullScreenCover(item: Bindable(PlayerPresenter.shared).pickerRequest, onDismiss: {
+            .playerCover(at: .picker) {
                 // Go to Movie / Go to Show closes the picker too.
                 if PlayerPresenter.shared.pendingDetail != nil { request.wrappedValue = nil }
-            }) { request in
-                PlayerScreen(request: request)
             }
         }
     }

@@ -1,0 +1,157 @@
+import SwiftUI
+
+/// Apple-style Continue Watching card: rounded landscape artwork with the show's title logo overlaid
+/// (Apple bakes the title into key art; Stremio gives us a separate transparent `logo`, which we
+/// overlay to match). A subtle bottom scrim keeps the title + controls legible on any artwork.
+struct ContinueWatchingCard: View {
+    let item: WatchHistoryItem
+    var isResuming = false
+    /// The corner HT badge; the player's row leaves it off.
+    var showsSourceBadge = true
+    var onShowDetail: () -> Void = {}
+    var action: () -> Void = {}
+
+    @State private var trakt = TraktService.shared
+
+    private var size: CGSize { Theme.Card.continueWatchingSize }
+
+    /// Real playback progress (0–1) for this title when it is known, otherwise the placeholder below
+    /// so the card always matches Apple's layout. An episode card reads its own episode, and an up-next
+    /// episode has none.
+    private var storedProgress: Double? {
+        guard let episodeKey = item.episodeKey else { return UserLibrary.progress(forKey: item.metaID) }
+        return UserLibrary.progress(forKey: episodeKey) ?? 0
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                RemoteImage(
+                    url: (item.background ?? item.poster).flatMap(URL.init(string:)),
+                    targetSize: size,
+                    contentMode: .fill
+                ) {
+                    Color(white: 0.12)
+                }
+                .frame(width: size.width, height: size.height)
+                .clipped()
+
+                // Bottom scrim — keeps the title logo + controls clear over any artwork.
+                LinearGradient(
+                    stops: [
+                        .init(color: .black.opacity(0.0), location: 0.45),
+                        .init(color: .black.opacity(0.6), location: 1.0)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+
+                bottomContent
+            }
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.card)
+        .accessibilityLabel("Resume \(item.name)")
+        // Select plays straight away; long-press keeps the detail screen one step away.
+        .contextMenu {
+            Button(item.typeID == "series" ? "Go to Show" : "Go to Movie", systemImage: "info.circle", action: onShowDetail)
+        }
+    }
+
+    private var bottomContent: some View {
+        VStack(alignment: .leading, spacing: Theme.Card.overlayLineSpacing) {
+            titleArt
+            controlsRow
+        }
+        .padding(Theme.Card.overlayInsets)
+    }
+
+    // The show's title logo (Apple-style), falling back to the name when no logo is available.
+    @ViewBuilder
+    private var titleArt: some View {
+        if let logoURL = item.logo.flatMap(URL.init(string:)) {
+            RemoteImage(url: logoURL, targetSize: CGSize(width: 260, height: 90), contentMode: .fit) {
+                titleText
+            }
+            .frame(maxWidth: size.width * 0.62, maxHeight: 52, alignment: .leading)
+            .accessibilityHidden(true)
+        } else {
+            titleText
+        }
+    }
+
+    private var titleText: some View {
+        Text(item.name)
+            .font(Theme.Card.overlayTitleFont)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+    }
+
+    private var controlsRow: some View {
+        HStack(spacing: Theme.Card.overlayControlSpacing) {
+            // While the stream resolves, the play glyph turns into a progress glyph in place.
+            Image(systemName: isResuming ? "progress.indicator" : "play.fill")
+                .font(Theme.Card.overlayGlyphFont)
+                .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, isActive: isResuming)
+
+            ProgressBar(progress: storedProgress ?? placeholderProgress)
+                .frame(width: 56, height: 4)
+
+            Text(timeText)
+                .font(Theme.Card.overlayMetadataFont)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            if showsSourceBadge {
+                HomeTVSourceBadge()
+                    .scaleEffect(0.7)
+            }
+        }
+    }
+
+    /// The episode and the time left, when known; Trakt-only progress has no runtime, so it shows the
+    /// percentage. Else the placeholder.
+    private var timeText: String {
+        ContinueWatchingLabel.text(
+            season: item.season,
+            episode: item.episode,
+            secondsLeft: storedProgress == nil ? nil : ContinueWatchingLabel.secondsLeft(forKey: item.episodeKey ?? item.metaID),
+            fraction: storedProgress
+        ) ?? placeholderTimeText
+    }
+
+    // MARK: - Placeholder resume data
+    //
+    // FALLBACK — used when not signed in to Trakt (or Trakt has no playback for this title). HomeTV
+    // hands playback to Infuse/VLC, which never reports the position back, so there's no *local*
+    // progress to show. These values are derived deterministically from the item id (stable across
+    // launches, unlike `hashValue`) purely so the card matches Apple's layout.
+
+    private var placeholderProgress: Double {
+        0.2 + Double(Self.stableHash(item.id) % 60) / 100.0   // 0.20–0.79
+    }
+
+    private var placeholderTimeText: String {
+        let hash = Self.stableHash(item.id)
+        let minutesLeft = 8 + hash % 92                        // 8–99 min
+        if item.typeID == "series" {
+            let season = 1 + (hash / 7) % 4
+            let episode = 1 + (hash / 3) % 9
+            return "S\(season), E\(episode) · \(minutesLeft)m"
+        }
+        let hours = minutesLeft / 60
+        let minutes = minutesLeft % 60
+        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+    }
+
+    /// Deterministic across launches — Swift's `String.hashValue` is seeded per process.
+    private static func stableHash(_ string: String) -> Int {
+        var hash = 5381
+        for byte in string.utf8 { hash = ((hash << 5) &+ hash) &+ Int(byte) }
+        return abs(hash)
+    }
+}

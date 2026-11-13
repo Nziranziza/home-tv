@@ -7,7 +7,6 @@ import SwiftUI
 /// out; now Trakt only makes the same screen sync across devices.
 struct LibraryView: View {
     @State private var trakt = TraktService.shared
-    @State private var history = WatchHistory.shared
     @State private var selection: MetaPreview?
     @Environment(\.theme) private var theme
 
@@ -29,9 +28,7 @@ struct LibraryView: View {
         }
     }
 
-    /// In-progress titles: Trakt's playback when signed in, the local history otherwise — the same
-    /// rule Watch Now's Continue Watching row uses.
     private var continueItems: [MetaPreview] {
-        (trakt.isSignedIn ? trakt.continueWatchingItems : history.inProgressItems).map(\.preview)
+        UserLibrary.continueWatchingItems.map(\.preview)
     }
 }

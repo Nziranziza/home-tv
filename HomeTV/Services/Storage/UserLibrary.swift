@@ -94,6 +94,13 @@ enum UserLibrary {
         return PlayActivity.newest(trakt.lastPlayed(forKey: key), local.lastPlayed(forKey: key))
     }
 
+    // MARK: - Continue Watching
+
+    /// In-progress titles: Trakt's playback when signed in, this device's history otherwise.
+    static var continueWatchingItems: [WatchHistoryItem] {
+        trakt.isSignedIn ? trakt.continueWatchingItems : WatchHistory.shared.inProgressItems
+    }
+
     // MARK: - Watchlist
 
     static var watchlistItems: [MetaPreview] {

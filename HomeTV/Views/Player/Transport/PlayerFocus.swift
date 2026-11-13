@@ -9,12 +9,15 @@ enum PlayerFocus: Hashable {
     case continueWatching
     case fromBeginning
     case goToDetail
+    /// A Continue Watching card, by its item's id.
+    case continueWatchingCard(String)
 
-    /// The Info tab and its panel's buttons, which keep the panel up.
-    var isInInfo: Bool {
+    /// The panel this target keeps up: a tab and its panel's controls.
+    var panel: PlayerPanel? {
         switch self {
-        case .info, .fromBeginning, .goToDetail: true
-        default: false
+        case .info, .fromBeginning, .goToDetail: .info
+        case .continueWatching, .continueWatchingCard: .continueWatching
+        default: nil
         }
     }
 }
