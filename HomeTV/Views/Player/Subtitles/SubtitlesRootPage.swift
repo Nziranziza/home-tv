@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Subtitles menu's top level: On and Off, then the Language and Style sub-menus.
+/// The Subtitles menu's top level: On and Off, then the Language and Style sub-menus and the timing.
 struct SubtitlesRootPage: View {
     let subtitles: PlayerSubtitles
     let focus: FocusState<Int?>.Binding
@@ -18,6 +18,9 @@ struct SubtitlesRootPage: View {
                 .focused(focus, equals: 2)
             PlayerMenuRow(title: "Style", value: subtitles.activeStyleName, accessory: .chevron) { onOpen(.style) }
                 .focused(focus, equals: 3)
+            SubtitlesTimingRow(subtitles: subtitles)
+                .disabled(subtitles.options.isEmpty)
+                .focused(focus, equals: 4)
         }
         .padding(.horizontal, PlayerMenuMetrics.rowInset)
         .padding(.top, PlayerMenuMetrics.topPadding)

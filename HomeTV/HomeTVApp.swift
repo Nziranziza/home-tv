@@ -44,7 +44,20 @@ struct HomeTVApp: App {
                         startTime: environment["PLAYER_TEST_START"].flatMap(TimeInterval.init) ?? TimeInterval(resume),
                         item: contentID.map {
                             PlaybackItem(contentID: $0, showID: PlaybackSession.showID(fromEpisodeID: $0))
-                        }
+                        },
+                        // `PLAYER_TEST_SUBTITLES` is add-on subtitle files as `eng=<url>,fre=<file in Caches>`.
+                        subtitles: (environment["PLAYER_TEST_SUBTITLES"] ?? "").split(separator: ",").compactMap { entry in
+                            let parts = entry.split(separator: "=", maxSplits: 1).map(String.init)
+                            guard let raw = parts.last else { return nil }
+                            let url = raw.contains("://") ? URL(string: raw) : URL.cachesDirectory.appending(path: raw)
+                            return url.map {
+                                ExternalSubtitle(
+                                    url: $0,
+                                    languageCode: SubtitleLanguage.normalized(parts.count > 1 ? parts[0] : nil)
+                                )
+                            }
+                        },
+                        subtitleDelayKey: contentID.map { SubtitleDelayStore.streamKey(contentID: $0, filename: nil, url: url) }
                     )
                     // `PLAYER_TEST_PREWARM_MS` opens it as a focused picker row would, that long before Select.
                     if let dwell = environment["PLAYER_TEST_PREWARM_MS"].flatMap(Int.init) {
