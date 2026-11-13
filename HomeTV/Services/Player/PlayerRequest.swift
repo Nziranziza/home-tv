@@ -17,11 +17,15 @@ struct PlayerRequest: Identifiable, Sendable {
     var startTime: TimeInterval = 0
     /// What to save the position against. nil plays without saving.
     var item: PlaybackItem?
+    /// The add-on's subtitle files for this stream.
+    var subtitles: [ExternalSubtitle] = []
+    /// What the subtitle timing is remembered against; nil keeps it for this play only.
+    var subtitleDelayKey: String?
 
     /// The same playback, whichever launch built it.
     func isSamePlay(as other: PlayerRequest) -> Bool {
         url == other.url && type == other.type && title == other.title && episodeLabel == other.episodeLabel
             && logoURL == other.logoURL && headers == other.headers && startTime == other.startTime
-            && item == other.item
+            && item == other.item && subtitles == other.subtitles && subtitleDelayKey == other.subtitleDelayKey
     }
 }

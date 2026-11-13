@@ -183,7 +183,7 @@ struct Stream: Codable, Hashable, Sendable, Identifiable {
     let fileIdx: Int?
     let sources: [String]?
     let behaviorHints: StreamBehaviorHints?
-    /// Subtitle tracks the add-on attached to this stream; only their languages are read.
+    /// Subtitle files the add-on attached to this stream.
     var subtitles: [StreamSubtitle]? = nil
 
     var id: String {

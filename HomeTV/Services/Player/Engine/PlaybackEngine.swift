@@ -15,6 +15,9 @@ protocol PlaybackEngine: AnyObject {
     var videoFormat: VideoFormat? { get }
     /// Seconds subtitles are shifted by. Positive shows them later.
     var subtitleDelay: TimeInterval { get set }
+    /// Add-on subtitle files, listed by `tracks(of: .subtitle)` after the stream's own. Set before
+    /// `prepare` or `load`; a file is fetched only once it's selected.
+    var externalSubtitles: [ExternalSubtitle] { get set }
     /// Called once when playback ends, with the error if it failed.
     var onFinish: ((Error?) -> Void)? { get set }
     /// Called each time the stream's tracks become known, including after a decoder restart.

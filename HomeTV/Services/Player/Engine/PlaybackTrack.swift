@@ -15,6 +15,8 @@ struct PlaybackTrack: Identifiable, Hashable, Sendable {
     var isForced = false
     /// Subtitles for the deaf and hard of hearing.
     var isSDH = false
+    /// An add-on's subtitle file rather than one of the stream's own tracks.
+    var isExternal = false
     /// The container's default track.
     var isDefault = false
     /// Audio flagged as the title's original language.

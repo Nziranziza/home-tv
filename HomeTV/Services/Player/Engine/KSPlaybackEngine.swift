@@ -17,11 +17,21 @@ final class KSPlaybackEngine: PlaybackEngine {
     var subtitleDelay: TimeInterval = 0 {
         didSet { layer?.subtitleModel.subtitleDelay = subtitleDelay }
     }
+    var externalSubtitles: [ExternalSubtitle] = [] {
+        didSet {
+            // Not auto-downloaded: KSPlayer fetches a file the first time it's selected.
+            externalInfos = externalSubtitles.map {
+                URLSubtitleInfo(subtitleID: $0.url.absoluteString, name: "", url: $0.url, languageCode: $0.languageCode)
+            }
+        }
+    }
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
 
     @ObservationIgnored private var layer: KSPlayerLayer?
+    /// Kept across decoder restarts, so a fetched file isn't fetched again.
+    @ObservationIgnored private var externalInfos: [URLSubtitleInfo] = []
     @ObservationIgnored private var options: KSPlaybackOptions?
     /// The layer's own accurate-seek setting, which an audio switch overrides until the next seek.
     @ObservationIgnored private var seeksAccurately = false
@@ -141,6 +151,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         )
         let layer = KSPlayerLayer(url: url, options: options, delegate: self)
         self.layer = layer
+        layer.subtitleModel.subtitleDelay = subtitleDelay
         // Without autoplay the layer doesn't load on its own.
         if !options.isAutoPlay { layer.prepareToPlay() }
         let surface = layer.makeUIView()
@@ -194,7 +205,12 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack] {
         guard let player = layer?.player else { return [] }
-        if kind == .subtitle { return player.subtitlesTracks.map(Self.subtitleTrack) }
+        if kind == .subtitle {
+            let external = externalSubtitles.enumerated().map { index, subtitle in
+                subtitle.track(at: index, isSelected: externalInfos[index].isSelected)
+            }
+            return player.subtitlesTracks.map(Self.subtitleTrack) + external
+        }
         if kind == .audio { return player.tracks(mediaType: .audio).map { Self.audioTrack($0) } }
         return player.tracks(mediaType: kind.mediaType).map { track in
             PlaybackTrack(
@@ -234,7 +250,12 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     func selectSubtitle(_ track: PlaybackTrack?) {
         guard let layer else { return }
-        let info = track.flatMap { track in layer.player.subtitlesTracks.first { Self.trackID($0) == track.id } }
+        let info: (any SubtitleInfo)? = track.flatMap { track in
+            if let index = ExternalSubtitle.index(of: track) {
+                return externalInfos.indices.contains(index) ? externalInfos[index] : nil
+            }
+            return layer.player.subtitlesTracks.first { Self.trackID($0) == track.id }
+        }
         layer.select(subtitleInfo: info)
     }
 
@@ -366,6 +387,7 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
             layer.play()
         }
         if state == .readyToPlay {
+            externalInfos.forEach(layer.subtitleModel.addSubtitle(info:))
             // A turn later, so the layer has finished its own ready handling and listed the tracks.
             Task { @MainActor [weak self] in self?.onTracksReady?() }
         }
