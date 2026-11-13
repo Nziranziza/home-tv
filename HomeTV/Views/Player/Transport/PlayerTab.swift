@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// A capsule tab under the track.
+/// A capsule tab under the track. Highlighted while its panel is up.
 struct PlayerTab: View {
     let title: String
+    var isHighlighted = false
     let action: () -> Void
 
     var body: some View {
@@ -12,6 +13,6 @@ struct PlayerTab: View {
                 .padding(.horizontal, 30)
                 .padding(.vertical, 14.5)
         }
-        .buttonStyle(.playerTab)
+        .buttonStyle(.playerTab(isHighlighted: isHighlighted))
     }
 }

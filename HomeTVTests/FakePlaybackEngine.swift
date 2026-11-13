@@ -10,6 +10,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
+    var videoFormat: VideoFormat?
     var onFinish: ((Error?) -> Void)?
     var onTracksReady: (() -> Void)?
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?

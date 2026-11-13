@@ -37,6 +37,7 @@ struct HomeTVApp: App {
                     let resume = contentID.flatMap(UserLibrary.resumeSeconds(forKey:)) ?? 0
                     PlayerPresenter.shared.present(PlayerRequest(
                         url: url,
+                        type: environment["PLAYER_TEST_TYPE"] ?? "movie",
                         title: environment["PLAYER_TEST_TITLE"] ?? "",
                         episodeLabel: environment["PLAYER_TEST_EPISODE"],
                         logoURL: environment["PLAYER_TEST_LOGO"].flatMap(URL.init(string:)),

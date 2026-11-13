@@ -8,39 +8,26 @@ struct PlayerTransportBar: View {
     let onSelect: (PlayerFocus) -> Void
     let onMove: (MoveCommandDirection) -> Void
 
-    /// Episode line to show name, measured against the system player.
-    private static let episodeLabelGap: CGFloat = 2.5
+    /// Between the tabs and the Info panel, measured against the system player.
+    private static let infoPanelGap: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let episodeLabel = model.request.episodeLabel {
-                Text(episodeLabel)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .padding(.leading, 4)
-                    .padding(.bottom, Self.episodeLabelGap)
+            // The Info panel takes the track's place and pushes the tabs up.
+            if !model.isInfoOpen {
+                PlayerTransportHeader(model: model, focus: focus, onSelect: onSelect, onMove: onMove)
+                    .transition(.opacity)
             }
-            HStack(alignment: .center) {
-                Text(model.request.title)
-                    .font(.title2)
-                    .bold()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    // The system player sets its text in from the track's ends and drops the title
-                    // below the buttons' centre line.
-                    .padding(.leading, 4)
-                    .padding(.top, 12)
-                Spacer(minLength: 40)
-                PlayerControlButtons(model: model, focus: focus, onSelect: onSelect)
+            PlayerTabs(focus: focus, isInfoOpen: model.isInfoOpen, onSelect: onSelect, onExitUp: model.closeInfo)
+                // Down from the track lands on Info, whichever tab sits under the playhead.
+                .focusBarrier(.top, isActive: focus.wrappedValue == .scrubber) { focus.wrappedValue = .info }
+                .disabled(model.subtitlesMenu != nil)
+                .padding(.top, 16)
+            if model.isInfoOpen {
+                PlayerInfoPanel(model: model, focus: focus, onSelect: onSelect)
+                    .padding(.top, Self.infoPanelGap)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            // Out of focus's reach while a menu is open, so it can't leave the menu.
-            PlayerScrubberButton(model: model, focus: focus, onMove: onMove)
-                .disabled(model.subtitlesMenu != nil)
-                .padding(.top, 32)
-            PlayerTabs(focus: focus, onSelect: onSelect)
-                .disabled(model.subtitlesMenu != nil)
-                .padding(.top, 17)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }

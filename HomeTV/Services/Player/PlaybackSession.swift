@@ -128,6 +128,7 @@ final class PlaybackSession {
         guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
         var request = PlayerRequest(
             url: url,
+            type: type,
             title: title,
             logoURL: logoURL,
             headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],

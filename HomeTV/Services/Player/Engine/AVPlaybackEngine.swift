@@ -12,6 +12,7 @@ final class AVPlaybackEngine: PlaybackEngine {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     var subtitleDelay: TimeInterval = 0
+    @ObservationIgnored private(set) var videoFormat: VideoFormat?
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
     /// Unused: `PlayerAudio` switches to its pick once the tracks are listed.
@@ -144,10 +145,33 @@ final class AVPlaybackEngine: PlaybackEngine {
     private func loadSelectionGroups(_ item: AVPlayerItem) async {
         let legible = try? await item.asset.loadMediaSelectionGroup(for: .legible)
         let audible = try? await item.asset.loadMediaSelectionGroup(for: .audible)
+        let videoFormat = await Self.videoFormat(of: item.asset)
         guard item === player.currentItem else { return }
         self.legible = legible
         self.audible = audible
+        self.videoFormat = videoFormat
         onTracksReady?()
+    }
+
+    /// nil for HLS, whose asset lists no tracks.
+    private static func videoFormat(of asset: AVAsset) async -> VideoFormat? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let (size, descriptions) = try? await track.load(.naturalSize, .formatDescriptions)
+        else { return nil }
+        return VideoFormat(size: size, dynamicRange: descriptions.first.map(dynamicRange) ?? .sdr)
+    }
+
+    private static func dynamicRange(_ description: CMFormatDescription) -> VideoFormat.DynamicRange {
+        let codec = CMFormatDescriptionGetMediaSubType(description)
+        if codec == kCMVideoCodecType_DolbyVisionHEVC || codec == FourCharCode(0x6476_6865) { // dvhe
+            return .dolbyVision
+        }
+        let transfer = CMFormatDescriptionGetExtension(
+            description, extensionKey: kCMFormatDescriptionExtension_TransferFunction
+        ) as? String
+        if transfer == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String { return .hdr10 }
+        if transfer == kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String { return .hlg }
+        return .sdr
     }
 
     /// The simulator "plays" video it can't decode (4K Dolby Vision, say) as a black screen with no error.

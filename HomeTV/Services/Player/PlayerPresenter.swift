@@ -11,6 +11,8 @@ final class PlayerPresenter {
     /// The playback on screen.
     var request: PlayerRequest?
     private var isPickerUp = false
+    /// Go to Movie / Go to Show's title, held while the stream picker under the player closes.
+    private(set) var pendingDetail: MetaPreview?
 
     /// True while playback is on screen, so surfaces underneath stop their trailers.
     var isPresenting: Bool { request != nil }
@@ -31,11 +33,27 @@ final class PlayerPresenter {
         self.request = request
     }
 
+    /// Go to Movie / Go to Show: closes the player, and the stream picker under it, then opens the title's
+    /// detail screen in place of the stack, so Back doesn't return to the player.
+    func goToDetail(_ meta: MetaPreview) {
+        request = nil
+        if isPickerUp {
+            pendingDetail = meta
+        } else {
+            DeepLinkRouter.shared.openDetail(meta)
+        }
+    }
+
     func streamPickerDidAppear() {
         isPickerUp = true
     }
 
-    func streamPickerDidDismiss() {
+    /// `hostDetailID` is the detail screen the picker opened over, if any. Going to that same title just
+    /// lands back on it.
+    func streamPickerDidDismiss(hostDetailID: String?) {
         isPickerUp = false
+        guard let meta = pendingDetail else { return }
+        pendingDetail = nil
+        if meta.id != hostDetailID { DeepLinkRouter.shared.openDetail(meta) }
     }
 }

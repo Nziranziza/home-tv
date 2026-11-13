@@ -146,7 +146,7 @@ struct MetaDetailView: View {
         .navigationDestination(item: $episodeSelection) { episode in
             EpisodeDetailView(model: model, episode: episode)
         }
-        .streamPickerCover(request: $streamRequest)
+        .streamPickerCover(request: $streamRequest, hostDetailID: metaID)
         .trailerPlayerCover(request: $trailerRequest)
     }
 
