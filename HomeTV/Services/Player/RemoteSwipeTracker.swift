@@ -5,11 +5,14 @@ import GameController
 /// moves, so the paused scrub reads the pad's absolute position through GameController.
 @MainActor
 final class RemoteSwipeTracker {
-    /// Called with each horizontal step, as a fraction of the pad's width.
-    var onSwipe: ((Double) -> Void)?
-    /// When the finger last travelled, so a Left/Right move during a swipe can be told from a click.
-    private(set) var lastSwipeAt: ContinuousClock.Instant?
+    /// Called with each horizontal step, as a fraction of the pad's width, and the swipe's speed in pad
+    /// widths per second.
+    var onSwipe: ((_ fraction: Double, _ speed: Double) -> Void)?
+    /// When the finger last travelled, for the swipe's speed.
+    private var lastSwipeAt: ContinuousClock.Instant?
     private var lastX: Float?
+    /// Smoothed, so one jittery sample doesn't jump the scrub.
+    private var speed: Double = 0
     private var pad: GCMicroGamepad?
     private var connectTask: Task<Void, Never>?
 
@@ -28,12 +31,6 @@ final class RemoteSwipeTracker {
         connectTask = nil
         detach()
         onSwipe = nil
-    }
-
-    /// True while a swipe is under way, rather than a press on the pad's edge.
-    var isSwiping: Bool {
-        guard let lastSwipeAt else { return false }
-        return ContinuousClock.now - lastSwipeAt < .milliseconds(300)
     }
 
     private func attach(_ controller: GCController?) {
@@ -58,13 +55,21 @@ final class RemoteSwipeTracker {
         // Lifting the finger reports the centre.
         guard x != 0 || y != 0 else {
             lastX = nil
+            speed = 0
             return
         }
         defer { lastX = x }
         guard let lastX else { return }
         let step = Double(x - lastX) / 2
         guard abs(step) > 0.002 else { return }
-        lastSwipeAt = .now
-        onSwipe?(step)
+        let now = ContinuousClock.now
+        if let lastSwipeAt, now - lastSwipeAt < .milliseconds(100) {
+            let interval = max((now - lastSwipeAt) / .seconds(1), 0.004)
+            speed = speed * 0.6 + abs(step) / interval * 0.4
+        } else {
+            speed = 0
+        }
+        lastSwipeAt = now
+        onSwipe?(step, speed)
     }
 }

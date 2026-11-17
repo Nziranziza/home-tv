@@ -20,11 +20,30 @@ final class NowPlayingController {
         add(center.togglePlayPauseCommand) { [weak commands] _ in commands?.togglePlayPause() }
         add(center.skipForwardCommand) { [weak commands] _ in commands?.skip(by: skip) }
         add(center.skipBackwardCommand) { [weak commands] _ in commands?.skip(by: -skip) }
+        add(center.seekForwardCommand) { [weak commands] event in
+            Self.handleSeek(event, direction: .forward, commands: commands)
+        }
+        add(center.seekBackwardCommand) { [weak commands] event in
+            Self.handleSeek(event, direction: .backward, commands: commands)
+        }
         add(center.changePlaybackPositionCommand) { [weak commands] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return }
             commands?.seek(to: event.positionTime)
         }
         update(elapsed: 0, duration: 0, isPlaying: false)
+    }
+
+    private static func handleSeek(
+        _ event: MPRemoteCommandEvent,
+        direction: PlayerScan.Direction,
+        commands: (any NowPlayingCommands)?
+    ) {
+        guard let event = event as? MPSeekCommandEvent else { return }
+        switch event.type {
+        case .beginSeeking: commands?.beginScan(direction)
+        case .endSeeking: commands?.endScan()
+        @unknown default: break
+        }
     }
 
     func update(elapsed: TimeInterval, duration: TimeInterval, isPlaying: Bool) {

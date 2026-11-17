@@ -9,6 +9,8 @@ struct PlayerTimeText: View {
             .font(.caption2)
             .bold()
             .monospacedDigit()
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white)
+            // Digits change in place; a skip glides the label, not the text.
+            .contentTransition(.identity)
     }
 }

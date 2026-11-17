@@ -114,8 +114,8 @@ struct PlayerTransportTests {
     @Test func swipingWhilePausedScrubsWithoutSeeking() throws {
         let (model, engine) = try Self.model(state: .paused, time: 100, duration: 1000)
         model.scrub(byPadFraction: 0.5)
-        #expect(model.scrubTime == 150)
-        #expect(model.displayTime == 150)
+        #expect(model.scrub?.position(at: .now) == 130)
+        #expect(model.displayTime == 130)
         #expect(engine.seeks.isEmpty)
     }
 
@@ -131,27 +131,82 @@ struct PlayerTransportTests {
     @Test func swipingWhilePlayingDoesNothing() throws {
         let (model, _) = try Self.model(state: .playing)
         model.scrub(byPadFraction: 0.5)
-        #expect(model.scrubTime == nil)
+        #expect(model.scrub == nil)
     }
 
     @Test func clickingAfterAScrubPlaysFromThere() throws {
         let (model, engine) = try Self.model(state: .paused, time: 100, duration: 10_000)
-        model.scrub(byPadFraction: 0.1)
+        model.scrub(byPadFraction: 0.5)
         model.togglePlayPause()
-        #expect(engine.seeks == [200])
+        #expect(engine.seeks == [130])
         #expect(engine.state == .playing)
-        #expect(model.scrubTime == nil)
+        #expect(model.scrub == nil)
+    }
+
+    @Test func skipShowsItsGlyphOnItsSide() throws {
+        let (model, _) = try Self.model()
+        model.skip(by: -10)
+        #expect(model.timeIndicator == .skip(.backward))
+        #expect(model.timeIndicator?.isLeading == true)
+        model.skip(by: 10)
+        #expect(model.timeIndicator == .skip(.forward))
+        #expect(model.timeIndicator?.isLeading == false)
+    }
+
+    @Test func eachSkipGlides() throws {
+        let (model, _) = try Self.model()
+        model.skip(by: 10)
+        model.skip(by: -10)
+        #expect(model.skipCount == 2)
+    }
+
+    @Test func bufferingAfterASkipBackShowsTheSpinnerBeforeTheTime() throws {
+        let (model, engine) = try Self.model()
+        model.playbackDidChange()
+        model.skip(by: -10)
+        engine.state = .buffering
+        #expect(model.timeIndicator == .loading(.backward))
+        #expect(model.timeIndicator?.isLeading == true)
+        #expect(!model.showsLoadingScreen)
+    }
+
+    @Test func bufferingWithoutASkipShowsTheSpinnerAfterTheTime() throws {
+        let (model, engine) = try Self.model()
+        model.playbackDidChange()
+        model.noteActivity()
+        engine.state = .buffering
+        #expect(model.timeIndicator == .loading(.forward))
+    }
+
+    @Test func theFirstLoadKeepsTheLoadingScreen() throws {
+        let (model, _) = try Self.model(state: .buffering)
+        #expect(model.showsLoadingScreen)
+        #expect(model.timeIndicator == nil)
+    }
+
+    @Test func pausedShowsThePauseGlyph() throws {
+        let (model, _) = try Self.model(state: .paused)
+        #expect(model.timeIndicator == .paused)
     }
 
     // MARK: - Menu
 
-    @Test func menuDropsTheScrubAndHidesTheBarThenExits() throws {
+    @Test func menuCancelsAScrubAndResumesFromWhereItBegan() throws {
         let (model, engine) = try Self.model(state: .paused, duration: 1000)
         model.scrub(byPadFraction: 0.5)
         #expect(model.handleExit())
-        #expect(model.scrubTime == nil)
+        #expect(model.scrub == nil)
+        #expect(engine.state == .playing)
+        #expect(engine.seeks.isEmpty)
         #expect(!model.bar.isVisible)
         #expect(!model.handleExit())
-        #expect(engine.seeks.isEmpty)
+    }
+
+    @Test func menuHidesTheBarThenExits() throws {
+        let (model, _) = try Self.model(state: .paused, duration: 1000)
+        model.bar.show(isPlaying: false)
+        #expect(model.handleExit())
+        #expect(!model.bar.isVisible)
+        #expect(!model.handleExit())
     }
 }
