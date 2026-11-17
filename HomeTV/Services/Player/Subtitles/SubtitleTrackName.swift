@@ -12,10 +12,16 @@ enum SubtitleTrackName {
     }
 
     /// Names in list order. A name shared by several tracks is followed by the track's own title, where
-    /// that tells them apart.
+    /// that tells them apart. Repeated add-on files are numbered instead: `English (2)`.
     static func names(for tracks: [PlaybackTrack], locale: Locale = .current) -> [String] {
         let names = tracks.map { name(for: $0, locale: locale) }
+        var repeats: [String: Int] = [:]
         return zip(tracks, names).map { track, name in
+            if track.isExternal {
+                let count = (repeats[name] ?? 0) + 1
+                repeats[name] = count
+                return count > 1 ? "\(name) (\(count))" : name
+            }
             let isShared = names.count { $0 == name } > 1
             guard isShared, !track.name.isEmpty, !name.localizedStandardContains(track.name) else { return name }
             return "\(name) (\(track.name))"

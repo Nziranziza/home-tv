@@ -167,7 +167,13 @@ final class PlaybackSession {
             logoURL: logoURL,
             headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
             startTime: TimeInterval(resumePosition ?? 0),
-            item: PlaybackItem(contentID: contentID, showID: Self.showID(fromEpisodeID: contentID))
+            item: PlaybackItem(contentID: contentID, showID: Self.showID(fromEpisodeID: contentID)),
+            subtitles: ExternalSubtitle.list(from: stream.subtitles),
+            subtitleDelayKey: SubtitleDelayStore.streamKey(
+                contentID: contentID,
+                filename: stream.behaviorHints?.filename,
+                url: url
+            )
         )
         // `title` is the picker's episode label; split it into the show name and the episode line.
         if type == "series", let showName = seasonShowName,
