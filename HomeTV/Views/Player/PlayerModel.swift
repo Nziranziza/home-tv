@@ -52,6 +52,28 @@ final class PlayerModel {
     @ObservationIgnored private var titleInfoTask: Task<Void, Never>?
     @ObservationIgnored private let loadContinueWatching: @MainActor () -> [WatchHistoryItem]
     @ObservationIgnored private var resumeTask: Task<Void, Never>?
+    /// The next episode, once resolved near the end.
+    private(set) var upNext: UpNextEpisode?
+    /// True while Up Next is due and not dismissed: the video sits in the corner over the next episode.
+    private(set) var isShowingUpNext = false
+    /// The countdown: seconds left in this episode.
+    private(set) var upNextSecondsLeft = 0
+
+    /// The countdown ring's remaining share, 1 when Up Next opens and 0 at the hand-over.
+    var upNextCountdownFraction: Double {
+        min(max(Double(upNextSecondsLeft) / UpNextTiming.showLead, 0), 1)
+    }
+    /// Set once the viewer went back to full screen; the next episode still follows at the end.
+    @ObservationIgnored private var isUpNextDismissed = false
+    /// Set when Next Episode was chosen, so closing doesn't throw away the opened next stream.
+    @ObservationIgnored private var rollsOver = false
+    @ObservationIgnored private var hasPrewarmedUpNext = false
+    @ObservationIgnored private(set) var upNextLoad: Task<Void, Never>?
+    @ObservationIgnored private let loadUpNext: @MainActor (PlayerRequest) async throws -> UpNextEpisode?
+    /// Failed lookups so far; a failure is retried after `upNextRetryDelay`, up to `UpNextTiming.maxAttempts`.
+    @ObservationIgnored private var upNextAttempts = 0
+    @ObservationIgnored private let upNextRetryDelay: Duration
+    @ObservationIgnored private let prewarmer: PlayerPrewarmer
 
     init(
         request: PlayerRequest,
@@ -64,7 +86,10 @@ final class PlayerModel {
         subtitleDelays: SubtitleDelayStore = .shared,
         audioChoices: AudioChoiceStore = .shared,
         loadTitleInfo: (@MainActor (String, PlaybackItem) async -> PlayerTitleInfo?)? = nil,
-        loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil
+        loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil,
+        loadUpNext: (@MainActor (PlayerRequest) async throws -> UpNextEpisode?)? = nil,
+        upNextRetryDelay: Duration = UpNextTiming.retryDelay,
+        prewarmer: PlayerPrewarmer? = nil
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
@@ -83,6 +108,9 @@ final class PlayerModel {
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.loadTitleInfo = loadTitleInfo ?? PlayerTitleInfoLoader.load
         self.loadContinueWatching = loadContinueWatching ?? { UserLibrary.continueWatchingItems }
+        self.loadUpNext = loadUpNext ?? UpNextLoader.load
+        self.upNextRetryDelay = upNextRetryDelay
+        self.prewarmer = prewarmer ?? .shared
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
             PlaybackProgress.record(
@@ -192,6 +220,11 @@ final class PlayerModel {
 
     /// Click and Play/Pause: toggles playback, or plays from the scrub position, and shows the bar.
     func togglePlayPause() {
+        // Up Next holds the screen: play and pause the corner video without the bar.
+        if isShowingUpNext, !bar.isVisible {
+            if isPlaying { engine.pause() } else if engine.state == .paused { engine.play() }
+            return
+        }
         if let scrubTime {
             self.scrubTime = nil
             seekEngine(to: scrubTime)
@@ -343,7 +376,11 @@ final class PlayerModel {
             closePanel()
             return true
         }
-        guard bar.isVisible else { return false }
+        guard bar.isVisible else {
+            guard isShowingUpNext else { return false }
+            dismissUpNext()
+            return true
+        }
         scrubTime = nil
         bar.hide()
         return true
@@ -370,7 +407,7 @@ final class PlayerModel {
         }
         if isPlaying {
             bar.noteActivity(isPlaying: true)
-        } else if engine.state == .paused {
+        } else if engine.state == .paused, !isShowingUpNext {
             bar.show(isPlaying: false)
         }
         publishNowPlaying()
@@ -394,6 +431,9 @@ final class PlayerModel {
     }
 
     func stop() {
+        upNextLoad?.cancel()
+        // Accepted, the next screen has already taken the opened stream.
+        if hasPrewarmedUpNext, !rollsOver { prewarmer.cancel() }
         pausesOnStart = false
         subtitlesMenu = nil
         isAudioMenuOpen = false
@@ -416,6 +456,62 @@ final class PlayerModel {
             saveProgress()
             report(.pause)
         }
+    }
+
+    // MARK: - Up Next
+
+    /// What to play once this screen finishes: the next episode whenever there is one. Only closing the
+    /// player stops it.
+    var nextRequest: PlayerRequest? { upNext?.request }
+
+    /// Called every second: resolves the next episode near the end, then shows Up Next and opens its
+    /// stream so the hand-over has no black gap.
+    func tickUpNext() {
+        guard request.continuation != nil, hasPlayed, !didFinish, duration > 0 else { return }
+        let remaining = duration - playheadTime
+        if upNextLoad == nil, UpNextTiming.isResolveDue(remaining: remaining) {
+            upNextAttempts += 1
+            upNextLoad = Task { [weak self, request, loadUpNext, upNextAttempts, upNextRetryDelay] in
+                do {
+                    let next = try await loadUpNext(request)
+                    guard !Task.isCancelled else { return }
+                    self?.upNext = next
+                } catch {
+                    // A failed request: clearing the lookup lets a later tick try again.
+                    guard upNextAttempts < UpNextTiming.maxAttempts,
+                          (try? await Task.sleep(for: upNextRetryDelay)) != nil else { return }
+                    self?.upNextLoad = nil
+                }
+            }
+        }
+        guard let upNext, !isUpNextDismissed, UpNextTiming.isShowDue(remaining: remaining) else {
+            if isShowingUpNext { isShowingUpNext = false }
+            return
+        }
+        let secondsLeft = UpNextTiming.secondsLeft(remaining: remaining)
+        if upNextSecondsLeft != secondsLeft { upNextSecondsLeft = secondsLeft }
+        if !isShowingUpNext { isShowingUpNext = true }
+        if !hasPrewarmedUpNext {
+            hasPrewarmedUpNext = true
+            prewarmer.prewarm(upNext.request)
+        }
+    }
+
+    /// Next Episode: this episode counts as finished, and the screen moves on to the next.
+    func playUpNext() {
+        guard upNext != nil, !didFinish else { return }
+        rollsOver = true
+        isShowingUpNext = false
+        saveProgress(atEnd: true)
+        report(.stop, atEnd: true)
+        didFinish = true
+    }
+
+    /// Selecting the corner video, or Menu: the video returns to full screen for the rest of the credits. The
+    /// next episode still plays at the end, from the stream already opened.
+    func dismissUpNext() {
+        isUpNextDismissed = true
+        isShowingUpNext = false
     }
 
     /// The playhead to save. A seek still in flight, however slow, is where the user is.

@@ -141,39 +141,31 @@ final class PlaybackSession {
             try? await Task.sleep(for: .milliseconds(50))
         }
         try Task.checkCancellation()
-        PlayerPresenter.shared.present(try inAppRequest(for: stream))
+        PlayerPresenter.shared.present(try inAppRequest(for: stream, addonID: addonID))
         remember(stream, addonID: addonID, showID: Self.showID(fromEpisodeID: contentID))
     }
 
     /// Opens `stream` in the in-app player ahead of Select, once the meta is in, so the request matches
     /// the one Select builds.
-    func prewarm(_ stream: Stream) async {
+    func prewarm(_ stream: Stream, addonID: String) async {
         guard PlayerPreference.shared.defaultPlayer == .builtIn else { return }
         while !isMetaResolved {
             guard (try? await Task.sleep(for: .milliseconds(50))) != nil else { return }
         }
-        guard let request = try? inAppRequest(for: stream) else { return }
+        guard let request = try? inAppRequest(for: stream, addonID: addonID) else { return }
         PlayerPrewarmer.shared.prewarm(request)
     }
 
     /// The in-app player's request. Only HTTP streams play in-app; magnets need an external app.
-    private func inAppRequest(for stream: Stream) throws -> PlayerRequest {
-        guard let url = stream.playableURL else { throw PlayerLaunchError.noPlayableURL }
-        guard url.scheme == "http" || url.scheme == "https" else { throw PlayerLaunchError.unsupportedInApp }
-        var request = PlayerRequest(
-            url: url,
+    private func inAppRequest(for stream: Stream, addonID: String) throws -> PlayerRequest {
+        var request = try PlayerRequest(
+            stream: stream,
             type: type,
+            contentID: contentID,
             title: title,
             logoURL: logoURL,
-            headers: stream.behaviorHints?.proxyHeaders?.request ?? [:],
             startTime: TimeInterval(resumePosition ?? 0),
-            item: PlaybackItem(contentID: contentID, showID: Self.showID(fromEpisodeID: contentID)),
-            subtitles: ExternalSubtitle.list(from: stream.subtitles),
-            subtitleDelayKey: SubtitleDelayStore.streamKey(
-                contentID: contentID,
-                filename: stream.behaviorHints?.filename,
-                url: url
-            )
+            continuation: EpisodeContinuation(stream: stream, addonID: addonID)
         )
         // `title` is the picker's episode label; split it into the show name and the episode line.
         if type == "series", let showName = seasonShowName,

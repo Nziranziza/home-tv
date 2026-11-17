@@ -16,10 +16,17 @@ struct PlayerScreen: View {
     }
 
     var body: some View {
+        // Up Next waits while the bar is up, so it never takes the screen from under the viewer.
+        let showsUpNext = model.isShowingUpNext && !model.bar.isVisible
         ZStack {
             Color.black
+            if showsUpNext, let upNext = model.upNext {
+                UpNextBackdrop(url: upNext.thumbnailURL)
+                    .transition(.opacity)
+            }
             PlayerVideoSurface(videoView: model.videoView)
-            if model.errorMessage == nil, model.state == .loading || model.state == .buffering {
+                .upNextVideoFrame(isCornered: showsUpNext, isFocused: showsUpNext && focus == .upNextVideo)
+            if model.errorMessage == nil, !showsUpNext, model.state == .loading || model.state == .buffering {
                 PlayerLoadingView(title: model.request.title, logoURL: model.request.logoURL)
                     .transition(.opacity)
             }
@@ -41,6 +48,13 @@ struct PlayerScreen: View {
                     .padding(.horizontal, 80)
                     .padding(.bottom, 46)
                     .transition(.opacity)
+            } else if showsUpNext, let upNext = model.upNext {
+                UpNextDetails(model: model, episode: upNext, focus: $focus)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 80)
+                    .padding(.bottom, 68)
+                    .transition(.opacity)
+                UpNextVideoButton(model: model, focus: $focus)
             } else {
                 // The hidden bar's stand-in, so the focus engine always has a control and Select works.
                 Button(action: model.togglePlayPause) { Color.clear }
@@ -55,6 +69,8 @@ struct PlayerScreen: View {
         .animation(.easeInOut(duration: 0.2), value: model.subtitlesMenu == nil)
         .animation(.easeInOut(duration: 0.2), value: model.isAudioMenuOpen)
         .animation(.easeInOut(duration: 0.3), value: model.panel)
+        .animation(.easeInOut(duration: 0.5), value: showsUpNext)
+        .animation(.easeOut(duration: 0.2), value: focus == .upNextVideo)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -74,13 +90,23 @@ struct PlayerScreen: View {
             model.stop()
         }
         .onChange(of: model.didFinish) { _, finished in
-            if finished { dismiss() }
+            guard finished else { return }
+            // Up Next swaps the next episode in place; its stream is already open.
+            if let next = model.nextRequest {
+                PlayerPresenter.shared.present(next)
+            } else {
+                dismiss()
+            }
         }
         .onChange(of: model.state) {
             model.playbackDidChange()
         }
         .onChange(of: model.bar.isVisible) { _, visible in
-            focus = visible ? .scrubber : .surface
+            focus = visible ? .scrubber : model.isShowingUpNext ? .upNextNextEpisode : .surface
+        }
+        .onChange(of: model.isShowingUpNext) { _, visible in
+            guard !model.bar.isVisible else { return }
+            focus = visible ? .upNextNextEpisode : .surface
         }
         .onChange(of: model.subtitlesMenu == nil) { _, isClosed in
             if isClosed, model.bar.isVisible { focus = .subtitles }
@@ -109,6 +135,12 @@ struct PlayerScreen: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: PlayerModel.saveInterval)
                 model.saveProgress()
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                model.tickUpNext()
             }
         }
     }
