@@ -33,6 +33,9 @@ targets:
       properties:
         CFBundleDisplayName: HomeTV
         UILaunchScreen: {}
+        # Picture in Picture (#102) keeps playing while the app is browsed or left.
+        UIBackgroundModes:
+          - audio
         # canOpenURL on tvOS only returns true for schemes declared here, even
         # when the target app is installed. Without these, every external player
         # falsely reports "not installed".

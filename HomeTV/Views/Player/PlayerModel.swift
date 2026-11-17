@@ -74,6 +74,11 @@ final class PlayerModel {
     @ObservationIgnored private var upNextAttempts = 0
     @ObservationIgnored private let upNextRetryDelay: Duration
     @ObservationIgnored private let prewarmer: PlayerPrewarmer
+    @ObservationIgnored private let presenter: PlayerPresenter
+    /// True from the video reaching the corner until the corner closes, expanded or not.
+    @ObservationIgnored private(set) var isInPictureInPicture = false
+    /// Saving, Now Playing and state reactions. Owned here, not by the screen, so they go on in the corner.
+    @ObservationIgnored private var sessionTasks: [Task<Void, Never>] = []
 
     init(
         request: PlayerRequest,
@@ -89,7 +94,8 @@ final class PlayerModel {
         loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil,
         loadUpNext: (@MainActor (PlayerRequest) async throws -> UpNextEpisode?)? = nil,
         upNextRetryDelay: Duration = UpNextTiming.retryDelay,
-        prewarmer: PlayerPrewarmer? = nil
+        prewarmer: PlayerPrewarmer? = nil,
+        presenter: PlayerPresenter? = nil
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
@@ -111,6 +117,7 @@ final class PlayerModel {
         self.loadUpNext = loadUpNext ?? UpNextLoader.load
         self.upNextRetryDelay = upNextRetryDelay
         self.prewarmer = prewarmer ?? .shared
+        self.presenter = presenter ?? .shared
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
             PlaybackProgress.record(
@@ -192,6 +199,33 @@ final class PlayerModel {
         }
         engine.load(url: request.url, headers: request.headers, startTime: request.startTime)
         nowPlaying?.activate(title: request.title, commands: self)
+        startSessionTasks()
+    }
+
+    private func startSessionTasks() {
+        sessionTasks = [
+            Task { [weak self] in
+                guard var last = self?.state else { return }
+                let states = Observations { @MainActor [weak self] in self?.state }
+                for await state in states {
+                    guard let self, let state else { return }
+                    guard state != last else { continue }
+                    last = state
+                    playbackDidChange()
+                }
+            },
+            Task { [weak self] in
+                while (try? await Task.sleep(for: Self.saveInterval)) != nil, let self {
+                    saveProgress()
+                }
+            },
+            Task { [weak self] in
+                // Keeps Control Center's clock in step; it extrapolates between updates.
+                while (try? await Task.sleep(for: .seconds(5))) != nil, let self {
+                    publishNowPlaying()
+                }
+            },
+        ]
     }
 
     private func attachEngine() {
@@ -204,6 +238,11 @@ final class PlayerModel {
             } else {
                 errorMessage = Self.message(for: error)
             }
+            // The corner has no screen to move on to the next episode or show the error.
+            if isInPictureInPicture { presenter.pictureInPictureDidStop(self) }
+        }
+        engine.onPictureInPicture = { [weak self] event in
+            self?.pictureInPictureDidChange(event)
         }
         engine.onTracksReady = { [weak self] in
             guard let self else { return }
@@ -431,6 +470,13 @@ final class PlayerModel {
     }
 
     func stop() {
+        sessionTasks.forEach { $0.cancel() }
+        sessionTasks = []
+        if isInPictureInPicture {
+            // Cleared first, so the corner's own stop report is ignored.
+            isInPictureInPicture = false
+            engine.stopPictureInPicture()
+        }
         upNextLoad?.cancel()
         // Accepted, the next screen has already taken the opened stream.
         if hasPrewarmedUpNext, !rollsOver { prewarmer.cancel() }
@@ -455,6 +501,33 @@ final class PlayerModel {
         } else {
             saveProgress()
             report(.pause)
+        }
+    }
+
+    // MARK: - Picture in Picture
+
+    /// The Picture in Picture button: the video moves to the corner and the screen closes once it's there.
+    func startPictureInPicture() {
+        guard errorMessage == nil, state != .failed, state != .ended else { return }
+        engine.startPictureInPicture()
+    }
+
+    private func pictureInPictureDidChange(_ event: PictureInPictureEvent) {
+        switch event {
+        case .started:
+            isInPictureInPicture = true
+            scrubTime = nil
+            subtitlesMenu = nil
+            isAudioMenuOpen = false
+            panel = nil
+            bar.hide()
+            presenter.enterPictureInPicture(self)
+        case .restore(let completion):
+            presenter.restorePictureInPicture(self, completion: completion)
+        case .stopped:
+            guard isInPictureInPicture else { return }
+            isInPictureInPicture = false
+            presenter.pictureInPictureDidStop(self)
         }
     }
 

@@ -29,7 +29,7 @@ struct WatchNowView: View {
     /// left decoding underneath either.
     private var isHeroActive: Bool {
         isSelectedTab && path.isEmpty && streamRequest == nil && rowPreview == nil
-            && !PlayerPresenter.shared.isPresenting
+            && !PlayerPresenter.shared.isPlaybackActive
     }
 
     /// Everything but the returning card is disabled while focus lands on it.
@@ -115,7 +115,7 @@ struct WatchNowView: View {
                 if let rowPreview {
                     RowPreviewGallery(
                         model: rowPreview,
-                        isCovered: !path.isEmpty || streamRequest != nil || PlayerPresenter.shared.isPresenting,
+                        isCovered: !path.isEmpty || streamRequest != nil || PlayerPresenter.shared.isPlaybackActive,
                         onPlay: { streamRequest = $0 },
                         onInfo: { meta in path.append(.detail(meta)) },
                         onClosed: { close(rowPreview) }

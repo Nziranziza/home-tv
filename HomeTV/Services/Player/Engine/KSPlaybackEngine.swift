@@ -28,8 +28,10 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    @ObservationIgnored var onPictureInPicture: ((PictureInPictureEvent) -> Void)?
 
-    @ObservationIgnored private var layer: KSPlayerLayer?
+    /// The complex layer is the one with Picture in Picture.
+    @ObservationIgnored private var layer: KSComplexPlayerLayer?
     /// Kept across decoder restarts, so a fetched file isn't fetched again.
     @ObservationIgnored private var externalInfos: [URLSubtitleInfo] = []
     @ObservationIgnored private var options: KSPlaybackOptions?
@@ -90,6 +92,7 @@ final class KSPlaybackEngine: PlaybackEngine {
     private static func configureSubtitles() {
         KSOptions.useMACaptionAppearance = true
         KSOptions.isASSUseImageRender = true
+        KSOptions.pictureInPictureType = KSPictureInPicture.self
     }
 
     func prepare(url: URL, headers: [String: String], startTime: TimeInterval) {
@@ -171,7 +174,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         PlaybackDiagnostics.log(
             "load \(route) \(source.url.lastPathComponent) start=\(startTime) resolved=\(url != source.url)"
         )
-        let layer = KSPlayerLayer(url: url, options: options, delegate: self)
+        let layer = KSComplexPlayerLayer(url: url, options: options, delegate: self)
         self.layer = layer
         layer.subtitleModel.subtitleDelay = subtitleDelay
         // Without autoplay the layer doesn't load on its own.
@@ -366,7 +369,19 @@ final class KSPlaybackEngine: PlaybackEngine {
         (info as? any MediaPlayerTrack)?.trackID ?? Int32(truncatingIfNeeded: info.subtitleID.hashValue)
     }
 
+    func startPictureInPicture() {
+        guard let layer, !layer.isPictureInPictureActive else { return }
+        layer.pipStart()
+    }
+
+    func stopPictureInPicture() {
+        guard let layer, layer.isPictureInPictureActive else { return }
+        layer.pipStop(restoreUserInterface: false)
+    }
+
     func stop() {
+        onPictureInPicture = nil
+        stopPictureInPicture()
         audioConfigurationTask?.cancel()
         audioConfigurationTask = nil
         resolveTask?.cancel()

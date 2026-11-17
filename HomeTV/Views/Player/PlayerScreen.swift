@@ -11,8 +11,8 @@ struct PlayerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     init(request: PlayerRequest) {
-        // The stream picker may have opened this stream already, on focus.
-        _model = State(initialValue: PlayerPrewarmer.shared.take(for: request) ?? PlayerModel(request: request))
+        // The corner's play when expanding; the stream picker may have opened this stream already, on focus.
+        _model = State(initialValue: PlayerPresenter.shared.model(for: request))
     }
 
     var body: some View {
@@ -79,6 +79,7 @@ struct PlayerScreen: View {
         .onPlayPauseCommand { model.togglePlayPause() }
         .onAppear {
             model.start()
+            PlayerPresenter.shared.playerDidAppear(model)
             swipes.onSwipe = { fraction in
                 guard focus == .scrubber else { return }
                 model.scrub(byPadFraction: fraction)
@@ -87,7 +88,8 @@ struct PlayerScreen: View {
         }
         .onDisappear {
             swipes.stop()
-            model.stop()
+            // In the corner, the presenter owns the play now.
+            if !model.isInPictureInPicture { model.stop() }
         }
         .onChange(of: model.didFinish) { _, finished in
             guard finished else { return }
@@ -97,9 +99,6 @@ struct PlayerScreen: View {
             } else {
                 dismiss()
             }
-        }
-        .onChange(of: model.state) {
-            model.playbackDidChange()
         }
         .onChange(of: model.bar.isVisible) { _, visible in
             focus = visible ? .scrubber : model.isShowingUpNext ? .upNextNextEpisode : .surface
@@ -124,19 +123,6 @@ struct PlayerScreen: View {
         .onChange(of: scenePhase) { _, phase in
             model.sceneDidChange(isActive: phase == .active)
         }
-        .task(id: model.isPlaying) {
-            // Keeps Control Center's clock in step; it extrapolates between updates.
-            while !Task.isCancelled {
-                model.publishNowPlaying()
-                try? await Task.sleep(for: .seconds(5))
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: PlayerModel.saveInterval)
-                model.saveProgress()
-            }
-        }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -160,6 +146,7 @@ struct PlayerScreen: View {
         switch target {
         case .subtitles: model.openSubtitlesMenu()
         case .audio: model.openAudioMenu()
+        case .pictureInPicture: model.startPictureInPicture()
         case .fromBeginning: model.playFromBeginning()
         case .goToDetail:
             guard let detail = model.detail else { return }

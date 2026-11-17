@@ -24,6 +24,8 @@ protocol PlaybackEngine: AnyObject {
     var onTracksReady: (() -> Void)? { get set }
     /// Picks the audio track a stream opens with. May be called off the main actor.
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)? { get set }
+    /// Picture in Picture's start, expand and close.
+    var onPictureInPicture: ((PictureInPictureEvent) -> Void)? { get set }
 
     /// Opens and buffers the stream ahead of Select, without playing it or switching the TV's mode.
     func prepare(url: URL, headers: [String: String], startTime: TimeInterval)
@@ -36,6 +38,10 @@ protocol PlaybackEngine: AnyObject {
     func select(_ track: PlaybackTrack)
     /// Shows `track`'s subtitles, or none for nil.
     func selectSubtitle(_ track: PlaybackTrack?)
+    /// Moves the video to the corner; `onPictureInPicture` reports when it's there.
+    func startPictureInPicture()
+    /// Closes the corner without restoring the player.
+    func stopPictureInPicture()
     /// Stops playback and releases the decoder. The engine can't be reused.
     func stop()
 }
