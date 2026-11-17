@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import Observation
 import UIKit
 
@@ -19,6 +20,7 @@ final class AVPlaybackEngine: PlaybackEngine {
     @ObservationIgnored var onTracksReady: (() -> Void)?
     /// Unused: `PlayerAudio` switches to its pick once the tracks are listed.
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    @ObservationIgnored var onPictureInPicture: ((PictureInPictureEvent) -> Void)?
     @ObservationIgnored private(set) var isSeeking = false
     @ObservationIgnored private var seekGeneration = 0
     /// Opened by `prepare` and paused until `load`.
@@ -30,6 +32,9 @@ final class AVPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var endToken: (any NSObjectProtocol)?
     @ObservationIgnored private var legible: AVMediaSelectionGroup?
     @ObservationIgnored private var audible: AVMediaSelectionGroup?
+    /// Made up front: it only becomes possible a moment after it's made.
+    @ObservationIgnored private let pictureInPicture: AVPictureInPictureController?
+    @ObservationIgnored private let pictureInPictureRelay = PictureInPictureRelay()
 
     init() {
         let view = TrailerVideoLayer.PlayerLayerView()
@@ -38,6 +43,26 @@ final class AVPlaybackEngine: PlaybackEngine {
         videoView = view
         // `PlayerSubtitles` picks the subtitles, not the system's criteria.
         player.appliesMediaSelectionCriteriaAutomatically = false
+        pictureInPicture = AVPictureInPictureController.isPictureInPictureSupported()
+            ? AVPictureInPictureController(playerLayer: view.playerLayer)
+            : nil
+        pictureInPicture?.delegate = pictureInPictureRelay
+        pictureInPictureRelay.onStart = { [weak self] in self?.onPictureInPicture?(.started) }
+        pictureInPictureRelay.onStop = { [weak self] in self?.onPictureInPicture?(.stopped) }
+        pictureInPictureRelay.onRestore = { [weak self] completion in
+            guard let onPictureInPicture = self?.onPictureInPicture else { return completion(false) }
+            onPictureInPicture(.restore(completion: completion))
+        }
+    }
+
+    func startPictureInPicture() {
+        guard let pictureInPicture, pictureInPicture.isPictureInPicturePossible else { return }
+        pictureInPicture.startPictureInPicture()
+    }
+
+    func stopPictureInPicture() {
+        guard let pictureInPicture, pictureInPicture.isPictureInPictureActive else { return }
+        pictureInPicture.stopPictureInPicture()
     }
 
     func prepare(url: URL, headers: [String: String], startTime: TimeInterval) {
@@ -126,6 +151,8 @@ final class AVPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        onPictureInPicture = nil
+        stopPictureInPicture()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
         statusObservation?.invalidate()

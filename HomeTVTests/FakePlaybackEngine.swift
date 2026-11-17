@@ -15,6 +15,10 @@ final class FakePlaybackEngine: PlaybackEngine {
     var onFinish: ((Error?) -> Void)?
     var onTracksReady: (() -> Void)?
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    var onPictureInPicture: ((PictureInPictureEvent) -> Void)?
+    private(set) var isPictureInPictureActive = false
+    /// Calls to `stopPictureInPicture` while the corner was up.
+    private(set) var pictureInPictureStops = 0
     var audioTracks: [PlaybackTrack] = []
     /// Every audio or video selection.
     private(set) var selections: [PlaybackTrack] = []
@@ -49,6 +53,30 @@ final class FakePlaybackEngine: PlaybackEngine {
 
     func select(_ track: PlaybackTrack) { selections.append(track) }
     func selectSubtitle(_ track: PlaybackTrack?) { subtitleSelections.append(track) }
+
+    /// Starts at once, as if AVKit had finished its animation.
+    func startPictureInPicture() {
+        isPictureInPictureActive = true
+        onPictureInPicture?(.started)
+    }
+
+    func stopPictureInPicture() {
+        guard isPictureInPictureActive else { return }
+        pictureInPictureStops += 1
+        endPictureInPicture()
+    }
+
+    /// The viewer expanding the corner; `completion` gets AVKit's answer.
+    func expandPictureInPicture(completion: @escaping (Bool) -> Void) {
+        onPictureInPicture?(.restore(completion: completion))
+    }
+
+    /// The corner closing, from the viewer or after a restore.
+    func endPictureInPicture() {
+        isPictureInPictureActive = false
+        onPictureInPicture?(.stopped)
+    }
+
     private(set) var isStopped = false
     func stop() { isStopped = true }
 }

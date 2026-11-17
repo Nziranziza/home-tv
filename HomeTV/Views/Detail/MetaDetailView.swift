@@ -151,10 +151,10 @@ struct MetaDetailView: View {
     }
 
     /// Whether something is covering the hero — a pushed related/episode detail, the stream picker, or
-    /// a full-screen player. Drives tearing the inline trailer down to free its buffer.
+    /// the player, full screen or in the Picture in Picture corner. Drives tearing the inline trailer down to free its buffer.
     private var trailerCovered: Bool {
         relatedSelection != nil || streamRequest != nil || trailerRequest != nil
-            || castSelection != nil || episodeSelection != nil || PlayerPresenter.shared.isPresenting
+            || castSelection != nil || episodeSelection != nil || PlayerPresenter.shared.isPlaybackActive
     }
 }
 
