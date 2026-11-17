@@ -56,12 +56,34 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var resolveTask: Task<Void, Never>?
     /// First-frame timing for the debug log.
     @ObservationIgnored private var hasReportedFirstFrame = false
+    /// Watches for the audio hardware changing under the FFmpeg route's `AVAudioEngine`.
+    @ObservationIgnored private var audioConfigurationTask: Task<Void, Never>?
 
     init() {
         videoView.backgroundColor = .black
         Self.configureSubtitles()
         displaySwitch.onStart = { [weak self] in self?.holdForDisplaySwitch() }
         displaySwitch.onEnd = { [weak self] in self?.releaseDisplaySwitchHold() }
+        audioConfigurationTask = Task { [weak self] in
+            // Mapped to a `Sendable` id first: `Notification` can't cross into the main actor.
+            let engines = NotificationCenter.default.notifications(named: .AVAudioEngineConfigurationChange)
+                .compactMap { ($0.object as? AVAudioEngine).map(ObjectIdentifier.init) }
+            for await engine in engines {
+                self?.audioConfigurationDidChange(engine: engine)
+            }
+        }
+    }
+
+    /// A configuration change stops every `AVAudioEngine`, and KSPlayer doesn't start its own again: the
+    /// stream plays on silently with a stalled clock. Up Next's hand-over causes one when the previous
+    /// episode's player shuts down; so can the TV changing mode.
+    private func audioConfigurationDidChange(engine: ObjectIdentifier) {
+        guard let player = layer?.player as? KSMEPlayer,
+              let output = player.audioOutput as? AudioEnginePlayer,
+              engine == ObjectIdentifier(output.engine),
+              !output.engine.isRunning, state == .playing else { return }
+        PlaybackDiagnostics.log("audio engine stopped by a configuration change, restarting")
+        output.play()
     }
 
     /// Text subtitles take the system caption style. ASS draws through libass, keeping its own styling.
@@ -345,6 +367,8 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        audioConfigurationTask?.cancel()
+        audioConfigurationTask = nil
         resolveTask?.cancel()
         resolveTask = nil
         onFinish = nil

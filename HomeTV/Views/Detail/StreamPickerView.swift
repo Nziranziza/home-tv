@@ -916,7 +916,7 @@ struct StreamPickerView: View {
         // A short dwell, so rows scrolled past aren't opened.
         guard (try? await Task.sleep(for: .milliseconds(300))) != nil,
               let item = streams.first(where: { $0.id == id }) else { return }
-        await session.prewarm(item.stream)
+        await session.prewarm(item.stream, addonID: item.addonID)
     }
 
     private func play(_ item: LabeledStream) async {

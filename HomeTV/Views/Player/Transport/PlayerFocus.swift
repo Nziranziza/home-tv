@@ -11,6 +11,8 @@ enum PlayerFocus: Hashable {
     case goToDetail
     /// A Continue Watching card, by its item's id.
     case continueWatchingCard(String)
+    case upNextNextEpisode
+    case upNextVideo
 
     /// The panel this target keeps up: a tab and its panel's controls.
     var panel: PlayerPanel? {

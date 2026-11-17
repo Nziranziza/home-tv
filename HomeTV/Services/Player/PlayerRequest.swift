@@ -21,11 +21,14 @@ struct PlayerRequest: Identifiable, Sendable {
     var subtitles: [ExternalSubtitle] = []
     /// What the subtitle timing is remembered against; nil keeps it for this play only.
     var subtitleDelayKey: String?
+    /// For an episode, what its next one must match for Up Next; nil plays no Up Next.
+    var continuation: EpisodeContinuation?
 
     /// The same playback, whichever launch built it.
     func isSamePlay(as other: PlayerRequest) -> Bool {
         url == other.url && type == other.type && title == other.title && episodeLabel == other.episodeLabel
             && logoURL == other.logoURL && headers == other.headers && startTime == other.startTime
             && item == other.item && subtitles == other.subtitles && subtitleDelayKey == other.subtitleDelayKey
+            && continuation == other.continuation
     }
 }
