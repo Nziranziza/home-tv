@@ -24,6 +24,13 @@ extension PlayerRequest {
             startTime: startTime,
             item: PlaybackItem(contentID: contentID, showID: PlaybackSession.showID(fromEpisodeID: contentID)),
             subtitles: ExternalSubtitle.list(from: stream.subtitles),
+            subtitleQuery: SubtitleAddonQuery(
+                type: type,
+                id: contentID,
+                filename: stream.behaviorHints?.filename,
+                videoSize: stream.behaviorHints?.videoSize,
+                videoHash: stream.behaviorHints?.videoHash
+            ),
             subtitleDelayKey: SubtitleDelayStore.streamKey(
                 contentID: contentID,
                 filename: stream.behaviorHints?.filename,

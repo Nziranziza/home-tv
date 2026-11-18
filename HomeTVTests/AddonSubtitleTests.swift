@@ -61,23 +61,17 @@ struct AddonSubtitleTests {
         #expect(Self.names(list) == ["English", "French", "Spanish"])
     }
 
-    @Test func filesInALanguageTheStreamHasAreDropped() {
+    @Test func filesInALanguageTheStreamHasAreListedAfterIt() {
         let files = [Self.file(0, "eng"), Self.file(1, "fre")]
         let list = SubtitleTrackList.tracks(embedded: [Self.english], external: files, deviceLanguage: "en-US")
-        #expect(list == [Self.english, files[1]])
-    }
-
-    @Test func aDifferentScriptIsNotADuplicate() {
-        let embedded = SubtitleDefaultsTests.track(5, "zh-Hans")
-        let file = Self.file(0, "zh-Hant")
-        let list = SubtitleTrackList.tracks(embedded: [embedded], external: [file], deviceLanguage: "en-US")
-        #expect(list == [embedded, file])
+        #expect(list == [Self.english, files[0], files[1]])
+        #expect(Self.names(list) == ["English", "English", "French"])
     }
 
     @Test func embeddedFirstThenTheDeviceLanguage() {
         let files = [Self.file(0, "fre"), Self.file(1, "eng")]
         let list = SubtitleTrackList.tracks(embedded: [Self.korean, Self.english], external: files, deviceLanguage: "fr-FR")
-        #expect(list == [Self.korean, Self.english, files[0]])
+        #expect(list == [Self.korean, Self.english, files[0], files[1]])
         let onEnglish = SubtitleTrackList.tracks(embedded: [Self.korean], external: files, deviceLanguage: "en-US")
         #expect(onEnglish == [Self.korean, files[1], files[0]])
     }
@@ -101,7 +95,8 @@ struct AddonSubtitleTests {
             store: try SubtitleDefaultsTests.store(),
             delayKey: delayKey,
             delays: try delays ?? Self.delayStore(),
-            deviceLanguage: "en-US"
+            deviceLanguage: "en-US",
+            locale: Locale(identifier: "en_US")
         )
     }
 
@@ -181,5 +176,15 @@ struct AddonSubtitleTests {
         #expect(SubtitleDelayStore.streamKey(contentID: "tt1:1:2", filename: "Show.S01E02.mkv", url: url)
             == "tt1:1:2|Show.S01E02.mkv")
         #expect(SubtitleDelayStore.streamKey(contentID: "tt1", filename: nil, url: url) == "tt1|\(url.absoluteString)")
+    }
+}
+
+extension AddonSubtitleTests {
+    @Test func addonLanguagesAreAlphabeticalAfterTheDevicesLanguage() {
+        let files = [Self.file(0, "ger"), Self.file(1, "gre"), Self.file(2, "fin"), Self.file(3, "eng"), Self.file(4, "ger")]
+        let list = SubtitleTrackList.tracks(
+            embedded: [], external: files, deviceLanguage: "en-US", locale: Locale(identifier: "en_US")
+        )
+        #expect(Self.names(list) == ["English", "Finnish", "German", "German (2)", "Greek"])
     }
 }

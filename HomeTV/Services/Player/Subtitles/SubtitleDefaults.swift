@@ -49,32 +49,46 @@ enum SubtitleDefaults {
     /// The remembered track's match; one with no language is found by its title.
     private static func rememberedTrack(in tracks: [PlaybackTrack], _ choice: SubtitleChoice) -> PlaybackTrack? {
         guard SubtitleLanguage.base(choice.languageCode) != nil else {
-            return tracks.first { SubtitleLanguage.base($0.languageCode) == nil && $0.name == choice.name }
+            let matches = tracks.filter { SubtitleLanguage.base($0.languageCode) == nil && $0.name == choice.name }
+            return matches.first { $0.isExternal == choice.isExternal } ?? matches.first
         }
-        return bestMatch(in: tracks, language: choice.languageCode, isSDH: choice.isSDH, name: choice.name)
+        return bestMatch(
+            in: tracks, language: choice.languageCode, isSDH: choice.isSDH, name: choice.name, isExternal: choice.isExternal
+        )
     }
 
-    /// A track in `language`: the same script or region first, then the same title, then the asked-for
-    /// SDH, else plain subtitles before SDH.
+    /// A track in `language`: the same script or region first, then the same title, then the same
+    /// source, stream or add-on, then the asked-for SDH, else plain subtitles before SDH. Ties go to the
+    /// earlier track, the stream's own.
     private static func bestMatch(
         in tracks: [PlaybackTrack],
         language: String?,
         isSDH: Bool?,
-        name: String? = nil
+        name: String? = nil,
+        isExternal: Bool? = nil
     ) -> PlaybackTrack? {
+        let wanted = Wanted(language: language, isSDH: isSDH, name: name, isExternal: isExternal)
         let candidates = tracks.filter { SubtitleLanguage.matches($0.languageCode, language) }
-        return candidates.max { score($0, language, isSDH, name) < score($1, language, isSDH, name) }
+        return candidates.max { score($0, wanted) < score($1, wanted) }
     }
 
-    private static func score(_ track: PlaybackTrack, _ language: String?, _ isSDH: Bool?, _ name: String?) -> Int {
+    private struct Wanted {
+        let language: String?
+        let isSDH: Bool?
+        let name: String?
+        let isExternal: Bool?
+    }
+
+    private static func score(_ track: PlaybackTrack, _ wanted: Wanted) -> Int {
         var score = 0
-        if track.languageCode?.lowercased() == language?.lowercased() { score += 16 }
+        if track.languageCode?.lowercased() == wanted.language?.lowercased() { score += 32 }
         let trackForm = SubtitleLanguage.scriptAndRegion(track.languageCode)
-        let wanted = SubtitleLanguage.scriptAndRegion(language)
-        if let script = trackForm.script, script == wanted.script { score += 8 }
-        if let region = trackForm.region, region == wanted.region { score += 4 }
-        if let name, !name.isEmpty, track.name == name { score += 2 }
-        if track.isSDH == (isSDH ?? false) { score += 1 }
+        let wantedForm = SubtitleLanguage.scriptAndRegion(wanted.language)
+        if let script = trackForm.script, script == wantedForm.script { score += 16 }
+        if let region = trackForm.region, region == wantedForm.region { score += 8 }
+        if let name = wanted.name, !name.isEmpty, track.name == name { score += 4 }
+        if let isExternal = wanted.isExternal, track.isExternal == isExternal { score += 2 }
+        if track.isSDH == (wanted.isSDH ?? false) { score += 1 }
         return score
     }
 }

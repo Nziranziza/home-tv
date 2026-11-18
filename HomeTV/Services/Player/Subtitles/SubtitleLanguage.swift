@@ -38,11 +38,6 @@ enum SubtitleLanguage {
         return ([base] + rest).joined(separator: "-")
     }
 
-    /// The same language in the same script: `zh-Hans` and `zh-Hant` differ, `en-US` and `en-GB` don't.
-    static func sameWritten(_ lhs: String?, _ rhs: String?) -> Bool {
-        matches(lhs, rhs) && scriptAndRegion(lhs).script == scriptAndRegion(rhs).script
-    }
-
     /// Whether the two codes name the same language, ignoring region and script.
     static func matches(_ lhs: String?, _ rhs: String?) -> Bool {
         guard let lhs = base(lhs) else { return false }

@@ -3,24 +3,24 @@ import SwiftUI
 /// The Subtitles menu's top level: On and Off, then the Language and Style sub-menus and the timing.
 struct SubtitlesRootPage: View {
     let subtitles: PlayerSubtitles
-    let focus: FocusState<Int?>.Binding
+    let focus: FocusState<SubtitlesMenuRow?>.Binding
     let onOpen: (SubtitlesMenuPage) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             PlayerMenuRow(title: "On", isChecked: subtitles.isOn, action: subtitles.turnOn)
-                .focused(focus, equals: 0)
+                .focused(focus, equals: .position(0))
             PlayerMenuRow(title: "Off", isChecked: !subtitles.isOn, action: subtitles.turnOff)
-                .focused(focus, equals: 1)
+                .focused(focus, equals: .position(1))
             PlayerMenuDivider()
             PlayerMenuRow(title: "Language", value: subtitles.trackName, accessory: .chevron) { onOpen(.language) }
                 .disabled(subtitles.options.isEmpty)
-                .focused(focus, equals: 2)
+                .focused(focus, equals: .position(2))
             PlayerMenuRow(title: "Style", value: subtitles.activeStyleName, accessory: .chevron) { onOpen(.style) }
-                .focused(focus, equals: 3)
+                .focused(focus, equals: .position(3))
             SubtitlesTimingRow(subtitles: subtitles)
                 .disabled(subtitles.options.isEmpty)
-                .focused(focus, equals: 4)
+                .focused(focus, equals: .position(4))
         }
         .padding(.horizontal, PlayerMenuMetrics.rowInset)
         .padding(.top, PlayerMenuMetrics.topPadding)

@@ -225,4 +225,20 @@ struct StreamBehaviorHints: Codable, Hashable, Sendable {
     let proxyHeaders: StreamProxyHeaders?
     /// The file's own name, which add-ons keep stable across launches while the URL changes.
     var filename: String? = nil
+    /// The file's size in bytes and OpenSubtitles hash, which subtitle add-ons match releases by.
+    var videoSize: Int64? = nil
+    var videoHash: String? = nil
+}
+
+extension StreamBehaviorHints {
+    /// A malformed hint is dropped rather than failing the whole stream.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bingeGroup = try? container.decodeIfPresent(String.self, forKey: .bingeGroup)
+        notWebReady = try? container.decodeIfPresent(Bool.self, forKey: .notWebReady)
+        proxyHeaders = try container.decodeIfPresent(StreamProxyHeaders.self, forKey: .proxyHeaders)
+        filename = try? container.decodeIfPresent(String.self, forKey: .filename)
+        videoSize = try? container.decodeIfPresent(Int64.self, forKey: .videoSize)
+        videoHash = try? container.decodeIfPresent(String.self, forKey: .videoHash)
+    }
 }
