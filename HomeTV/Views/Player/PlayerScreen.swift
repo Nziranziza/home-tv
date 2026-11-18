@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The in-app player: video full screen over black, with the system-style transport bar. Click and
-/// Play/Pause toggle playback, Left/Right skip, a swipe scrubs while paused, and Menu hides the bar before
-/// closing.
+/// Play/Pause toggle playback, Left/Right skip or, held, scan, a swipe scrubs while paused, and Menu hides
+/// the bar before closing.
 struct PlayerScreen: View {
     @State private var model: PlayerModel
     @State private var swipes = RemoteSwipeTracker()
@@ -26,7 +26,7 @@ struct PlayerScreen: View {
             }
             PlayerVideoSurface(videoView: model.videoView)
                 .upNextVideoFrame(isCornered: showsUpNext, isFocused: showsUpNext && focus == .upNextVideo)
-            if model.errorMessage == nil, !showsUpNext, model.state == .loading || model.state == .buffering {
+            if model.errorMessage == nil, !showsUpNext, model.showsLoadingScreen {
                 PlayerLoadingView(title: model.request.title, logoURL: model.request.logoURL)
                     .transition(.opacity)
             }
@@ -63,6 +63,9 @@ struct PlayerScreen: View {
                     .onMoveCommand(perform: move)
             }
         }
+        .background {
+            RemoteArrowObserver(onPress: arrowPressed, onClick: model.arrowClicked, onHold: model.arrowHeld)
+        }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.3), value: model.state)
         .animation(.easeInOut(duration: 0.3), value: model.bar.isVisible)
@@ -76,12 +79,12 @@ struct PlayerScreen: View {
         .onExitCommand {
             if !model.handleExit() { dismiss() }
         }
-        .onPlayPauseCommand { model.togglePlayPause() }
+        .onPlayPauseCommand { model.playPauseCommand() }
         .onAppear {
             model.start()
-            swipes.onSwipe = { fraction in
+            swipes.onSwipe = { fraction, speed in
                 guard focus == .scrubber else { return }
-                model.scrub(byPadFraction: fraction)
+                model.scrub(byPadFraction: fraction, speed: speed)
             }
             swipes.start()
         }
@@ -145,15 +148,15 @@ struct PlayerScreen: View {
         }
     }
 
+    /// Left/Right clicks and holds come from `RemoteArrowObserver`; a swipe's moves only show the bar.
     private func move(_ direction: MoveCommandDirection) {
-        switch direction {
-        case .left, .right:
-            // A swipe while paused scrubs; only a press on the pad's edge skips.
-            if model.state == .paused, swipes.isSwiping { return }
-            model.skip(by: direction == .left ? -PlayerModel.skipInterval : PlayerModel.skipInterval)
-        default:
-            model.bar.show(isPlaying: model.isPlaying)
-        }
+        model.bar.show(isPlaying: model.isPlaying)
+    }
+
+    /// Left/Right skip and scan on the track, or on the hidden bar; elsewhere they only move focus.
+    private func arrowPressed(_ side: PlayerScan.Direction) -> Bool {
+        guard focus == .scrubber || focus == .surface else { return true }
+        return model.arrowPressed(side)
     }
 
     private func select(_ target: PlayerFocus) {

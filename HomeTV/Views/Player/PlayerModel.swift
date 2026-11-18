@@ -32,8 +32,18 @@ final class PlayerModel {
     private(set) var errorMessage: String?
     /// Set when playback reached its end, so the screen can close.
     private(set) var didFinish = false
-    /// Where a paused swipe has moved the playhead to; committed on click or Play/Pause.
-    private(set) var scrubTime: TimeInterval?
+    /// A scan or swipe in progress; the engine waits at its origin until it's committed or cancelled.
+    private(set) var scrub: PlayerScrub?
+    /// The skip glyph beside the time, briefly after a skip, as on the system player.
+    private(set) var skipIndicator: PlayerScan.Direction?
+    /// Counts skips, so the bar glides to each one.
+    private(set) var skipCount = 0
+    /// The latest skip, so loading after it shows on the same side.
+    @ObservationIgnored private var lastSkip: (direction: PlayerScan.Direction, at: ContinuousClock.Instant)?
+    @ObservationIgnored private var skipIndicatorTask: Task<Void, Never>?
+    /// The scrub preview.
+    let thumbnails: PlayerThumbnails
+    @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     /// The last seek, shown until the engine's clock reaches it, so quick repeated skips add up.
     private var lastSeek: (time: TimeInterval, at: ContinuousClock.Instant)?
     @ObservationIgnored private var isStarted = false
@@ -89,7 +99,9 @@ final class PlayerModel {
         loadContinueWatching: (@MainActor () -> [WatchHistoryItem])? = nil,
         loadUpNext: (@MainActor (PlayerRequest) async throws -> UpNextEpisode?)? = nil,
         upNextRetryDelay: Duration = UpNextTiming.retryDelay,
-        prewarmer: PlayerPrewarmer? = nil
+        prewarmer: PlayerPrewarmer? = nil,
+        makeThumbnailer: (@MainActor (PlayerRequest) -> any PlaybackThumbnailer)? = nil,
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
     ) {
         self.request = request
         let engine = engine ?? PlaybackEngines.make()
@@ -111,6 +123,9 @@ final class PlayerModel {
         self.loadUpNext = loadUpNext ?? UpNextLoader.load
         self.upNextRetryDelay = upNextRetryDelay
         self.prewarmer = prewarmer ?? .shared
+        self.now = now
+        let makeThumbnailer = makeThumbnailer ?? { PlaybackThumbnailers.make(url: $0.url, headers: $0.headers) }
+        thumbnails = PlayerThumbnails { makeThumbnailer(request) }
         self.recordProgress = recordProgress ?? { position, runtime, item in
             // A 0 only gets through after a seek back to the start.
             PlaybackProgress.record(
@@ -150,7 +165,42 @@ final class PlayerModel {
     }
 
     /// The time the bar shows: the scrub position while scrubbing.
-    var displayTime: TimeInterval { scrubTime ?? playheadTime }
+    var displayTime: TimeInterval { scrub?.position(at: now()) ?? playheadTime }
+
+    /// Where the played fill ends: real playback, or the scrub when it began from playback.
+    var fillTime: TimeInterval {
+        guard let scrub, scrub.isFromPlayback else { return playheadTime }
+        return scrub.position(at: now())
+    }
+
+    var isScanning: Bool { scrub?.scan != nil }
+
+    /// Buffering after playback began, shown as a spinner in the bar rather than the loading screen.
+    var isLoadingInPlace: Bool { engine.state == .buffering && hasPlayed }
+
+    /// The full-screen loading view: the first load, or a stall while the bar is hidden.
+    var showsLoadingScreen: Bool {
+        engine.state == .loading || (engine.state == .buffering && !(isLoadingInPlace && bar.isVisible))
+    }
+
+    var timeIndicator: PlayerTimeIndicator? {
+        if let scan = scrub?.scan { return .scan(scan) }
+        if isLoadingInPlace { return .loading(loadingSide) }
+        if let skipIndicator { return .skip(skipIndicator) }
+        return engine.state == .paused ? .paused : nil
+    }
+
+    /// A skip's side for a few seconds after it; otherwise after the time.
+    private var loadingSide: PlayerScan.Direction {
+        guard let lastSkip, ContinuousClock.now - lastSkip.at < .seconds(3) else { return .forward }
+        return lastSkip.direction
+    }
+
+    /// The video's width over height, for the preview frame.
+    var videoAspectRatio: Double {
+        guard let size = engine.videoFormat?.size, size.width > 0, size.height > 0 else { return 16 / 9 }
+        return size.width / size.height
+    }
 
     /// The engine's clock, or the last seek until the clock reaches it. Given up after a second, in case
     /// the engine snapped to a keyframe elsewhere. The start time until the clock starts, so a resume
@@ -225,11 +275,8 @@ final class PlayerModel {
             if isPlaying { engine.pause() } else if engine.state == .paused { engine.play() }
             return
         }
-        if let scrubTime {
-            self.scrubTime = nil
-            seekEngine(to: scrubTime)
-            engine.play()
-            bar.show(isPlaying: true)
+        if scrub != nil {
+            commitScrub()
             return
         }
         switch engine.state {
@@ -254,32 +301,143 @@ final class PlayerModel {
         togglePlayPause()
     }
 
+    /// The remote's Play/Pause: stops a scan that began paused and stays there; otherwise as Select.
+    func playPauseCommand() {
+        if let scrub, scrub.scan != nil, !scrub.isFromPlayback {
+            self.scrub?.stopScan(at: now())
+            return
+        }
+        togglePlayPause()
+    }
+
+    /// Left/Right went down. During a scan it's a click that changes the level; returns true then, so
+    /// the press isn't also taken as a skip or a hold.
+    func arrowPressed(_ side: PlayerScan.Direction) -> Bool {
+        guard isScanning else { return false }
+        scrub?.click(side, at: now())
+        return true
+    }
+
+    /// Left/Right held: fast-forward or rewind at the first level.
+    func arrowHeld(_ side: PlayerScan.Direction) {
+        beginScan(side)
+    }
+
+    /// Left/Right clicked: skips 10 seconds.
+    func arrowClicked(_ side: PlayerScan.Direction) {
+        skip(by: side.sign * Self.skipInterval)
+    }
+
+    /// Starts a scan, or a click on one already running. The engine pauses where it is; the scan moves a
+    /// position along, since remote streams can't decode at 96×.
+    func beginScan(_ direction: PlayerScan.Direction) {
+        guard canSeek else { return }
+        if scrub?.scan != nil {
+            scrub?.click(direction, at: now())
+        } else if scrub != nil {
+            scrub?.startScan(direction, at: now())
+        } else {
+            let isFromPlayback = isPlaying
+            scrub = PlayerScrub(
+                origin: playheadTime,
+                duration: duration,
+                isFromPlayback: isFromPlayback,
+                scan: PlayerScan(direction: direction),
+                at: now()
+            )
+            if isFromPlayback { engine.pause() }
+        }
+        followScrub()
+    }
+
+    /// The end of a Now Playing seek: plays from where the scan reached.
+    func endScan() {
+        guard scrub != nil else { return }
+        commitScrub()
+    }
+
     /// Left/Right: ±10s from the playhead, or from the scrub position while scrubbing.
     func skip(by seconds: TimeInterval) {
-        guard canSeek else { return }
+        guard canSeek, !isScanning else { return }
         let target = clamped(displayTime + seconds)
-        if scrubTime != nil {
-            scrubTime = target
+        if scrub != nil {
+            scrub?.move(to: target, at: now())
         } else {
             seekEngine(to: target)
         }
+        skipCount += 1
+        let direction: PlayerScan.Direction = seconds < 0 ? .backward : .forward
+        lastSkip = (direction, .now)
+        showSkipIndicator(direction)
         bar.show(isPlaying: isPlaying)
     }
 
     func seek(to time: TimeInterval) {
         guard canSeek else { return }
-        scrubTime = nil
+        // A scan from playback paused the engine; the seek ends it, so playback resumes.
+        let resumes = scrub?.isFromPlayback == true
+        let endsScrub = scrub != nil
+        if endsScrub { endScrub() }
         seekEngine(to: clamped(time))
-        bar.noteActivity(isPlaying: isPlaying)
+        if resumes { engine.play() }
+        if endsScrub {
+            bar.release(isPlaying: isPlaying)
+        } else {
+            bar.noteActivity(isPlaying: isPlaying)
+        }
     }
 
-    /// A horizontal swipe on the click pad, as a fraction of its width. Scrubs only while paused.
-    func scrub(byPadFraction fraction: Double) {
-        guard canSeek, engine.state == .paused else { return }
-        // A full-width swipe covers a tenth of the title, and never less than a minute.
-        let span = max(60, duration / 10)
-        scrubTime = clamped(displayTime + fraction * span)
-        bar.show(isPlaying: false)
+    /// A horizontal swipe on the click pad, as a fraction of its width, at `speed` widths per second.
+    /// Scrubs only while paused; a faster swipe covers more of the title.
+    func scrub(byPadFraction fraction: Double, speed: Double = 0) {
+        guard canSeek, !isScanning else { return }
+        if scrub == nil {
+            guard engine.state == .paused else { return }
+            scrub = PlayerScrub(origin: playheadTime, duration: duration, isFromPlayback: false, at: now())
+        }
+        let seconds = SwipeScrub.seconds(forFraction: fraction, speed: speed, duration: duration)
+        let target = displayTime + seconds
+        scrub?.move(to: target, at: now())
+        followScrub()
+    }
+
+    private func followScrub() {
+        bar.hold()
+        thumbnails.follow { [weak self] in self?.displayTime ?? 0 }
+    }
+
+    /// Select or Play during a scrub: plays from its position.
+    private func commitScrub() {
+        guard let scrub else { return }
+        let target = scrub.position(at: now())
+        endScrub()
+        seekEngine(to: target)
+        engine.play()
+        bar.hide()
+    }
+
+    /// Menu: back to exactly where the scrub began, playing.
+    private func cancelScrub() {
+        endScrub()
+        engine.play()
+        bar.hide()
+        publishNowPlaying()
+    }
+
+    private func endScrub() {
+        scrub = nil
+        thumbnails.stop()
+    }
+
+    private func showSkipIndicator(_ direction: PlayerScan.Direction) {
+        skipIndicator = direction
+        skipIndicatorTask?.cancel()
+        skipIndicatorTask = Task { [weak self] in
+            // The fade in plus the hold; the fade out follows.
+            try? await Task.sleep(for: .seconds(0.3))
+            guard !Task.isCancelled else { return }
+            self?.skipIndicator = nil
+        }
     }
 
     func openSubtitlesMenu() {
@@ -347,7 +505,7 @@ final class PlayerModel {
     /// From Beginning: plays from 00:00 and hides the bar.
     func playFromBeginning() {
         guard canSeek else { return }
-        scrubTime = nil
+        endScrub()
         panel = nil
         seekEngine(to: 0)
         engine.play()
@@ -361,8 +519,9 @@ final class PlayerModel {
         closeSubtitlesMenu()
     }
 
-    /// Menu: backs out of an open menu one level, else hides the bar, dropping any scrub. Returns false
-    /// when the bar was already hidden, so the screen closes.
+    /// Menu: backs out of an open menu one level, else ends a scrub, else hides the bar. A scan that began
+    /// paused stops first; a second Menu cancels. Returns false when the bar was already hidden, so the
+    /// screen closes.
     func handleExit() -> Bool {
         if isAudioMenuOpen {
             closeAudioMenu()
@@ -376,12 +535,19 @@ final class PlayerModel {
             closePanel()
             return true
         }
+        if let scrub {
+            if scrub.scan != nil, !scrub.isFromPlayback {
+                self.scrub?.stopScan(at: now())
+            } else {
+                cancelScrub()
+            }
+            return true
+        }
         guard bar.isVisible else {
             guard isShowingUpNext else { return false }
             dismissUpNext()
             return true
         }
-        scrubTime = nil
         bar.hide()
         return true
     }
@@ -401,7 +567,8 @@ final class PlayerModel {
         }
         if engine.state == .paused {
             saveProgress()
-            report(.pause)
+            // A scan holds playback, it doesn't pause it.
+            if scrub?.isFromPlayback != true { report(.pause) }
         } else if engine.state == .playing {
             report(.start)
         }
@@ -440,6 +607,9 @@ final class PlayerModel {
         panel = nil
         titleInfoTask?.cancel()
         resumeTask?.cancel()
+        skipIndicatorTask?.cancel()
+        scrub = nil
+        thumbnails.close()
         saveProgress()
         reportEnd()
         nowPlaying?.deactivate()
