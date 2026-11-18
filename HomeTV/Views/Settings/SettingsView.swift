@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var path: [SettingsRoute] = SettingsView.initialPath()
+    // A NavigationPath, not [SettingsRoute], so the test library can push its own routes.
+    @State private var path = NavigationPath(SettingsView.initialPath())
     @Environment(\.theme) private var theme
 
-    enum SettingsRoute: Hashable { case addons, player }
+    enum SettingsRoute: Hashable { case addons, player, playerTests }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -15,9 +16,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                         ScreenTitle(title: "Settings")
                         VStack(alignment: .leading, spacing: 12) {
-                            NavigationLink {
-                                AddonManagerView()
-                            } label: {
+                            NavigationLink(value: SettingsRoute.addons) {
                                 settingsRow(
                                     icon: "puzzlepiece.extension.fill",
                                     title: "Addons",
@@ -26,13 +25,21 @@ struct SettingsView: View {
                             }
                             .buttonStyle(SettingsCardStyle())
 
-                            NavigationLink {
-                                PlayerPickerView()
-                            } label: {
+                            NavigationLink(value: SettingsRoute.player) {
                                 settingsRow(
                                     icon: "play.rectangle.fill",
                                     title: "Default Player",
                                     subtitle: "Choose which app receives the stream handoff"
+                                )
+                            }
+                            .buttonStyle(SettingsCardStyle())
+
+                            // Test branch only (#148).
+                            NavigationLink(value: SettingsRoute.playerTests) {
+                                settingsRow(
+                                    icon: "testtube.2",
+                                    title: "Player Test Library",
+                                    subtitle: "Play sample files in HomeTV or Infuse"
                                 )
                             }
                             .buttonStyle(SettingsCardStyle())
@@ -72,6 +79,7 @@ struct SettingsView: View {
                 switch route {
                 case .addons: AddonManagerView()
                 case .player: PlayerPickerView()
+                case .playerTests: PlayerTestLibraryView()
                 }
             }
         }
@@ -81,6 +89,7 @@ struct SettingsView: View {
         switch ProcessInfo.processInfo.environment["INITIAL_SETTINGS"] {
         case "addons": [.addons]
         case "player": [.player]
+        case "playerTests": [.playerTests]
         default: []
         }
     }
