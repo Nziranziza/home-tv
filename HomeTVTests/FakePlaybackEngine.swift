@@ -34,8 +34,12 @@ final class FakePlaybackEngine: PlaybackEngine {
     func play() { state = .playing }
     func pause() { state = .paused }
 
-    func seek(to time: TimeInterval) {
+    /// The seeks that asked to land exactly.
+    private(set) var accurateSeeks: [TimeInterval] = []
+
+    func seek(to time: TimeInterval, isAccurate: Bool) {
         seeks.append(time)
+        if isAccurate { accurateSeeks.append(time) }
         if seekLands { currentTime = time }
     }
 
@@ -49,6 +53,8 @@ final class FakePlaybackEngine: PlaybackEngine {
 
     func select(_ track: PlaybackTrack) { selections.append(track) }
     func selectSubtitle(_ track: PlaybackTrack?) { subtitleSelections.append(track) }
+    var chapters: [PlaybackChapter] = []
+    func loadChapters() async -> [PlaybackChapter] { chapters }
     private(set) var isStopped = false
     func stop() { isStopped = true }
 }

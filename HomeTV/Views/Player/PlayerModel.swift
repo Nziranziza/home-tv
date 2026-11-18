@@ -15,6 +15,8 @@ final class PlayerModel {
     let bar: PlayerBarController
     let subtitles: PlayerSubtitles
     let audio: PlayerAudio
+    /// The intro, recap and credits the Skip button offers.
+    let skips: PlayerSkipSegments
     /// The open level of the Subtitles menu, nil while it's closed.
     private(set) var subtitlesMenu: SubtitlesMenuPage?
     private(set) var isAudioMenuOpen = false
@@ -71,8 +73,10 @@ final class PlayerModel {
 
     /// The countdown ring's remaining share, 1 when Up Next opens and 0 at the hand-over.
     var upNextCountdownFraction: Double {
-        min(max(Double(upNextSecondsLeft) / UpNextTiming.showLead, 0), 1)
+        min(max(Double(upNextSecondsLeft) / upNextLead, 0), 1)
     }
+    /// How long before the end Up Next shows: from the credits when known.
+    @ObservationIgnored private var upNextLead = UpNextTiming.showLead
     /// Set once the viewer went back to full screen; the next episode still follows at the end.
     @ObservationIgnored private var isUpNextDismissed = false
     /// Set when Next Episode was chosen, so closing doesn't throw away the opened next stream.
@@ -82,6 +86,14 @@ final class PlayerModel {
     @ObservationIgnored private let loadUpNext: @MainActor (PlayerRequest) async throws -> UpNextEpisode?
     /// Failed lookups so far; a failure is retried after `upNextRetryDelay`, up to `UpNextTiming.maxAttempts`.
     @ObservationIgnored private var upNextAttempts = 0
+    /// Set once the lookup has an answer, a next episode or none, or has given up. Until then an episode's
+    /// credits are Up Next's, not Skip Credits'.
+    private(set) var isUpNextSettled = false
+    /// Credits pulled the lookup ahead of `UpNextTiming.resolveLead`; after early failures, one more
+    /// round of attempts waits for that usual point.
+    @ObservationIgnored private var lookupRound: UpNextLookupRound = .early
+    /// The chapter read for the current tracks; a decoder restart replaces it.
+    @ObservationIgnored private(set) var chapterLoad: Task<Void, Never>?
     @ObservationIgnored private let upNextRetryDelay: Duration
     @ObservationIgnored private let prewarmer: PlayerPrewarmer
 
@@ -101,6 +113,8 @@ final class PlayerModel {
         upNextRetryDelay: Duration = UpNextTiming.retryDelay,
         prewarmer: PlayerPrewarmer? = nil,
         makeThumbnailer: (@MainActor (PlayerRequest) -> any PlaybackThumbnailer)? = nil,
+        skipsSegments: Bool? = nil,
+        loadSkipSegments: (@MainActor (SkipSegmentQuery) async -> [SkipSegmentSource])? = nil,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
     ) {
         self.request = request
@@ -117,6 +131,10 @@ final class PlayerModel {
             delays: subtitleDelays
         )
         audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
+        skips = PlayerSkipSegments(
+            isEnabled: skipsSegments ?? PlayerPreference.shared.skipsSegments,
+            fetch: loadSkipSegments ?? { await SkipSegmentClient.shared.sources(for: $0) }
+        )
         nowPlaying = publishesNowPlaying ? NowPlayingController() : nil
         self.loadTitleInfo = loadTitleInfo ?? PlayerTitleInfoLoader.load
         self.loadContinueWatching = loadContinueWatching ?? { UserLibrary.continueWatchingItems }
@@ -218,6 +236,7 @@ final class PlayerModel {
     func prepare() {
         guard !isPrepared, !isStarted else { return }
         isPrepared = true
+        loadSkipSegments()
         attachEngine()
         engine.prepare(url: request.url, headers: request.headers, startTime: request.startTime)
     }
@@ -233,6 +252,7 @@ final class PlayerModel {
         isStarted = true
         PlaybackAudioSession.configure()
         if !isPrepared { attachEngine() }
+        loadSkipSegments()
         if let item = request.item {
             titleInfoTask = Task { [weak self, type = request.type, loadTitleInfo] in
                 let info = await loadTitleInfo(type, item)
@@ -265,7 +285,18 @@ final class PlayerModel {
                 audio: engine.tracks(of: .audio),
                 subtitles: engine.tracks(of: .subtitle)
             )
+            chapterLoad?.cancel()
+            chapterLoad = Task { [weak self, engine] in
+                let chapters = await engine.loadChapters()
+                guard !Task.isCancelled else { return }
+                self?.skips.chaptersDidLoad(chapters)
+            }
         }
+    }
+
+    private func loadSkipSegments() {
+        guard let item = request.item else { return }
+        skips.load(SkipSegmentQuery(type: request.type, item: item))
     }
 
     /// Click and Play/Pause: toggles playback, or plays from the scrub position, and shows the bar.
@@ -544,8 +575,13 @@ final class PlayerModel {
             return true
         }
         guard bar.isVisible else {
-            guard isShowingUpNext else { return false }
-            dismissUpNext()
+            if isShowingUpNext {
+                dismissUpNext()
+                return true
+            }
+            // As on the system player, Menu puts the Skip button away for this segment.
+            guard skipSegment != nil else { return false }
+            skips.dismiss()
             return true
         }
         bar.hide()
@@ -599,6 +635,8 @@ final class PlayerModel {
 
     func stop() {
         upNextLoad?.cancel()
+        chapterLoad?.cancel()
+        skips.cancel()
         // Accepted, the next screen has already taken the opened stream.
         if hasPrewarmedUpNext, !rollsOver { prewarmer.cancel() }
         pausesOnStart = false
@@ -628,6 +666,42 @@ final class PlayerModel {
         }
     }
 
+    // MARK: - Skip
+
+    /// The segment the Skip button offers. Up Next stands in for an episode's credits until the lookup
+    /// settles without a next one, and nothing shows while the viewer is scanning, scrubbing, in a menu,
+    /// or can't seek.
+    var skipSegment: SkipSegment? {
+        guard let segment = skips.active, canSeek, scrub == nil, subtitlesMenu == nil, !isAudioMenuOpen,
+              panel == nil, !isShowingUpNext else { return nil }
+        if segment.kind == .credits, request.continuation != nil, upNext != nil || !isUpNextSettled { return nil }
+        return segment
+    }
+
+    /// Called every second and after each seek: follows the playhead in and out of segments.
+    func tickSkip() {
+        guard duration > 0 else { return }
+        skips.update(time: playheadTime, duration: duration)
+    }
+
+    /// Skip: past the segment or to the scene after the credits. Credits that run to the end finish
+    /// playback as playing through would.
+    func skipCurrentSegment() {
+        guard let shown = skipSegment else { return }
+        // Chapters may have arrived since the last tick; a changed segment only refreshes the button.
+        tickSkip()
+        guard let segment = skipSegment, segment == shown else { return }
+        skips.dismiss()
+        if segment.scene == nil, segment.end >= duration - 1 {
+            saveProgress(atEnd: true)
+            report(.stop, atEnd: true)
+            didFinish = true
+        } else {
+            // Exact, or a keyframe before the end lands back in the segment.
+            seekEngine(to: segment.target, isAccurate: true)
+        }
+    }
+
     // MARK: - Up Next
 
     /// What to play once this screen finishes: the next episode whenever there is one. Only closing the
@@ -639,22 +713,38 @@ final class PlayerModel {
     func tickUpNext() {
         guard request.continuation != nil, hasPlayed, !didFinish, duration > 0 else { return }
         let remaining = duration - playheadTime
-        if upNextLoad == nil, UpNextTiming.isResolveDue(remaining: remaining) {
+        let credits = skips.credits(duration: duration)
+        // Held while Up Next is up, so credits arriving late can't close it from under the viewer.
+        if !isShowingUpNext {
+            upNextLead = UpNextTiming.showLead(creditsStart: credits?.start, duration: duration)
+        }
+        if lookupRound == .awaitingLate, remaining <= UpNextTiming.resolveLead {
+            lookupRound = .late
+            upNextAttempts = 0
+            upNextLoad = nil
+        }
+        // Credits already playing, as after a resume into them, need their answer now.
+        let isInCredits = credits.map { playheadTime >= $0.start } ?? false
+        if upNextLoad == nil, UpNextTiming.isResolveDue(remaining: remaining, showLead: upNextLead) || isInCredits {
             upNextAttempts += 1
             upNextLoad = Task { [weak self, request, loadUpNext, upNextAttempts, upNextRetryDelay] in
                 do {
                     let next = try await loadUpNext(request)
                     guard !Task.isCancelled else { return }
                     self?.upNext = next
+                    self?.isUpNextSettled = true
                 } catch {
                     // A failed request: clearing the lookup lets a later tick try again.
-                    guard upNextAttempts < UpNextTiming.maxAttempts,
-                          (try? await Task.sleep(for: upNextRetryDelay)) != nil else { return }
+                    guard upNextAttempts < UpNextTiming.maxAttempts else {
+                        if !Task.isCancelled { self?.upNextAttemptsRanOut() }
+                        return
+                    }
+                    guard (try? await Task.sleep(for: upNextRetryDelay)) != nil else { return }
                     self?.upNextLoad = nil
                 }
             }
         }
-        guard let upNext, !isUpNextDismissed, UpNextTiming.isShowDue(remaining: remaining) else {
+        guard let upNext, !isUpNextDismissed, UpNextTiming.isShowDue(remaining: remaining, showLead: upNextLead) else {
             if isShowingUpNext { isShowingUpNext = false }
             return
         }
@@ -664,6 +754,15 @@ final class PlayerModel {
         if !hasPrewarmedUpNext {
             hasPrewarmedUpNext = true
             prewarmer.prewarm(upNext.request)
+        }
+    }
+
+    /// The last attempt failed: early ones get another round at the usual point, else the lookup gives up.
+    private func upNextAttemptsRanOut() {
+        if lookupRound == .early, duration - playheadTime > UpNextTiming.resolveLead {
+            lookupRound = .awaitingLate
+        } else {
+            isUpNextSettled = true
         }
     }
 
@@ -706,10 +805,11 @@ final class PlayerModel {
         scrobble(TraktScrobble(action: action, item: item, type: request.type, title: request.title, fraction: fraction))
     }
 
-    private func seekEngine(to time: TimeInterval) {
+    private func seekEngine(to time: TimeInterval, isAccurate: Bool = false) {
         lastSeek = (time, .now)
-        engine.seek(to: time)
+        engine.seek(to: time, isAccurate: isAccurate)
         publishNowPlaying()
+        tickSkip()
     }
 
     private var canSeek: Bool { duration > 0 && engine.state != .failed && engine.state != .ended }

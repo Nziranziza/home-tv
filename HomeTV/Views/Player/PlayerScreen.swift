@@ -55,6 +55,9 @@ struct PlayerScreen: View {
                     .padding(.bottom, 68)
                     .transition(.opacity)
                 UpNextVideoButton(model: model, focus: $focus)
+            } else if let segment = model.skipSegment {
+                PlayerSkipButton(segment: segment, focus: $focus, action: model.skipCurrentSegment)
+                    .transition(.opacity)
             } else {
                 // The hidden bar's stand-in, so the focus engine always has a control and Select works.
                 Button(action: model.togglePlayPause) { Color.clear }
@@ -74,6 +77,7 @@ struct PlayerScreen: View {
         .animation(.easeInOut(duration: 0.3), value: model.panel)
         .animation(.easeInOut(duration: 0.5), value: showsUpNext)
         .animation(.easeOut(duration: 0.2), value: focus == .upNextVideo)
+        .animation(.easeInOut(duration: 0.3), value: model.skipSegment)
         // The app is light; over black video the loader, text and glass need the dark appearance.
         .environment(\.colorScheme, .dark)
         .onExitCommand {
@@ -105,11 +109,15 @@ struct PlayerScreen: View {
             model.playbackDidChange()
         }
         .onChange(of: model.bar.isVisible) { _, visible in
-            focus = visible ? .scrubber : model.isShowingUpNext ? .upNextNextEpisode : .surface
+            focus = visible ? .scrubber : hiddenBarFocus
         }
-        .onChange(of: model.isShowingUpNext) { _, visible in
+        .onChange(of: model.isShowingUpNext) {
             guard !model.bar.isVisible else { return }
-            focus = visible ? .upNextNextEpisode : .surface
+            focus = hiddenBarFocus
+        }
+        .onChange(of: model.skipSegment != nil) {
+            guard !model.bar.isVisible, !model.isShowingUpNext else { return }
+            focus = hiddenBarFocus
         }
         .onChange(of: model.subtitlesMenu == nil) { _, isClosed in
             if isClosed, model.bar.isVisible { focus = .subtitles }
@@ -143,9 +151,16 @@ struct PlayerScreen: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
+                model.tickSkip()
                 model.tickUpNext()
             }
         }
+    }
+
+    /// What takes focus while the bar is hidden: Up Next, else the Skip button, else the bar's stand-in.
+    private var hiddenBarFocus: PlayerFocus {
+        if model.isShowingUpNext { return .upNextNextEpisode }
+        return model.skipSegment != nil ? .skipSegment : .surface
     }
 
     /// Left/Right clicks and holds come from `RemoteArrowObserver`; a swipe's moves only show the bar.
