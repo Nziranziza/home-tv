@@ -29,6 +29,8 @@ struct PlayerPickerView: View {
                             .disabled(!player.isInstalled && player != .system)
                         }
                     }
+
+                    SkipSegmentsSettingRow(preference: preference)
                 }
                 .padding(.horizontal, Theme.Layout.horizontalMargin)
                 .padding(.vertical, 60)

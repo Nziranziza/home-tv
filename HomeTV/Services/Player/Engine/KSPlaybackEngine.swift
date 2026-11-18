@@ -213,12 +213,12 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer?.pause()
     }
 
-    func seek(to time: TimeInterval) {
+    func seek(to time: TimeInterval, isAccurate: Bool) {
         guard let layer else { return }
         seekGeneration += 1
         let generation = seekGeneration
         isSeeking = true
-        options?.isAccurateSeek = seeksAccurately
+        options?.isAccurateSeek = seeksAccurately || isAccurate
         layer.seek(time: time, autoPlay: state != .paused) { [weak self] _ in
             guard let self, generation == seekGeneration else { return }
             isSeeking = false
@@ -279,6 +279,17 @@ final class KSPlaybackEngine: PlaybackEngine {
             return layer.player.subtitlesTracks.first { Self.trackID($0) == track.id }
         }
         layer.select(subtitleInfo: info)
+    }
+
+    /// FFmpeg lists the file's chapters. When the route lists none, an AVPlayer start's are read from its asset.
+    func loadChapters() async -> [PlaybackChapter] {
+        guard let player = layer?.player else { return [] }
+        let chapters = player.chapters
+        if !chapters.isEmpty {
+            return chapters.map { PlaybackChapter(start: $0.start, end: $0.end, title: $0.title) }
+        }
+        guard let asset = (player.view as? KSAVPlayerView)?.player.currentItem?.asset else { return [] }
+        return await PlaybackChapter.load(from: asset)
     }
 
     private static func subtitleTrack(_ info: any SubtitleInfo) -> PlaybackTrack {

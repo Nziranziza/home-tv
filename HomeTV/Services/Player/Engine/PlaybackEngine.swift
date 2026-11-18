@@ -31,11 +31,20 @@ protocol PlaybackEngine: AnyObject {
     func load(url: URL, headers: [String: String], startTime: TimeInterval)
     func play()
     func pause()
-    func seek(to time: TimeInterval)
+    /// Lands on `time` exactly when `isAccurate`, else on a nearby keyframe, which is faster.
+    func seek(to time: TimeInterval, isAccurate: Bool)
     func tracks(of kind: PlaybackTrack.Kind) -> [PlaybackTrack]
     func select(_ track: PlaybackTrack)
     /// Shows `track`'s subtitles, or none for nil.
     func selectSubtitle(_ track: PlaybackTrack?)
+    /// The file's chapters, once `onTracksReady` has fired; empty when it has none.
+    func loadChapters() async -> [PlaybackChapter]
     /// Stops playback and releases the decoder. The engine can't be reused.
     func stop()
+}
+
+extension PlaybackEngine {
+    func seek(to time: TimeInterval) {
+        seek(to: time, isAccurate: false)
+    }
 }

@@ -66,12 +66,15 @@ final class AVPlaybackEngine: PlaybackEngine {
 
     func pause() { player.pause() }
 
-    func seek(to time: TimeInterval) {
+    func seek(to time: TimeInterval, isAccurate: Bool) {
         seekGeneration += 1
         let generation = seekGeneration
         isSeeking = true
         Task { [weak self, player] in
-            await player.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+            let tolerance: CMTime = isAccurate ? .zero : .positiveInfinity
+            await player.seek(
+                to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance
+            )
             guard let self, generation == seekGeneration else { return }
             isSeeking = false
         }
@@ -123,6 +126,11 @@ final class AVPlaybackEngine: PlaybackEngine {
         case .subtitle: legible
         case .video: nil
         }
+    }
+
+    func loadChapters() async -> [PlaybackChapter] {
+        guard let asset = player.currentItem?.asset else { return [] }
+        return await PlaybackChapter.load(from: asset)
     }
 
     func stop() {
