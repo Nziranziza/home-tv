@@ -15,6 +15,8 @@ final class FakePlaybackEngine: PlaybackEngine {
     var onFinish: ((Error?) -> Void)?
     var onTracksReady: (() -> Void)?
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    var audioAdjustments = AudioAdjustments()
+    var canAdjustAudio = true
     var audioTracks: [PlaybackTrack] = []
     /// Every audio or video selection.
     private(set) var selections: [PlaybackTrack] = []

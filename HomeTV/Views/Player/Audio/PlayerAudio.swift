@@ -1,15 +1,26 @@
 import Foundation
 import Observation
 
-/// The player's audio tracks. Opens on `AudioDefaults`' pick and remembers the viewer's choice per show.
+/// The player's audio tracks and adjustments. Opens on `AudioDefaults`' pick and remembers the viewer's
+/// choice per show; the adjustments are kept for every title.
 @Observable
 @MainActor
 final class PlayerAudio {
     private(set) var options: [AudioTrackOption] = []
     private(set) var track: PlaybackTrack?
+    private(set) var adjustments: AudioAdjustments {
+        didSet {
+            engine.audioAdjustments = adjustments
+            adjustmentsStore.adjustments = adjustments
+        }
+    }
+
+    /// False for audio passed through undecoded, which the rows then say.
+    var canAdjust: Bool { engine.canAdjustAudio }
 
     @ObservationIgnored private unowned let engine: any PlaybackEngine
     @ObservationIgnored private let store: AudioChoiceStore
+    @ObservationIgnored private let adjustmentsStore: AudioAdjustmentsStore
     @ObservationIgnored private let showID: String?
     @ObservationIgnored private let deviceLanguage: String
     /// This play's choice, kept over a decoder restart even when there's no show to save it against.
@@ -19,12 +30,16 @@ final class PlayerAudio {
         engine: any PlaybackEngine,
         showID: String?,
         store: AudioChoiceStore = .shared,
+        adjustmentsStore: AudioAdjustmentsStore = .shared,
         deviceLanguage: String = SubtitleLanguage.device
     ) {
         self.engine = engine
         self.showID = showID
         self.store = store
+        self.adjustmentsStore = adjustmentsStore
         self.deviceLanguage = deviceLanguage
+        adjustments = adjustmentsStore.adjustments
+        engine.audioAdjustments = adjustments
         choice = showID.flatMap(store.choice(forShow:))
         updatePicker()
     }
@@ -46,6 +61,14 @@ final class PlayerAudio {
         self.choice = choice
         updatePicker()
         if let showID { store.record(choice, forShow: showID) }
+    }
+
+    func setDialogue(_ dialogue: AudioAdjustments.DialogueEnhancement) {
+        adjustments.dialogue = dialogue
+    }
+
+    func toggleReduceLoudSounds() {
+        adjustments.reducesLoudSounds.toggle()
     }
 
     private func updatePicker() {

@@ -2,6 +2,7 @@
 import AVFoundation
 import KSPlayer
 import Libavformat
+import Libavutil
 import Observation
 import UIKit
 
@@ -36,6 +37,10 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    @ObservationIgnored var audioAdjustments = AudioAdjustments() {
+        didSet { applyAudioAdjustments() }
+    }
+    private(set) var canAdjustAudio = false
 
     @ObservationIgnored private var layer: KSPlayerLayer?
     /// Kept across decoder restarts, so a fetched file isn't fetched again.
@@ -67,6 +72,9 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var resolveTask: Task<Void, Never>?
     /// First-frame timing for the debug log.
     @ObservationIgnored private var hasReportedFirstFrame = false
+    /// The native route's audio adjustments, once its tracks are checked.
+    @ObservationIgnored private var audioTap: AudioAdjustmentTap?
+    @ObservationIgnored private var audioTapTask: Task<Void, Never>?
     /// Watches for the audio hardware changing under the FFmpeg route's `AVAudioEngine`.
     @ObservationIgnored private var audioConfigurationTask: Task<Void, Never>?
 
@@ -101,6 +109,8 @@ final class KSPlaybackEngine: PlaybackEngine {
     private static func configureSubtitles() {
         KSOptions.useMACaptionAppearance = true
         KSOptions.isASSUseImageRender = true
+        // The default `AudioEnginePlayer` plus a dynamics processor, for Reduce Loud Sounds.
+        KSOptions.audioPlayerType = AudioEngineDynamicsPlayer.self
     }
 
     func prepare(url: URL, headers: [String: String], startTime: TimeInterval) {
@@ -162,6 +172,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         self.route = route
         let options = KSPlaybackOptions()
         options.audioPicker = audioPicker
+        // Before the first frame decodes; the centre channel is unknown until the tracks are.
+        options.audioFilters = AudioFilterGraph.filters(for: audioAdjustments, hasCentreChannel: false)
         options.startPlayTime = startTime
         // Held until `readyToPlay` seeks there, so the first frame is already at the start time.
         pendingStart = route == .native && startTime > 0 ? startTime : nil
@@ -187,6 +199,8 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer.subtitleModel.subtitleDelay = subtitleDelay
         // Without autoplay the layer doesn't load on its own.
         if !options.isAutoPlay { layer.prepareToPlay() }
+        // The output's dynamics processor is on by default; off before the first sample unless wanted.
+        applyAudioAdjustments()
         let surface = layer.makeUIView()
         surface.frame = videoView.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -280,6 +294,68 @@ final class KSPlaybackEngine: PlaybackEngine {
         // FFmpeg reseeks to pick up the new stream; inexact, that jumps back to the previous keyframe.
         if track.kind == .audio, route == .ffmpeg { options?.isAccurateSeek = true }
         player.select(track: match)
+        if track.kind == .audio { applyAudioAdjustments() }
+    }
+
+    /// FFmpeg rebuilds its filter graph when the filters change, so they apply mid-play. AVPlayer's go
+    /// through the tap installed once its tracks are checked.
+    private func applyAudioAdjustments() {
+        guard let layer else { return }
+        let selected = layer.player.tracks(mediaType: .audio).first(where: \.isEnabled)
+        switch route {
+        case .ffmpeg:
+            options?.audioFilters = AudioFilterGraph.filters(
+                for: audioAdjustments, hasCentreChannel: Self.hasCentreChannel(selected)
+            )
+            if let output = (layer.player as? KSMEPlayer)?.audioOutput as? AudioEngineDynamicsPlayer {
+                Self.configureDynamics(output, isOn: audioAdjustments.reducesLoudSounds)
+            }
+            canAdjustAudio = selected != nil
+        case .native:
+            audioTap?.update(audioAdjustments)
+            let codec = selected.flatMap { Self.audioTrack($0).codec } ?? ""
+            canAdjustAudio = audioTap?.isAvailable == true && !AudioAdjustmentTuning.passthroughCodecs.contains(codec)
+        }
+    }
+
+    /// Reduce Loud Sounds on the FFmpeg route: the output's dynamics processor, bypassed while off. Its EQ
+    /// is never used.
+    private static func configureDynamics(_ output: AudioEngineDynamicsPlayer, isOn: Bool) {
+        output.nbandEQ.bypass = true
+        let unit = output.audioUnitForDynamicsProcessor
+        var bypass: UInt32 = isOn ? 0 : 1
+        AudioUnitSetProperty(
+            unit, kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0, &bypass, UInt32(MemoryLayout<UInt32>.size)
+        )
+        let parameters: [(AudioUnitParameterID, Double)] = [
+            (kDynamicsProcessorParam_Threshold, AudioAdjustmentTuning.compressorThreshold),
+            (kDynamicsProcessorParam_HeadRoom, AudioAdjustmentTuning.dynamicsHeadroom),
+            (kDynamicsProcessorParam_ExpansionRatio, 1),
+            (kDynamicsProcessorParam_AttackTime, AudioAdjustmentTuning.compressorAttack),
+            (kDynamicsProcessorParam_ReleaseTime, AudioAdjustmentTuning.compressorRelease),
+            (kDynamicsProcessorParam_OverallGain, AudioAdjustmentTuning.compressorMakeup),
+        ]
+        for (parameter, value) in parameters {
+            AudioUnitSetParameter(unit, parameter, kAudioUnitScope_Global, 0, AudioUnitParameterValue(value), 0)
+        }
+    }
+
+    private static func hasCentreChannel(_ track: (any MediaPlayerTrack)?) -> Bool {
+        guard let track = track as? FFmpegAssetTrack else { return false }
+        var layout = track.codecpar.pointee.ch_layout
+        return av_channel_layout_index_from_channel(&layout, AV_CHAN_FRONT_CENTER) >= 0
+    }
+
+    /// AVPlayer's audio is tapped once, when it's ready; the tap does nothing while the adjustments are off.
+    private func installAudioTap(on layer: KSPlayerLayer) {
+        guard route == .native, audioTapTask == nil,
+              let item = (layer.player.view as? KSAVPlayerView)?.player.currentItem else { return }
+        audioTapTask = Task { [weak self, adjustments = audioAdjustments] in
+            let tap = await AudioAdjustmentTap.install(on: item, adjustments: adjustments)
+            guard let self, !Task.isCancelled, layer === self.layer else { return }
+            audioTap = tap
+            applyAudioAdjustments()
+        }
     }
 
     func selectSubtitle(_ track: PlaybackTrack?) {
@@ -433,6 +509,10 @@ final class KSPlaybackEngine: PlaybackEngine {
         layer?.stop()
         layer = nil
         options = nil
+        audioTapTask?.cancel()
+        audioTapTask = nil
+        audioTap = nil
+        canAdjustAudio = false
         isSeeking = false
         isHoldingForDisplaySwitch = false
         isSeekingToStart = false
@@ -462,6 +542,8 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
         }
         if state == .readyToPlay {
             externalInfos.forEach(layer.subtitleModel.addSubtitle(info:))
+            applyAudioAdjustments()
+            installAudioTap(on: layer)
             // A turn later, so the layer has finished its own ready handling and listed the tracks.
             Task { @MainActor [weak self] in self?.onTracksReady?() }
         }

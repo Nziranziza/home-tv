@@ -23,7 +23,13 @@ final class PlayerModel {
     }
     /// The level the Subtitles menu came from, so backing out lands on the row that opened it.
     @ObservationIgnored private(set) var previousSubtitlesMenu: SubtitlesMenuPage?
-    private(set) var isAudioMenuOpen = false
+    /// The open level of the Audio menu, nil while it's closed.
+    private(set) var audioMenu: AudioMenuPage? {
+        didSet { previousAudioMenu = oldValue }
+    }
+    /// The level the Audio menu came from, so backing out lands on the row that opened it.
+    @ObservationIgnored private(set) var previousAudioMenu: AudioMenuPage?
+    var isAudioMenuOpen: Bool { audioMenu != nil }
     /// The tab panel up in place of the track, nil while the track shows.
     private(set) var panel: PlayerPanel?
     /// Continue Watching's one-click resume; its `resumingID` marks the card resolving.
@@ -521,12 +527,16 @@ final class PlayerModel {
     }
 
     func openAudioMenu() {
-        isAudioMenuOpen = true
+        audioMenu = .root
         bar.hold()
     }
 
+    func showAudioMenu(_ page: AudioMenuPage) {
+        audioMenu = page
+    }
+
     func closeAudioMenu() {
-        isAudioMenuOpen = false
+        audioMenu = nil
         bar.release(isPlaying: isPlaying)
     }
 
@@ -588,8 +598,11 @@ final class PlayerModel {
     /// paused stops first; a second Menu cancels. Returns false when the bar was already hidden, so the
     /// screen closes.
     func handleExit() -> Bool {
-        if isAudioMenuOpen {
-            closeAudioMenu()
+        if let page = audioMenu {
+            switch page {
+            case .root: closeAudioMenu()
+            case .enhanceDialogue: audioMenu = .root
+            }
             return true
         }
         if let page = subtitlesMenu {
@@ -680,7 +693,7 @@ final class PlayerModel {
         if hasPrewarmedUpNext, !rollsOver { prewarmer.cancel() }
         pausesOnStart = false
         subtitlesMenu = nil
-        isAudioMenuOpen = false
+        audioMenu = nil
         panel = nil
         titleInfoTask?.cancel()
         resumeTask?.cancel()
