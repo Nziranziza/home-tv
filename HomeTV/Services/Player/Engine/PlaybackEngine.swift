@@ -24,6 +24,10 @@ protocol PlaybackEngine: AnyObject {
     var onTracksReady: (() -> Void)? { get set }
     /// Picks the audio track a stream opens with. May be called off the main actor.
     var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)? { get set }
+    /// Enhance Dialogue and Reduce Loud Sounds, applied live.
+    var audioAdjustments: AudioAdjustments { get set }
+    /// Whether the playing audio takes `audioAdjustments`. False for Dolby passthrough and HLS on AVPlayer.
+    var canAdjustAudio: Bool { get }
 
     /// Opens and buffers the stream ahead of Select, without playing it or switching the TV's mode.
     func prepare(url: URL, headers: [String: String], startTime: TimeInterval)

@@ -19,6 +19,11 @@ final class AVPlaybackEngine: PlaybackEngine {
     @ObservationIgnored var onTracksReady: (() -> Void)?
     /// Unused: `PlayerAudio` switches to its pick once the tracks are listed.
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
+    @ObservationIgnored var audioAdjustments = AudioAdjustments() {
+        didSet { audioTap?.update(audioAdjustments) }
+    }
+    private(set) var canAdjustAudio = false
+    @ObservationIgnored private var audioTap: AudioAdjustmentTap?
     @ObservationIgnored private(set) var isSeeking = false
     @ObservationIgnored private var seekGeneration = 0
     /// Opened by `prepare` and paused until `load`.
@@ -55,6 +60,8 @@ final class AVPlaybackEngine: PlaybackEngine {
         PlaybackDiagnostics.log("load stub \(url.lastPathComponent) start=\(startTime)")
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
+        audioTap = nil
+        canAdjustAudio = false
         state = .loading
         if startTime > 0 {
             player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
@@ -110,6 +117,16 @@ final class AVPlaybackEngine: PlaybackEngine {
         guard let item = player.currentItem, let group = group(for: track.kind),
               group.options.indices.contains(Int(track.id)) else { return }
         item.select(group.options[Int(track.id)], in: group)
+        if track.kind == .audio { updateCanAdjustAudio() }
+    }
+
+    /// The tap skips passthrough tracks, so it's the selected track's codec that decides.
+    private func updateCanAdjustAudio() {
+        let selected = audible.flatMap { player.currentItem?.currentMediaSelection.selectedMediaOption(in: $0) }
+        let isPassthrough = selected?.mediaSubTypes.contains {
+            AudioAdjustmentTap.isPassthrough(codec: $0.uint32Value)
+        } == true
+        canAdjustAudio = audioTap?.isAvailable == true && !isPassthrough
     }
 
     func selectSubtitle(_ track: PlaybackTrack?) {
@@ -175,10 +192,15 @@ final class AVPlaybackEngine: PlaybackEngine {
         let legible = try? await item.asset.loadMediaSelectionGroup(for: .legible)
         let audible = try? await item.asset.loadMediaSelectionGroup(for: .audible)
         let videoFormat = await Self.videoFormat(of: item.asset)
+        let audioTap = await AudioAdjustmentTap.install(on: item, adjustments: audioAdjustments)
         guard item === player.currentItem else { return }
         self.legible = legible
         self.audible = audible
         self.videoFormat = videoFormat
+        // Settings changed while it was installing.
+        audioTap.update(audioAdjustments)
+        self.audioTap = audioTap
+        updateCanAdjustAudio()
         onTracksReady?()
     }
 

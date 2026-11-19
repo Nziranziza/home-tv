@@ -37,8 +37,8 @@ struct PlayerControlButtons: View {
                     .padding(.bottom, PlayerRoundButton.diameter + Self.menuGap)
                     .padding(.trailing, 2 * (PlayerRoundButton.diameter + Self.spacing))
                     .transition(.opacity)
-            } else if model.isAudioMenuOpen {
-                AudioMenu(audio: model.audio)
+            } else if let page = model.audioMenu {
+                AudioMenu(model: model, page: page)
                     .padding(.bottom, PlayerRoundButton.diameter + Self.menuGap)
                     .padding(.trailing, PlayerRoundButton.diameter + Self.spacing)
                     .transition(.opacity)
