@@ -109,21 +109,11 @@ loading screen.
 **Tests.** `HomeTVTests` holds the unit tests (player, queueing, subtitles, skip segments, search ranking, Trakt
 scrobbling and more). `HomeTVUITests` holds the focus-engine UI tests.
 
-## Sideload to your Apple TV
+## Install on your Apple TV
 
-1. On the Apple TV, open Settings → Remotes and Devices → Remote App and Devices and leave that screen open.
-2. On the Mac, open Xcode → Window → Devices and Simulators. Your Apple TV should appear there; pair it.
-3. Set `DEVELOPMENT_TEAM` in `Secrets.xcconfig`. Change `PRODUCT_BUNDLE_IDENTIFIER` in `project.yml` to something
-   unique, such as `com.<yourname>.hometv`, for the app and the Top Shelf extension. Also replace the App Group
-   `group.com.hometv.HomeTVs` with your own (it must start with `group.`, and App Group IDs are unique across all
-   teams). It appears in five places, and all five must match or the app and Top Shelf stop sharing data:
-   both targets' entitlements in `project.yml`, `HomeTV/HomeTV.entitlements`,
-   `HomeTVTopShelf/HomeTVTopShelf.entitlements` and `HomeTV/Services/Shared/TopShelfSharedState.swift`.
-   Then run `xcodegen generate`.
-4. Pick your Apple TV as the run destination and press ⌘R.
-
-**Free Apple Developer account caveat:** the signed app expires after 7 days, so build and run again each week. A paid
-account ($99/yr) extends that to 1 year.
+HomeTV is sideloaded from Xcode. Follow [Install HomeTV](https://hometv.nziranziza.workers.dev/guide/install/) for
+pairing, signing, your own bundle identifiers and App Group, and troubleshooting. With a free Apple Developer account
+the app expires after 7 days; a paid one extends that to a year.
 
 ## First-run setup
 
@@ -162,5 +152,5 @@ scripts/                   # fetch-player-frameworks.sh
 ## Not here yet
 
 - **CloudStream support.** CloudStream plugins are Kotlin/Android and don't run on tvOS.
-- **App Store distribution.** Install by sideloading (see above).
+- **App Store distribution.** Install by sideloading ([guide](https://hometv.nziranziza.workers.dev/guide/install/)).
 - **Magnet links in the built-in player.** Direct HTTP streams only; use Infuse for magnets.
