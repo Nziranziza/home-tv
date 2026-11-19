@@ -143,6 +143,15 @@ struct SubtitleDefaultsTests {
         #expect(picked.track == commentary)
     }
 
+    @Test func anUnlabelledChoicePrefersItsSource() {
+        let embedded = Self.track(30, nil)
+        let file = ExternalSubtitle(url: URL(filePath: "/subs/0.srt"), languageCode: nil).track(at: 0, isSelected: false)
+        let remembered = SubtitleChoice(isOn: true, languageCode: nil, name: "", isExternal: true)
+        #expect(Self.selection([embedded, file], audio: "eng", remembered: remembered).track == file)
+        let fromStream = SubtitleChoice(isOn: true, languageCode: nil, name: "", isExternal: false)
+        #expect(Self.selection([embedded, file], audio: "eng", remembered: fromStream).track == embedded)
+    }
+
     @Test func aRememberedTitleWinsWithinItsLanguage() {
         let full = Self.track(31, "eng", name: "Full")
         let signs = Self.track(32, "eng", name: "Signs")
@@ -168,7 +177,9 @@ struct SubtitleDefaultsTests {
         showID: String?,
         store: SubtitleChoiceStore
     ) -> PlayerSubtitles {
-        PlayerSubtitles(engine: engine, showID: showID, store: store, deviceLanguage: "en-US")
+        PlayerSubtitles(
+            engine: engine, showID: showID, store: store, deviceLanguage: "en-US", locale: Locale(identifier: "en_US")
+        )
     }
 
     static func store() throws -> SubtitleChoiceStore {

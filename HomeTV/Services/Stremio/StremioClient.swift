@@ -140,7 +140,7 @@ actor StremioClient {
         return url
     }
 
-    private func get<T: Decodable>(url: URL, as type: T.Type) async throws -> T {
+    func get<T: Decodable>(url: URL, as type: T.Type) async throws -> T {
         do {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse else {

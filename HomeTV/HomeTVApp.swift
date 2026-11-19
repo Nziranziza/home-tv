@@ -47,6 +47,14 @@ struct HomeTVApp: App {
                         },
                         // `PLAYER_TEST_SUBTITLES` is add-on subtitle files as `eng=<url>,fre=<file in Caches>`.
                         subtitles: ExternalSubtitle.testList(from: environment["PLAYER_TEST_SUBTITLES"] ?? ""),
+                        // With an id, subtitle add-ons are asked too; `PLAYER_TEST_FILENAME` ranks their files.
+                        subtitleQuery: contentID.map {
+                            SubtitleAddonQuery(
+                                type: environment["PLAYER_TEST_TYPE"] ?? "movie",
+                                id: $0,
+                                filename: environment["PLAYER_TEST_FILENAME"]
+                            )
+                        },
                         subtitleDelayKey: contentID.map { SubtitleDelayStore.streamKey(contentID: $0, filename: nil, url: url) }
                     )
                     // `PLAYER_TEST_PREWARM_MS` opens it as a focused picker row would, that long before Select.

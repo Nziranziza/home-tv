@@ -18,7 +18,11 @@ final class PlayerModel {
     /// The intro, recap and credits the Skip button offers.
     let skips: PlayerSkipSegments
     /// The open level of the Subtitles menu, nil while it's closed.
-    private(set) var subtitlesMenu: SubtitlesMenuPage?
+    private(set) var subtitlesMenu: SubtitlesMenuPage? {
+        didSet { previousSubtitlesMenu = oldValue }
+    }
+    /// The level the Subtitles menu came from, so backing out lands on the row that opened it.
+    @ObservationIgnored private(set) var previousSubtitlesMenu: SubtitlesMenuPage?
     private(set) var isAudioMenuOpen = false
     /// The tab panel up in place of the track, nil while the track shows.
     private(set) var panel: PlayerPanel?
@@ -95,6 +99,9 @@ final class PlayerModel {
     /// The chapter read for the current tracks; a decoder restart replaces it.
     @ObservationIgnored private(set) var chapterLoad: Task<Void, Never>?
     @ObservationIgnored private let upNextRetryDelay: Duration
+    @ObservationIgnored private let fetchAddonSubtitles: @MainActor (SubtitleAddonQuery) -> AsyncStream<[ExternalSubtitle]>
+    /// The subtitle add-ons' lookup, started with the player and never waited on.
+    @ObservationIgnored private(set) var addonSubtitleLoad: Task<Void, Never>?
     @ObservationIgnored private let prewarmer: PlayerPrewarmer
 
     init(
@@ -115,6 +122,7 @@ final class PlayerModel {
         makeThumbnailer: (@MainActor (PlayerRequest) -> any PlaybackThumbnailer)? = nil,
         skipsSegments: Bool? = nil,
         loadSkipSegments: (@MainActor (SkipSegmentQuery) async -> [SkipSegmentSource])? = nil,
+        fetchAddonSubtitles: (@MainActor (SubtitleAddonQuery) -> AsyncStream<[ExternalSubtitle]>)? = nil,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
     ) {
         self.request = request
@@ -128,7 +136,8 @@ final class PlayerModel {
             showID: showID,
             store: subtitleChoices,
             delayKey: request.subtitleDelayKey,
-            delays: subtitleDelays
+            delays: subtitleDelays,
+            streamFilename: request.subtitleQuery?.filename
         )
         audio = PlayerAudio(engine: engine, showID: showID, store: audioChoices)
         skips = PlayerSkipSegments(
@@ -140,6 +149,9 @@ final class PlayerModel {
         self.loadContinueWatching = loadContinueWatching ?? { UserLibrary.continueWatchingItems }
         self.loadUpNext = loadUpNext ?? UpNextLoader.load
         self.upNextRetryDelay = upNextRetryDelay
+        self.fetchAddonSubtitles = fetchAddonSubtitles ?? {
+            SubtitleAddonFetcher.files(for: $0, in: AddonRegistry.shared.enabledAddons)
+        }
         self.prewarmer = prewarmer ?? .shared
         self.now = now
         let makeThumbnailer = makeThumbnailer ?? { PlaybackThumbnailers.make(url: $0.url, headers: $0.headers) }
@@ -237,6 +249,7 @@ final class PlayerModel {
         guard !isPrepared, !isStarted else { return }
         isPrepared = true
         loadSkipSegments()
+        loadAddonSubtitles()
         attachEngine()
         engine.prepare(url: request.url, headers: request.headers, startTime: request.startTime)
     }
@@ -244,6 +257,7 @@ final class PlayerModel {
     /// A prepared play the viewer moved on from before Select.
     func discard() {
         guard !isStarted else { return }
+        addonSubtitleLoad?.cancel()
         engine.stop()
     }
 
@@ -253,6 +267,7 @@ final class PlayerModel {
         PlaybackAudioSession.configure()
         if !isPrepared { attachEngine() }
         loadSkipSegments()
+        loadAddonSubtitles()
         if let item = request.item {
             titleInfoTask = Task { [weak self, type = request.type, loadTitleInfo] in
                 let info = await loadTitleInfo(type, item)
@@ -297,6 +312,25 @@ final class PlayerModel {
     private func loadSkipSegments() {
         guard let item = request.item else { return }
         skips.load(SkipSegmentQuery(type: request.type, item: item))
+    }
+
+    private func loadAddonSubtitles() {
+        guard addonSubtitleLoad == nil, let query = request.subtitleQuery else { return }
+        let batches = fetchAddonSubtitles(query)
+        addonSubtitleLoad = Task { [weak self] in
+            for await files in batches {
+                guard !Task.isCancelled, let self else { return }
+                addonSubtitlesDidArrive(files)
+            }
+        }
+    }
+
+    /// Joins the stream's own add-on files after them, so the listed tracks keep their ids.
+    private func addonSubtitlesDidArrive(_ files: [ExternalSubtitle]) {
+        let merged = ExternalSubtitle.merged(engine.externalSubtitles, adding: files)
+        guard merged.count > engine.externalSubtitles.count else { return }
+        engine.externalSubtitles = merged
+        subtitles.filesDidArrive()
     }
 
     /// Click and Play/Pause: toggles playback, or plays from the scrub position, and shows the bar.
@@ -559,7 +593,11 @@ final class PlayerModel {
             return true
         }
         if let page = subtitlesMenu {
-            if page == .root { closeSubtitlesMenu() } else { subtitlesMenu = .root }
+            switch page {
+            case .root: closeSubtitlesMenu()
+            case .files: subtitlesMenu = .language
+            case .language, .style: subtitlesMenu = .root
+            }
             return true
         }
         if panel != nil {
@@ -637,6 +675,7 @@ final class PlayerModel {
         upNextLoad?.cancel()
         chapterLoad?.cancel()
         skips.cancel()
+        addonSubtitleLoad?.cancel()
         // Accepted, the next screen has already taken the opened stream.
         if hasPrewarmedUpNext, !rollsOver { prewarmer.cancel() }
         pausesOnStart = false

@@ -4,7 +4,7 @@ import SwiftUI
 /// Language page.
 struct SubtitlesStylePage: View {
     let subtitles: PlayerSubtitles
-    let focus: FocusState<Int?>.Binding
+    let focus: FocusState<SubtitlesMenuRow?>.Binding
     let onManageStyles: () -> Void
 
     private static let visibleRows: CGFloat = 8
@@ -19,11 +19,11 @@ struct SubtitlesStylePage: View {
                     PlayerMenuRow(title: style.name, isChecked: style.id == subtitles.activeStyleID) {
                         subtitles.selectStyle(style)
                     }
-                    .focused(focus, equals: index)
+                    .focused(focus, equals: .position(index))
                 }
                 PlayerMenuDivider()
                 PlayerMenuRow(title: "Manage Styles", accessory: .gear, action: onManageStyles)
-                    .focused(focus, equals: subtitles.styles.count)
+                    .focused(focus, equals: .position(subtitles.styles.count))
             }
             .padding(.horizontal, PlayerMenuMetrics.rowInset)
             .padding(.top, top)

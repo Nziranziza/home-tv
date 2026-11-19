@@ -19,10 +19,18 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
     var externalSubtitles: [ExternalSubtitle] = [] {
         didSet {
+            // Files already listed keep their info, so one fetched or selected isn't replaced.
+            if !externalSubtitles.starts(with: oldValue) {
+                externalInfos = []
+                repairedFiles = []
+            }
             // Not auto-downloaded: KSPlayer fetches a file the first time it's selected.
-            externalInfos = externalSubtitles.map {
+            let added = externalSubtitles.dropFirst(externalInfos.count).map {
                 URLSubtitleInfo(subtitleID: $0.url.absoluteString, name: "", url: $0.url, languageCode: $0.languageCode)
             }
+            externalInfos += added
+            // Before `readyToPlay`, the layer is given them all there.
+            if let layer, layer.player.isReadyToPlay { added.forEach(layer.subtitleModel.addSubtitle(info:)) }
         }
     }
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
@@ -32,6 +40,9 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var layer: KSPlayerLayer?
     /// Kept across decoder restarts, so a fetched file isn't fetched again.
     @ObservationIgnored private var externalInfos: [URLSubtitleInfo] = []
+    /// Add-on files whose info now reads a repaired local copy.
+    @ObservationIgnored private var repairedFiles: Set<Int> = []
+    @ObservationIgnored private var subtitleRepair: Task<Void, Never>?
     @ObservationIgnored private var options: KSPlaybackOptions?
     /// The layer's own accurate-seek setting, which an audio switch overrides until the next seek.
     @ObservationIgnored private var seeksAccurately = false
@@ -258,7 +269,8 @@ final class KSPlaybackEngine: PlaybackEngine {
             default: .sdr
             }
         }
-        return VideoFormat(size: track.naturalSize, dynamicRange: range)
+        let frameRate = track.nominalFrameRate > 0 ? Double(track.nominalFrameRate) : nil
+        return VideoFormat(size: track.naturalSize, dynamicRange: range, frameRate: frameRate)
     }
 
     func select(_ track: PlaybackTrack) {
@@ -272,13 +284,39 @@ final class KSPlaybackEngine: PlaybackEngine {
 
     func selectSubtitle(_ track: PlaybackTrack?) {
         guard let layer else { return }
-        let info: (any SubtitleInfo)? = track.flatMap { track in
-            if let index = ExternalSubtitle.index(of: track) {
-                return externalInfos.indices.contains(index) ? externalInfos[index] : nil
-            }
-            return layer.player.subtitlesTracks.first { Self.trackID($0) == track.id }
+        subtitleRepair?.cancel()
+        if let track, let index = ExternalSubtitle.index(of: track), externalInfos.indices.contains(index) {
+            selectExternal(at: index)
+            return
         }
+        let info = track.flatMap { track in layer.player.subtitlesTracks.first { Self.trackID($0) == track.id } }
         layer.select(subtitleInfo: info)
+    }
+
+    /// Shows an add-on file from a repaired local copy, made on its first selection, else from its URL.
+    private func selectExternal(at index: Int) {
+        guard let layer else { return }
+        guard !repairedFiles.contains(index), externalSubtitles.indices.contains(index) else {
+            layer.select(subtitleInfo: externalInfos[index])
+            return
+        }
+        // Nothing shows while it loads, rather than the previous choice.
+        layer.select(subtitleInfo: nil)
+        let file = externalSubtitles[index]
+        subtitleRepair = Task { [weak self] in
+            let local = await SubtitleFileCache.localCopy(of: file.url)
+            guard let self, !Task.isCancelled, let layer = self.layer,
+                  externalSubtitles.indices.contains(index), externalSubtitles[index] == file else { return }
+            if let local {
+                let info = URLSubtitleInfo(
+                    subtitleID: local.absoluteString, name: "", url: local, languageCode: file.languageCode
+                )
+                externalInfos[index] = info
+                repairedFiles.insert(index)
+                layer.subtitleModel.addSubtitle(info: info)
+            }
+            layer.select(subtitleInfo: externalInfos[index])
+        }
     }
 
     /// FFmpeg lists the file's chapters. When the route lists none, an AVPlayer start's are read from its asset.
@@ -378,6 +416,7 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        subtitleRepair?.cancel()
         audioConfigurationTask?.cancel()
         audioConfigurationTask = nil
         resolveTask?.cancel()

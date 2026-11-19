@@ -19,6 +19,8 @@ struct PlayerRequest: Identifiable, Sendable {
     var item: PlaybackItem?
     /// The add-on's subtitle files for this stream.
     var subtitles: [ExternalSubtitle] = []
+    /// What subtitle add-ons are asked for; nil asks none.
+    var subtitleQuery: SubtitleAddonQuery?
     /// What the subtitle timing is remembered against; nil keeps it for this play only.
     var subtitleDelayKey: String?
     /// For an episode, what its next one must match for Up Next; nil plays no Up Next.
@@ -28,7 +30,8 @@ struct PlayerRequest: Identifiable, Sendable {
     func isSamePlay(as other: PlayerRequest) -> Bool {
         url == other.url && type == other.type && title == other.title && episodeLabel == other.episodeLabel
             && logoURL == other.logoURL && headers == other.headers && startTime == other.startTime
-            && item == other.item && subtitles == other.subtitles && subtitleDelayKey == other.subtitleDelayKey
+            && item == other.item && subtitles == other.subtitles && subtitleQuery == other.subtitleQuery
+            && subtitleDelayKey == other.subtitleDelayKey
             && continuation == other.continuation
     }
 }

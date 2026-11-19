@@ -11,4 +11,6 @@ struct VideoFormat: Equatable, Sendable {
 
     var size: CGSize
     var dynamicRange: DynamicRange
+    /// Frames per second, when the engine reports it.
+    var frameRate: Double?
 }
