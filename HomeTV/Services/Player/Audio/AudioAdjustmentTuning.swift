@@ -4,12 +4,13 @@ enum AudioAdjustmentTuning {
     static let speechFrequency: Double = 2000
     static let speechQ: Double = 0.7
 
-    /// The speech-band boost, and the cut to every channel that keeps the boost from clipping.
+    /// The speech-band boost, and an equal cut to every channel: speech stays at its level and the rest
+    /// drops, so nothing can clip. Neither route has a limiter to catch a net boost.
     static func dialogue(_ enhancement: AudioAdjustments.DialogueEnhancement) -> (boost: Double, headroom: Double) {
         switch enhancement {
         case .off: (0, 0)
-        case .enhance: (5, -2)
-        case .enhanceMore: (9, -4)
+        case .enhance: (5, -5)
+        case .enhanceMore: (9, -9)
         }
     }
 

@@ -15,14 +15,14 @@ struct AudioAdjustmentsTests {
 
     @Test func enhanceLiftsTheCentreChannelsSpeechBand() {
         let filters = AudioFilterGraph.filters(for: AudioAdjustments(dialogue: .enhance), hasCentreChannel: true)
-        #expect(filters == ["volume=-2dB", "equalizer=f=2000:t=q:w=0.7:g=5:c=FC"])
+        #expect(filters == ["volume=-5dB", "equalizer=f=2000:t=q:w=0.7:g=5:c=FC"])
     }
 
     @Test func stereoEnhanceMoreLiftsBothChannels() {
         let filters = AudioFilterGraph.filters(
             for: AudioAdjustments(dialogue: .enhanceMore), hasCentreChannel: false
         )
-        #expect(filters == ["volume=-4dB", "equalizer=f=2000:t=q:w=0.7:g=9"])
+        #expect(filters == ["volume=-9dB", "equalizer=f=2000:t=q:w=0.7:g=9"])
     }
 
     @Test func reduceLoudSoundsAddsNoFilter() {
@@ -91,14 +91,27 @@ struct AudioAdjustmentsTests {
         let adjustments = AudioAdjustments(dialogue: .enhance)
         let speech = Self.decibels(Self.rms(frequency: 2000, amplitude: 0.1, adjustments: adjustments)[0] / input)
         let bass = Self.decibels(Self.rms(frequency: 60, amplitude: 0.1, adjustments: adjustments)[0] / input)
-        #expect(abs(speech - 3) < 0.5)  // +5 dB lift under -2 dB headroom
-        #expect(abs(bass - -2) < 0.5)
+        // Speech keeps its level; the rest drops 5 dB.
+        #expect(abs(speech) < 0.5)
+        #expect(abs(bass - -5) < 0.5)
     }
 
-    @Test func enhanceMoreLiftsFurther() {
-        let enhance = Self.rms(frequency: 2000, amplitude: 0.1, adjustments: AudioAdjustments(dialogue: .enhance))[0]
-        let more = Self.rms(frequency: 2000, amplitude: 0.1, adjustments: AudioAdjustments(dialogue: .enhanceMore))[0]
-        #expect(Self.decibels(more / enhance) > 1.5)
+    @Test func enhanceMoreSetsSpeechFurtherApart() {
+        func spread(_ dialogue: AudioAdjustments.DialogueEnhancement) -> Float {
+            let adjustments = AudioAdjustments(dialogue: dialogue)
+            let speech = Self.rms(frequency: 2000, amplitude: 0.1, adjustments: adjustments)[0]
+            let bass = Self.rms(frequency: 60, amplitude: 0.1, adjustments: adjustments)[0]
+            return Self.decibels(speech / bass)
+        }
+        #expect(spread(.enhanceMore) - spread(.enhance) > 3)
+    }
+
+    @Test func fullScaleSpeechDoesNotClip() {
+        for dialogue in [AudioAdjustments.DialogueEnhancement.enhance, .enhanceMore] {
+            let level = Self.rms(frequency: 2000, amplitude: 1, adjustments: AudioAdjustments(dialogue: dialogue))[0]
+            // A full-scale sine's RMS.
+            #expect(level <= Float(1 / 2.0.squareRoot()) * 1.01)
+        }
     }
 
     @Test func onlyTheCentreIsLiftedInSurround() {

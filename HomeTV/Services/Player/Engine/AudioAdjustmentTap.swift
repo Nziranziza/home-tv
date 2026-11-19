@@ -23,7 +23,10 @@ final class AudioAdjustmentTap {
         for track in tracks {
             guard let description = try? await track.load(.formatDescriptions).first,
                   !isPassthrough(description) else { continue }
-            let context = AudioTapContext(centreChannel: centreChannel(of: description))
+            let channels = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee.mChannelsPerFrame
+            let context = AudioTapContext(
+                centreChannel: centreChannel(of: description), sourceChannelCount: channels.map(Int.init)
+            )
             context.update(adjustments)
             guard let tap = context.makeTap() else { continue }
             let input = AVMutableAudioMixInputParameters(track: track)
@@ -45,8 +48,12 @@ final class AudioAdjustmentTap {
     }
 
     private static func isPassthrough(_ description: CMFormatDescription) -> Bool {
-        let codec = CMFormatDescriptionGetMediaSubType(description)
-        return codec == kAudioFormatAC3 || codec == kAudioFormatEnhancedAC3
+        isPassthrough(codec: CMFormatDescriptionGetMediaSubType(description))
+    }
+
+    /// AC-3 and E-AC-3 (Atmos included), which AVPlayer hands to the TV undecoded.
+    nonisolated static func isPassthrough(codec: FourCharCode) -> Bool {
+        codec == kAudioFormatAC3 || codec == kAudioFormatEnhancedAC3
     }
 
     /// The centre's position in the decoded channels, when the track's layout names one.
@@ -89,13 +96,16 @@ final class AudioAdjustmentTap {
 /// One tapped track's state, shared between the main actor (settings) and the audio thread (samples).
 private final class AudioTapContext: @unchecked Sendable {
     let centreChannel: Int?
+    /// The track's own channel count. A tap fed a downmix gets fewer, and the centre isn't where it was.
+    let sourceChannelCount: Int?
     /// `AudioAdjustments` packed for the audio thread: the dialogue case's index, plus 4 for Reduce Loud Sounds.
     private let settings = Atomic<UInt8>(0)
     /// Touched only on the audio thread, between prepare and unprepare.
     private var processor: AudioAdjustmentProcessor?
 
-    init(centreChannel: Int?) {
+    init(centreChannel: Int?, sourceChannelCount: Int?) {
         self.centreChannel = centreChannel
+        self.sourceChannelCount = sourceChannelCount
     }
 
     func update(_ adjustments: AudioAdjustments) {
@@ -161,7 +171,7 @@ private final class AudioTapContext: @unchecked Sendable {
         processor = AudioAdjustmentProcessor(
             sampleRate: format.mSampleRate,
             channelCount: channels,
-            centreChannel: centreChannel.flatMap { $0 < channels ? $0 : nil }
+            centreChannel: channels == sourceChannelCount ? centreChannel : nil
         )
     }
 

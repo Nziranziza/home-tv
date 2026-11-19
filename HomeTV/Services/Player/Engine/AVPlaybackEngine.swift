@@ -117,6 +117,16 @@ final class AVPlaybackEngine: PlaybackEngine {
         guard let item = player.currentItem, let group = group(for: track.kind),
               group.options.indices.contains(Int(track.id)) else { return }
         item.select(group.options[Int(track.id)], in: group)
+        if track.kind == .audio { updateCanAdjustAudio() }
+    }
+
+    /// The tap skips passthrough tracks, so it's the selected track's codec that decides.
+    private func updateCanAdjustAudio() {
+        let selected = audible.flatMap { player.currentItem?.currentMediaSelection.selectedMediaOption(in: $0) }
+        let isPassthrough = selected?.mediaSubTypes.contains {
+            AudioAdjustmentTap.isPassthrough(codec: $0.uint32Value)
+        } == true
+        canAdjustAudio = audioTap?.isAvailable == true && !isPassthrough
     }
 
     func selectSubtitle(_ track: PlaybackTrack?) {
@@ -187,8 +197,10 @@ final class AVPlaybackEngine: PlaybackEngine {
         self.legible = legible
         self.audible = audible
         self.videoFormat = videoFormat
+        // Settings changed while it was installing.
+        audioTap.update(audioAdjustments)
         self.audioTap = audioTap
-        canAdjustAudio = audioTap.isAvailable
+        updateCanAdjustAudio()
         onTracksReady?()
     }
 
