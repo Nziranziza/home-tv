@@ -6,10 +6,14 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+# Project-wide so every target signs with the team set there (DEVELOPMENT_TEAM).
+configFiles:
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
