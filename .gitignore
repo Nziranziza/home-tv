@@ -26,3 +26,9 @@ Secrets.xcconfig
 
 # In-app player frameworks, fetched by scripts/fetch-player-frameworks.sh
 Vendor/
+
+# Docs site (Astro Starlight)
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/.wrangler/

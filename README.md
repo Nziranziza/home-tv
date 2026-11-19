@@ -4,11 +4,11 @@ A native Apple TV app in SwiftUI with an Apple TV app–style interface. It brow
 plays in its own player (KSPlayer, with AVPlayer for Dolby Vision and Atmos), adds TMDB metadata, and syncs with Trakt.
 Infuse and VLC remain optional.
 
-![Watch Now](docs/screenshots/watch-now.jpg)
+![Watch Now](docs/src/assets/screenshots/watch-now.jpg)
 
 | Title detail | Search | Player |
 | --- | --- | --- |
-| ![Title detail](docs/screenshots/detail.jpg) | ![Search](docs/screenshots/search.jpg) | ![Player](docs/screenshots/player.jpg) |
+| ![Title detail](docs/src/assets/screenshots/detail.jpg) | ![Search](docs/src/assets/screenshots/search.jpg) | ![Player](docs/src/assets/screenshots/player.jpg) |
 
 ## What it does
 

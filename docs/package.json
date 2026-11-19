@@ -1,0 +1,22 @@
+{
+  "name": "hometv-docs",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.43.1",
+    "astro": "^7.3.6",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.165.0"
+  }
+}
