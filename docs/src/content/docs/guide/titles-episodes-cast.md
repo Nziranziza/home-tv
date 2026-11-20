@@ -25,7 +25,8 @@ The buttons under the description:
 - **Play** opens the stream list. [Picking a stream](/guide/playback/) covers the list.
 - **+** adds the title to your Watchlist. It turns into a checkmark; select it again to remove the title.
 - **The eye** marks the title as watched. Select it again to mark it unwatched. On a show, it marks the episode that
-  Play is set to.
+  Play is set to. Once Play reads **Rewatch**, the eye goes away; to mark an episode, use its
+  [watched mark](#watched-marks) in the episode row.
 - **Share** doesn't do anything yet.
 
 Signed in to [Trakt](/guide/trakt-and-library/), your Watchlist and watched marks are saved to Trakt. Signed out,
@@ -79,9 +80,9 @@ A row only appears when it has something to show.
 
 ![The episode row with season tabs above it, the Up Next episode focused with a progress bar, and a watched checkmark on the episode before it](../../../assets/screenshots/titles/episodes.jpg)
 
-A show's episodes sit in one long row, every season in order. Each one has a still, its runtime, its number and
-title, a short description, the date it aired and its age rating. The row starts on the episode Play is set to, so
-you land where you left off.
+A show's episodes sit in one long row, season by season in order. Specials (season 0) don't appear. Each episode
+has a still, its runtime, its number and title, a short description, the date it aired and its age rating. The row
+starts on the episode Play is set to, so you land where you left off.
 
 Each episode is two stops. The picture plays the episode: select it and the stream list opens. Press Down to the
 text below it and select that to open the [episode's page](#episode-page).
@@ -183,7 +184,8 @@ age rating, whether a show is still running or has ended, genres and country of 
 
 **Content Advisories**, **Languages** and **Accessibility** show the same sample text on every title for now.
 They don't describe the title's real audio and subtitle tracks, which come from the stream you pick. Without a
-TMDB key, the age rating is a placeholder too: TV-MA for every show and PG-13 for every movie.
+TMDB key, the age rating is a placeholder too: TV-MA for every show and PG-13 for every movie. And when TMDB has
+no runtime for an episode, the runtime on its still is a placeholder between 42 and 69 minutes.
 
 ## Remote controls
 
