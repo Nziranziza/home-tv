@@ -30,3 +30,17 @@ open HomeTV.xcodeproj
 ```
 
 Pick the **HomeTV** scheme and an Apple TV 4K simulator, then press ⌘R.
+
+## License
+
+Copyright (C) 2026 the HomeTV contributors.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later
+version. It is distributed WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+Device builds bundle KSPlayer and FFmpegKit, which are GPL-3.0.
+See [Licenses](https://hometv.nziranziza.dev/developers/licenses/) for the third-party components and services.
