@@ -2,6 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hometv",
   "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": true,
   "previews": {},
   "assets": {
     "directory": "./dist",
