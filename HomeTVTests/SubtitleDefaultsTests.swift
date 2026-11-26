@@ -209,6 +209,59 @@ struct SubtitleDefaultsTests {
         #expect(episode2.subtitleSelections.last == nextFrench)
     }
 
+    @Test func aChoiceMadeAfterUpNextPreparedTheNextEpisodeStillCarries() throws {
+        let store = try Self.store()
+        let episode1 = FakePlaybackEngine()
+        episode1.subtitleTracks = [Self.english, Self.french]
+        episode1.audioTracks = [PlaybackTrack(id: 1, kind: .audio, name: "", languageCode: "eng", isSelected: true)]
+        let first = Self.subtitles(episode1, showID: "tt0903747", store: store)
+        first.tracksDidLoad()
+
+        // Up Next opens the next episode during the credits, subtitles off.
+        let episode2 = FakePlaybackEngine()
+        let nextFrench = Self.track(14, "fre")
+        episode2.subtitleTracks = [Self.track(11, "eng"), nextFrench]
+        episode2.audioTracks = episode1.audioTracks
+        let second = Self.subtitles(episode2, showID: "tt0903747", store: store)
+        second.tracksDidLoad()
+        #expect(!second.isOn)
+
+        first.select(try #require(first.options.first { $0.track == Self.french }))
+        second.reloadSaved(audioTrack: nil, audioDidSwitch: false)
+        #expect(second.isOn)
+        #expect(episode2.subtitleSelections.last == nextFrench)
+    }
+
+    @Test func aNewerChoiceReplacesALateFileMatchedToTheOldOne() throws {
+        let store = try Self.store()
+        store.record(SubtitleChoice(isOn: true, languageCode: "en", isExternal: true), forShow: "tt0903747")
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [PlaybackTrack(id: 1, kind: .audio, name: "", languageCode: "kor", isSelected: true)]
+        engine.subtitleTracks = [Self.french]
+        let subtitles = Self.subtitles(engine, showID: "tt0903747", store: store)
+        subtitles.tracksDidLoad()
+
+        // A late English file matches the saved choice while the next episode is prepared.
+        engine.externalSubtitles = [ExternalSubtitle(url: URL(filePath: "/subs/en.srt"), languageCode: "en")]
+        subtitles.filesDidArrive()
+        #expect(subtitles.track?.isExternal == true)
+
+        store.record(SubtitleChoice(isOn: true, languageCode: "fre"), forShow: "tt0903747")
+        subtitles.reloadSaved(audioTrack: nil, audioDidSwitch: false)
+        #expect(subtitles.track == Self.french)
+        #expect(engine.subtitleSelections.last == Self.french)
+    }
+
+    @Test func anUnchangedChoiceKeepsThePreparedSubtitles() throws {
+        let engine = FakePlaybackEngine()
+        engine.subtitleTracks = [Self.english, Self.french]
+        let subtitles = Self.subtitles(engine, showID: "tt0903747", store: try Self.store())
+        subtitles.tracksDidLoad()
+        let selections = engine.subtitleSelections.count
+        subtitles.reloadSaved(audioTrack: nil, audioDidSwitch: false)
+        #expect(engine.subtitleSelections.count == selections)
+    }
+
     @Test func turningSubtitlesOffCarriesToo() throws {
         let store = try Self.store()
         let engine = FakePlaybackEngine()

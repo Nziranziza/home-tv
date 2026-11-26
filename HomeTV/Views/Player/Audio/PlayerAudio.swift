@@ -53,6 +53,20 @@ final class PlayerAudio {
         if let pick, !pick.isSelected { engine.select(pick) }
     }
 
+    /// A prepared play starting: picks up what the viewer changed in the play before it since it opened.
+    /// True when that switched the track.
+    @discardableResult
+    func reloadSaved() -> Bool {
+        if adjustments != adjustmentsStore.adjustments { adjustments = adjustmentsStore.adjustments }
+        guard let saved = showID.flatMap(store.choice(forShow:)), saved != choice else { return false }
+        choice = saved
+        updatePicker()
+        guard !options.isEmpty else { return false }
+        let previous = track?.id
+        tracksDidLoad()
+        return track?.id != previous
+    }
+
     func select(_ option: AudioTrackOption) {
         guard option.track.id != track?.id else { return }
         track = option.track

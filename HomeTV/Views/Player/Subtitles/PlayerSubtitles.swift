@@ -42,6 +42,8 @@ final class PlayerSubtitles {
     @ObservationIgnored private var hasOpened = false
     /// Add-on files listed at the opening pick; later ones arrived after it.
     @ObservationIgnored private var openingFileCount = 0
+    /// The show's choice the opening pick was made from.
+    @ObservationIgnored private var openingChoice: SubtitleChoice?
 
     init(
         engine: any PlaybackEngine,
@@ -88,6 +90,7 @@ final class PlayerSubtitles {
     func tracksDidLoad(audioTrack: PlaybackTrack? = nil) {
         let isRestart = hasOpened
         if !hasOpened { openingFileCount = engine.externalSubtitles.count }
+        openingChoice = remembered
         hasOpened = true
         let (regular, tracks) = listTracks()
         var selection = defaultSelection(for: tracks, audioTrack: audioTrack, remembered: remembered)
@@ -103,6 +106,15 @@ final class PlayerSubtitles {
         track = selection.track
         forcedTrack = selection.forcedTrack
         engine.selectSubtitle(selection.shown)
+    }
+
+    /// A prepared play starting: picks again if the audio switched or the show's choice changed since it opened.
+    func reloadSaved(audioTrack: PlaybackTrack?, audioDidSwitch: Bool) {
+        let choiceChanged = remembered != openingChoice
+        guard hasOpened, audioDidSwitch || choiceChanged else { return }
+        // A track a late add-on file matched to the old choice; nothing is picked by hand before a prepared start.
+        if choiceChanged, choice == nil { chosenTrack = nil }
+        tracksDidLoad(audioTrack: audioTrack)
     }
 
     /// Subtitle add-on files arrived after the opening pick: lists them, keeping what's showing. They only
