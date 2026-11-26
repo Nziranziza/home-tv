@@ -36,6 +36,8 @@ final class KSPlaybackEngine: PlaybackEngine {
     }
     @ObservationIgnored var onFinish: ((Error?) -> Void)?
     @ObservationIgnored var onTracksReady: (() -> Void)?
+    /// Copied into each start's options and never changed there, since the demuxer's thread reads it. A
+    /// later choice reaches an opening stream through `select` once its tracks are listed.
     @ObservationIgnored var audioPicker: (@Sendable ([PlaybackTrack]) -> PlaybackTrack?)?
     @ObservationIgnored var audioAdjustments = AudioAdjustments() {
         didSet { applyAudioAdjustments() }
@@ -77,6 +79,8 @@ final class KSPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var audioTapTask: Task<Void, Never>?
     /// Watches for the audio hardware changing under the FFmpeg route's `AVAudioEngine`.
     @ObservationIgnored private var audioConfigurationTask: Task<Void, Never>?
+    /// The latest engine loaded: the one the session's output channel count is for.
+    private static weak var channelOwner: KSPlaybackEngine?
 
     init() {
         videoView.backgroundColor = .black
@@ -99,10 +103,41 @@ final class KSPlaybackEngine: PlaybackEngine {
     private func audioConfigurationDidChange(engine: ObjectIdentifier) {
         guard let player = layer?.player as? KSMEPlayer,
               let output = player.audioOutput as? AudioEnginePlayer,
-              engine == ObjectIdentifier(output.engine),
-              !output.engine.isRunning, state == .playing else { return }
+              engine == ObjectIdentifier(output.engine) else { return }
+        // Another player's open, track switch or late reset may have changed the channels under this one.
+        if Self.channelOwner === self { Self.restoreOutputChannels() }
+        // KSPlayer's own rule for a running output, so a change landing mid-start is caught too.
+        guard !output.engine.isRunning, player.playbackState == .playing, player.loadState == .playable else { return }
         PlaybackDiagnostics.log("audio engine stopped by a configuration change, restarting")
         output.play()
+    }
+
+    /// The channels the session should output for this stream. AVPlayer's only count after another player's
+    /// reset, since the native route otherwise leaves the session alone.
+    private func outputChannelCount(includingNative: Bool) -> Int? {
+        guard let player = layer?.player, player.isReadyToPlay,
+              let track = player.tracks(mediaType: .audio).first(where: \.isEnabled) else { return nil }
+        let count: UInt32? = switch route {
+        case .ffmpeg: (track as? FFmpegAssetTrack)?.audioDescriptor?.audioFormat.channelCount
+        case .native: includingNative ? track.audioStreamBasicDescription?.mChannelsPerFrame : nil
+        }
+        return count.map(Int.init)
+    }
+
+    /// KSMEPlayer sets the session's output channels when it opens a stream and resets them to 2 when it
+    /// stops, whatever else is playing. Up Next has two open at once, so the playing one's count is put back.
+    private static func restoreOutputChannels(afterReset: Bool = false) {
+        guard let count = channelOwner?.outputChannelCount(includingNative: afterReset) else { return }
+        let session = AVAudioSession.sharedInstance()
+        // Never below stereo, as KSPlayer sets for mono.
+        let wanted = max(2, min(count, session.maximumOutputNumberOfChannels))
+        guard session.preferredOutputNumberOfChannels != wanted else { return }
+        do {
+            try session.setPreferredOutputNumberOfChannels(wanted)
+            PlaybackDiagnostics.log("restored output channels to \(wanted)")
+        } catch {
+            PlaybackDiagnostics.log("restoring output channels to \(wanted) failed: \(error)")
+        }
     }
 
     /// Text subtitles take the system caption style. ASS draws through libass, keeping its own styling.
@@ -122,6 +157,7 @@ final class KSPlaybackEngine: PlaybackEngine {
     func load(url: URL, headers: [String: String], startTime: TimeInterval) {
         // Before the layer opens or the held mode switch applies, so the switch is caught.
         displaySwitch.startObserving()
+        Self.channelOwner = self
         if isAwaitingLoad, let source, source.url == url, source.headers == headers, source.startTime == startTime {
             releasePreparedStart()
             return
@@ -157,6 +193,7 @@ final class KSPlaybackEngine: PlaybackEngine {
         isAwaitingLoad = false
         guard let layer, let options else { return }
         PlaybackDiagnostics.log("load prepared, ready=\(layer.player.isReadyToPlay)")
+        Self.restoreOutputChannels()
         options.applyDeferredDisplayCriteria()
         if displaySwitch.isInProgress { holdForDisplaySwitch() }
         // A held native start plays once its seek lands; a held switch once it ends.
@@ -294,7 +331,11 @@ final class KSPlaybackEngine: PlaybackEngine {
         // FFmpeg reseeks to pick up the new stream; inexact, that jumps back to the previous keyframe.
         if track.kind == .audio, route == .ffmpeg { options?.isAccurateSeek = true }
         player.select(track: match)
-        if track.kind == .audio { applyAudioAdjustments() }
+        if track.kind == .audio {
+            applyAudioAdjustments()
+            // A prepared stream's switch resets the channels for its own track.
+            if route == .ffmpeg, Self.channelOwner !== self { Self.restoreOutputChannels() }
+        }
     }
 
     /// FFmpeg rebuilds its filter graph when the filters change, so they apply mid-play. AVPlayer's go
@@ -506,8 +547,10 @@ final class KSPlaybackEngine: PlaybackEngine {
     private func tearDownLayer() {
         // A cleared delegate first, or the stop reports a state change into a torn-down engine.
         layer?.delegate = nil
+        let resetsChannels = layer?.player is KSMEPlayer
         layer?.stop()
         layer = nil
+        if resetsChannels, Self.channelOwner !== self { Self.restoreOutputChannels(afterReset: true) }
         options = nil
         audioTapTask?.cancel()
         audioTapTask = nil
@@ -542,6 +585,8 @@ extension KSPlaybackEngine: KSPlayerLayerDelegate {
         }
         if state == .readyToPlay {
             externalInfos.forEach(layer.subtitleModel.addSubtitle(info:))
+            // A prepared stream's open just set the channels for itself, under the episode still playing.
+            if route == .ffmpeg { Self.restoreOutputChannels() }
             applyAudioAdjustments()
             installAudioTap(on: layer)
             // A turn later, so the layer has finished its own ready handling and listed the tracks.

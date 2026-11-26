@@ -135,6 +135,37 @@ struct AudioDefaultsTests {
         #expect(episode2.selections.last?.id == 12)
     }
 
+    @Test func aChoiceMadeAfterUpNextPreparedTheNextEpisodeStillCarries() throws {
+        let store = try Self.store()
+        let adjustmentsStore = AudioAdjustmentsStore(
+            defaults: try #require(UserDefaults(suiteName: "AudioDefaultsTests.\(UUID().uuidString)"))
+        )
+        let episode1 = FakePlaybackEngine()
+        episode1.audioTracks = [Self.track(1, "jpn", original: true, selected: true), Self.track(2, "eng")]
+        let first = PlayerAudio(
+            engine: episode1, showID: "tt0903747", store: store, adjustmentsStore: adjustmentsStore,
+            deviceLanguage: "en-US"
+        )
+        first.tracksDidLoad()
+
+        // Up Next opens the next episode during the credits.
+        let episode2 = FakePlaybackEngine()
+        episode2.audioTracks = [Self.track(11, "jpn", original: true, selected: true), Self.track(12, "eng")]
+        let second = PlayerAudio(
+            engine: episode2, showID: "tt0903747", store: store, adjustmentsStore: adjustmentsStore,
+            deviceLanguage: "en-US"
+        )
+        second.tracksDidLoad()
+        #expect(second.track?.id == 11)
+
+        first.select(try #require(first.options.first { $0.id == 2 }))
+        first.toggleReduceLoudSounds()
+        second.reloadSaved()
+        #expect(second.track?.id == 12)
+        #expect(episode2.selections.last?.id == 12)
+        #expect(episode2.audioAdjustments.reducesLoudSounds)
+    }
+
     @Test func aDecoderRestartKeepsThisPlaysChoice() throws {
         let engine = FakePlaybackEngine()
         engine.audioTracks = [Self.track(1, "jpn", original: true, selected: true), Self.track(2, "eng")]

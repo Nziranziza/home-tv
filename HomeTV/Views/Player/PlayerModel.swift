@@ -271,7 +271,7 @@ final class PlayerModel {
         guard !isStarted else { return }
         isStarted = true
         PlaybackAudioSession.configure()
-        if !isPrepared { attachEngine() }
+        if isPrepared { reloadSavedChoices() } else { attachEngine() }
         loadSkipSegments()
         loadAddonSubtitles()
         if let item = request.item {
@@ -301,11 +301,7 @@ final class PlayerModel {
             // Audio first: the subtitles' default depends on the audio's language.
             audio.tracksDidLoad()
             subtitles.tracksDidLoad(audioTrack: audio.track)
-            badges = PlayerBadge.badges(
-                video: engine.videoFormat,
-                audio: engine.tracks(of: .audio),
-                subtitles: engine.tracks(of: .subtitle)
-            )
+            updateBadges()
             chapterLoad?.cancel()
             chapterLoad = Task { [weak self, engine] in
                 let chapters = await engine.loadChapters()
@@ -313,6 +309,21 @@ final class PlayerModel {
                 self?.skips.chaptersDidLoad(chapters)
             }
         }
+    }
+
+    private func updateBadges() {
+        badges = PlayerBadge.badges(
+            video: engine.videoFormat,
+            audio: engine.tracks(of: .audio),
+            subtitles: engine.tracks(of: .subtitle)
+        )
+    }
+
+    /// Audio and subtitle choices the viewer changed in the play before since this one was prepared.
+    private func reloadSavedChoices() {
+        let audioDidSwitch = audio.reloadSaved()
+        subtitles.reloadSaved(audioTrack: audio.track, audioDidSwitch: audioDidSwitch)
+        if audioDidSwitch { updateBadges() }
     }
 
     private func loadSkipSegments() {
