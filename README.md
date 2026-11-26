@@ -8,7 +8,7 @@ Infuse and VLC remain optional.
 
 | Title detail | Search | Player |
 | --- | --- | --- |
-| ![Title detail](docs/src/assets/screenshots/detail.jpg) | ![Search](docs/src/assets/screenshots/search.jpg) | ![Player](docs/src/assets/screenshots/player.jpg) |
+| ![Title detail](docs/src/assets/screenshots/detail.jpg) | ![Search](docs/src/assets/screenshots/search/results.jpg) | ![Player](docs/src/assets/screenshots/playback/transport-bar.jpg) |
 
 ## Documentation
 

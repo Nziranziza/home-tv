@@ -1,0 +1,38 @@
+---
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+import logoLight from '../assets/logo-light.svg';
+import logoDark from '../assets/logo-dark.svg';
+
+// The Overview page shows the app glyph beside its title.
+const isOverview = Astro.locals.starlightRoute.id === '';
+---
+
+{
+	isOverview ? (
+		<div class="overview-title">
+			<img class="dark:sl-hidden" src={logoLight.src} alt="" width="48" height="48" />
+			<img class="light:sl-hidden" src={logoDark.src} alt="" width="48" height="48" />
+			<Default />
+		</div>
+	) : (
+		<Default />
+	)
+}
+
+<style>
+	.overview-title {
+		display: flex;
+		align-items: center;
+		gap: 0.875rem;
+		margin-top: 1rem;
+	}
+
+	.overview-title :global(h1) {
+		margin-top: 0;
+	}
+
+	img {
+		width: 3rem;
+		height: 3rem;
+	}
+</style>

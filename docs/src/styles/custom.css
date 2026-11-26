@@ -1,0 +1,39 @@
+/* Header lockup: text-height icon, tight gap, neutral wordmark. */
+.site-title {
+	gap: 0.625rem;
+	font-size: var(--sl-text-lg);
+	color: var(--sl-color-white);
+	letter-spacing: -0.01em;
+}
+
+.site-title img {
+	height: 1.625rem;
+}
+
+/* Previous / next cards: body-scale text instead of h3. */
+.pagination-links a {
+	font-size: var(--sl-text-sm);
+}
+
+.pagination-links .link-title {
+	font-size: var(--sl-text-lg);
+	font-weight: 600;
+}
+
+/* Sidebar: more room between links and between groups. */
+.sidebar-content a {
+	padding-block: 0.4em;
+}
+
+/* Gap around each link so the current-page highlight doesn't touch its neighbours. */
+.sidebar-content ul ul li {
+	padding-block: 0.1875rem;
+}
+
+.sidebar-content .top-level > li + li {
+	margin-top: 1.25rem;
+}
+
+.sidebar-content summary {
+	margin-bottom: 0.25rem;
+}
